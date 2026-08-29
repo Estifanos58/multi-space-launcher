@@ -97,6 +97,9 @@ dependencies {
   ksp(libs.androidx.room.compiler)
   implementation(libs.androidx.datastore.preferences)
 
+  // Image Loading & Wallpaper Rendering (Customization)
+  implementation(libs.coil.compose)
+
   debugImplementation(libs.androidx.compose.ui.tooling)
   debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

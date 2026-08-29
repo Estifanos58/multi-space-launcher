@@ -181,6 +181,113 @@
   - Use centered 12sp typography with 2-line maximum and ellipsis truncation.
 * **Reason:** Adheres strictly to the Material 3 Clean Utility / Minimal design guidelines, providing spacious, readable, and touch-target compliant (48dp+) launcher interactions.
 
+---
+
+### DECISION-015: Stable Space Identifier Strategy & Default Space Rule
+* **Date:** 2026-08-29
+* **Type:** `DECISION`
+* **Status:** `ACTIVE`
+* **Problem:** How to assign Space identifiers that remain stable across renames while guaranteeing the launcher always has a valid destination on first run or recovery.
+* **Chosen Approach:**
+  - Assign an immutable string identifier `space_` + 12-character truncated random UUID for user-created Spaces.
+  - Define a well-known constant `space_default` with display name "Default" for initial system creation.
+  - If database is queried and `getSpaceCount() == 0`, immediately create, insert, and activate `space_default`.
+* **Reason:** Guarantees that renaming a Space never alters its database identity or membership relationships, and guarantees the launcher never starts in an unrecoverable 0-Space state.
+
+---
+
+### DECISION-016: Room Schema & Composite Key for Membership Persistence
+* **Date:** 2026-08-29
+* **Type:** `DECISION`
+* **Status:** `ACTIVE`
+* **Problem:** How to persist Space-app relationships without duplicating the full Android application catalog or raw bitmap icons into SQLite.
+* **Chosen Approach:**
+  - Define `SpaceMembershipEntity` in table `space_memberships`.
+  - Composite primary key: `(space_id, package_name, component_name, user_handle_id)`.
+  - Foreign key on `space_id` referencing `spaces(id)` with `CASCADE` deletion.
+  - Store only lightweight identity coordinates and integer `order_index`.
+* **Reason:** Enforces domain uniqueness (an application cannot be added twice to the same Space), cleans up orphaned memberships automatically on Space deletion, and keeps SQLite storage minimal and fast.
+
+---
+
+### DECISION-017: Single Authoritative Location for Active Space State
+* **Date:** 2026-08-29
+* **Type:** `DECISION`
+* **Status:** `ACTIVE`
+* **Problem:** Whether to store the active Space ID in Room or Jetpack DataStore, avoiding duplicated or diverging state.
+* **Chosen Approach:** Store `active_space_id` exclusively in Jetpack DataStore via `LauncherPreferences`.
+* **Reason:** DataStore provides non-blocking, reactive `Flow<String?>` preference storage with atomic asynchronous writes. Keeping it in DataStore treats active Space selection as a fast global preference while Room stores structured relational data.
+* **Rejected Alternatives:** Dual storage in both Room and DataStore. Rejected to prevent split-brain consistency bugs.
+
+---
+
+### DECISION-018: Deterministic Safe Deletion & Recovery Policy
+* **Date:** 2026-08-29
+* **Type:** `DECISION`
+* **Status:** `ACTIVE`
+* **Problem:** How to handle deletion of a Space, especially when deleting the currently active Space or the only remaining Space.
+* **Chosen Approach:**
+  - If `getSpaceCount() <= 1`, reject deletion with `IllegalStateException("Cannot delete the only remaining Space")`.
+  - If deleting the currently active Space, query remaining Spaces, atomically switch `active_space_id` in DataStore to the first remaining valid Space, then execute the Room delete.
+* **Reason:** Guarantees deterministic, crash-proof behavior and prevents invalid launcher states.
+
+---
+
+### DECISION-019: Removal of QUERY_ALL_PACKAGES & Transition to Permanent Component Naming
+* **Date:** 2026-08-29
+* **Type:** `DECISION`
+* **Status:** `ACTIVE`
+* **Problem:** Adhering to Google Play package visibility policies and removing temporary development phase numbers from production component names.
+* **Chosen Approach:**
+  - Remove `QUERY_ALL_PACKAGES` permission from `AndroidManifest.xml`. Discovery relies exclusively on `<queries>` launcher intent declaration and standard `LauncherApps` APIs.
+  - Adopt responsibility-based permanent names (e.g. `AppCatalogScreen`, `LauncherDiagnosticsScreen`, `FoundationOverviewScreen`) while preserving historical phase logs in `/docs/`.
+* **Reason:** Follows platform security and policy best practices, ensuring clean production architecture without development artifacts.
+
+---
+
+### DECISION-020: Per-Space Presentation Projection & Persisted Ordering
+* **Date:** 2026-08-29
+* **Type:** `DECISION`
+* **Status:** `ACTIVE`
+* **Problem:** How to derive the applications displayed on the launcher Home screen from active Space membership while preserving deterministic user ordering and avoiding global catalog leakage.
+* **Chosen Approach:**
+  - The Home presentation is dynamically derived by projecting the active Space's persisted Room memberships (queried in `order_index ASC, added_at ASC`) against the live `LauncherApps` catalog in `AppDiscoveryViewModel`.
+  - Application matching prioritizes explicit component key `(packageName/activityName)` with fallback to `packageName`.
+  - The resulting presentation order strictly mirrors the stored database order rather than imposing alphabetical or arbitrary sorting.
+* **Reason:** Enforces strict boundary between Android platform authority (what apps exist and can launch) and Space domain ownership (which apps belong in which Space and in what order).
+
+---
+
+### DECISION-022: Local Space PIN Cryptography with PBKDF2 and Per-Space Salt
+* **Date:** 2026-08-29
+* **Type:** `DECISION`
+* **Status:** `ACTIVE`
+* **Problem:** How to store and verify numeric Space PINs securely on device without risk of plaintext exposure or timing attacks.
+* **Chosen Approach:**
+  - Implement `PinSecurityManager` using standard `PBKDF2WithHmacSHA256` key derivation.
+  - Generate a distinct 16-byte cryptographically secure random salt (`SecureRandom`) for every protected Space.
+  - Compute 256-bit hashes using 10,000 iterations and verify incoming attempts using constant-time `MessageDigest.isEqual`.
+  - Store `auth_policy = "PIN"`, `pin_salt`, and `pin_hash` in Room `spaces` table. Plaintext PINs are never stored, transmitted, or logged.
+* **Reason:** Ensures strong offline cryptographic protection resistant to dictionary and timing attacks, while remaining lightweight and self-contained without external services.
+
+---
+
+### DECISION-023: Transient In-Memory Unlock Session State & Presentation Gating
+* **Date:** 2026-08-29
+* **Type:** `DECISION`
+* **Status:** `ACTIVE`
+* **Problem:** How to manage unlocked space sessions at runtime, gate Home presentation, and prevent cross-space leakage during space switching.
+* **Chosen Approach:**
+  - `SpaceViewModel` tracks unlocked state via a transient in-memory `StateFlow<Set<String>>` (`unlockedSpaceIds`).
+  - If a Space is protected and not in `unlockedSpaceIds`:
+    - `LauncherHomeScreen` returns an empty application projection list, completely concealing assigned applications.
+    - A locked UI placeholder with lock badge and PIN prompt is rendered.
+    - Attempting to switch to a protected Space via the dropdown or configuration intercepts the action with `SpaceUnlockDialog`.
+  - Unlocked states reset automatically upon process restart or explicit lock.
+* **Reason:** Prevents any transient exposure of protected applications in memory or UI without requiring complex background daemon persistence.
+
+
+
 
 
 

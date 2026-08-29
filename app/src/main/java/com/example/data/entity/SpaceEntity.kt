@@ -26,8 +26,32 @@ data class SpaceEntity(
   @ColumnInfo(name = "auth_policy")
   val authPolicy: String = "NONE",
 
+  @ColumnInfo(name = "pin_salt")
+  val pinSalt: String? = null,
+
+  @ColumnInfo(name = "pin_hash")
+  val pinHash: String? = null,
+
   @ColumnInfo(name = "layout_type")
-  val layoutType: String = "GRID_4"
+  val layoutType: String = "GRID_4",
+
+  @ColumnInfo(name = "background_type")
+  val backgroundType: String = "DEFAULT",
+
+  @ColumnInfo(name = "background_color")
+  val backgroundColor: Long? = null,
+
+  @ColumnInfo(name = "background_image_uri")
+  val backgroundImageUri: String? = null,
+
+  @ColumnInfo(name = "grid_columns")
+  val gridColumns: Int = 4,
+
+  @ColumnInfo(name = "icon_size")
+  val iconSize: String = "MEDIUM",
+
+  @ColumnInfo(name = "label_visibility")
+  val labelVisibility: Boolean = true
 ) {
   fun toDomain(): Space = Space(
     id = id,
@@ -36,7 +60,15 @@ data class SpaceEntity(
     createdAt = createdAt,
     updatedAt = updatedAt,
     authPolicy = authPolicy,
-    layoutType = layoutType
+    pinSalt = pinSalt,
+    pinHash = pinHash,
+    layoutType = layoutType,
+    backgroundType = backgroundType,
+    backgroundColor = backgroundColor,
+    backgroundImageUri = backgroundImageUri,
+    gridColumns = gridColumns,
+    iconSize = iconSize,
+    labelVisibility = labelVisibility
   )
 
   companion object {
@@ -47,7 +79,15 @@ data class SpaceEntity(
       createdAt = domain.createdAt,
       updatedAt = domain.updatedAt,
       authPolicy = domain.authPolicy,
-      layoutType = domain.layoutType
+      pinSalt = domain.pinSalt,
+      pinHash = domain.pinHash,
+      layoutType = domain.layoutType,
+      backgroundType = domain.backgroundType,
+      backgroundColor = domain.backgroundColor,
+      backgroundImageUri = domain.backgroundImageUri,
+      gridColumns = domain.gridColumns,
+      iconSize = domain.iconSize,
+      labelVisibility = domain.labelVisibility
     )
   }
 }

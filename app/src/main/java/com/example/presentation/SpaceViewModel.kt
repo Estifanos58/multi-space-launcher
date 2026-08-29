@@ -11,14 +11,8 @@ import com.example.domain.model.DiscoveredApp
 import com.example.domain.model.Space
 import com.example.domain.model.SpaceMembership
 import com.example.domain.repository.SpaceRepository
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 data class SpaceUiState(
@@ -29,6 +23,7 @@ data class SpaceUiState(
   val errorMessage: String? = null
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SpaceViewModel(application: Application) : AndroidViewModel(application) {
 
   private val database = LauncherDatabase.getInstance(application.applicationContext)
@@ -45,40 +40,40 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
   val allSpaces: StateFlow<List<Space>> = spaceRepository.allSpacesFlow
     .stateIn(
       scope = viewModelScope,
-      started = SharingStarted.WhileSubscribed(5000),
+      started = SharingStarted.Eagerly,
       initialValue = emptyList()
     )
 
   val activeSpace: StateFlow<Space?> = spaceRepository.activeSpaceFlow
     .stateIn(
       scope = viewModelScope,
-      started = SharingStarted.WhileSubscribed(5000),
+      started = SharingStarted.Eagerly,
       initialValue = null
     )
 
-  private val _activeMemberships = MutableStateFlow<List<SpaceMembership>>(emptyList())
-  val activeMemberships: StateFlow<List<SpaceMembership>> = _activeMemberships.asStateFlow()
+  val activeMemberships: StateFlow<List<SpaceMembership>> = spaceRepository.activeSpaceFlow
+    .flatMapLatest { space ->
+      if (space != null) {
+        spaceRepository.getMembershipsForSpaceFlow(space.id)
+      } else {
+        flowOf(emptyList())
+      }
+    }
+    .stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.Eagerly,
+      initialValue = emptyList()
+    )
 
   init {
     AppLogger.i(AppLogger.Category.LAUNCHER, "SpaceViewModel initialized: ensuring default Space state")
     viewModelScope.launch {
       spaceRepository.ensureDefaultSpaceInitialized()
     }
-    observeActiveSpaceMemberships()
   }
 
-  private fun observeActiveSpaceMemberships() {
-    viewModelScope.launch {
-      spaceRepository.activeSpaceFlow.collect { space ->
-        if (space != null) {
-          spaceRepository.getMembershipsForSpaceFlow(space.id).collect { memberships ->
-            _activeMemberships.value = memberships
-          }
-        } else {
-          _activeMemberships.value = emptyList()
-        }
-      }
-    }
+  fun getMembershipsFlowForSpace(spaceId: String): Flow<List<SpaceMembership>> {
+    return spaceRepository.getMembershipsForSpaceFlow(spaceId)
   }
 
   fun createSpace(name: String) {
@@ -141,21 +136,201 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
+  fun addAppToSpace(spaceId: String, app: DiscoveredApp) {
+    viewModelScope.launch {
+      val result = spaceRepository.addAppToSpace(spaceId, app)
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("${app.label} added to Space.")
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Error adding app: ${error.message}")
+        }
+      )
+    }
+  }
+
+  fun removeAppFromSpace(spaceId: String, app: DiscoveredApp) {
+    viewModelScope.launch {
+      val result = spaceRepository.removeAppFromSpace(spaceId, app)
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("${app.label} removed from Space.")
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Error removing app: ${error.message}")
+        }
+      )
+    }
+  }
+
+  private val _unlockedSpaceIds = MutableStateFlow<Set<String>>(emptySet())
+  val unlockedSpaceIds: StateFlow<Set<String>> = _unlockedSpaceIds.asStateFlow()
+
+  fun isSpaceUnlocked(space: Space?): Boolean {
+    if (space == null) return true
+    if (!space.isProtected) return true
+    return _unlockedSpaceIds.value.contains(space.id)
+  }
+
+  fun unlockSpace(spaceId: String) {
+    _unlockedSpaceIds.update { it + spaceId }
+  }
+
+  fun lockSpace(spaceId: String) {
+    _unlockedSpaceIds.update { it - spaceId }
+  }
+
+  fun lockAllProtectedSpaces() {
+    _unlockedSpaceIds.value = emptySet()
+  }
+
+  suspend fun verifyAndUnlockSpace(spaceId: String, pin: String): Boolean {
+    val isValid = spaceRepository.verifySpacePin(spaceId, pin)
+    if (isValid) {
+      unlockSpace(spaceId)
+    }
+    return isValid
+  }
+
+  fun setSpacePin(spaceId: String, pin: String, onResult: ((Boolean, String?) -> Unit)? = null) {
+    viewModelScope.launch {
+      val result = spaceRepository.setSpacePin(spaceId, pin)
+      result.fold(
+        onSuccess = {
+          unlockSpace(spaceId)
+          _userFeedback.tryEmit("PIN protection enabled.")
+          onResult?.invoke(true, null)
+        },
+        onFailure = { error ->
+          val msg = error.message ?: "Failed to set PIN."
+          _userFeedback.tryEmit("Error: $msg")
+          onResult?.invoke(false, msg)
+        }
+      )
+    }
+  }
+
+  fun changeSpacePin(
+    spaceId: String,
+    currentPin: String,
+    newPin: String,
+    onResult: ((Boolean, String?) -> Unit)? = null
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.changeSpacePin(spaceId, currentPin, newPin)
+      result.fold(
+        onSuccess = {
+          unlockSpace(spaceId)
+          _userFeedback.tryEmit("PIN changed successfully.")
+          onResult?.invoke(true, null)
+        },
+        onFailure = { error ->
+          val msg = error.message ?: "Failed to change PIN."
+          _userFeedback.tryEmit("Error: $msg")
+          onResult?.invoke(false, msg)
+        }
+      )
+    }
+  }
+
+  fun disableSpacePin(
+    spaceId: String,
+    currentPin: String,
+    onResult: ((Boolean, String?) -> Unit)? = null
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.disableSpacePin(spaceId, currentPin)
+      result.fold(
+        onSuccess = {
+          lockSpace(spaceId)
+          _userFeedback.tryEmit("PIN protection disabled.")
+          onResult?.invoke(true, null)
+        },
+        onFailure = { error ->
+          val msg = error.message ?: "Failed to disable PIN."
+          _userFeedback.tryEmit("Error: $msg")
+          onResult?.invoke(false, msg)
+        }
+      )
+    }
+  }
+
+  fun setAppMembership(spaceId: String, app: DiscoveredApp, isIncluded: Boolean) {
+    if (isIncluded) {
+      addAppToSpace(spaceId, app)
+    } else {
+      removeAppFromSpace(spaceId, app)
+    }
+  }
+
   fun toggleAppMembership(spaceId: String, app: DiscoveredApp) {
     viewModelScope.launch {
       val isMember = spaceRepository.isAppInSpace(spaceId, app)
-      val result = if (isMember) {
-        spaceRepository.removeAppFromSpace(spaceId, app)
+      if (isMember) {
+        removeAppFromSpace(spaceId, app)
       } else {
-        spaceRepository.addAppToSpace(spaceId, app)
+        addAppToSpace(spaceId, app)
       }
+    }
+  }
+
+  fun updateSpaceCustomization(
+    spaceId: String,
+    backgroundType: String,
+    backgroundColor: Long?,
+    backgroundImageUri: String?,
+    gridColumns: Int,
+    iconSize: String,
+    labelVisibility: Boolean,
+    onResult: ((Boolean, String?) -> Unit)? = null
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.updateSpaceCustomization(
+        spaceId = spaceId,
+        backgroundType = backgroundType,
+        backgroundColor = backgroundColor,
+        backgroundImageUri = backgroundImageUri,
+        gridColumns = gridColumns,
+        iconSize = iconSize,
+        labelVisibility = labelVisibility
+      )
       result.fold(
         onSuccess = {
-          val action = if (isMember) "removed from" else "added to"
-          _userFeedback.tryEmit("${app.label} $action Space.")
+          _userFeedback.tryEmit("Space customization saved.")
+          onResult?.invoke(true, null)
         },
         onFailure = { error ->
-          _userFeedback.tryEmit("Error updating membership: ${error.message}")
+          val msg = error.message ?: "Failed to save customization."
+          _userFeedback.tryEmit("Error: $msg")
+          onResult?.invoke(false, msg)
+        }
+      )
+    }
+  }
+
+  fun reorderSpaceApp(spaceId: String, app: DiscoveredApp, direction: Int) {
+    viewModelScope.launch {
+      val result = spaceRepository.reorderSpaceApp(spaceId, app, direction)
+      result.fold(
+        onSuccess = {},
+        onFailure = { error ->
+          _userFeedback.tryEmit("Error reordering: ${error.message}")
+        }
+      )
+    }
+  }
+
+  fun sortSpaceAppsAlphabetically(spaceId: String, currentApps: List<DiscoveredApp>) {
+    viewModelScope.launch {
+      val sorted = currentApps.sortedBy { it.label.lowercase() }
+      val result = spaceRepository.reorderSpaceApps(spaceId, sorted)
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("Apps sorted alphabetically.")
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Error sorting apps: ${error.message}")
         }
       )
     }

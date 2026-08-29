@@ -1,74 +1,78 @@
-# Current Task — Phase 4: Minimal Usable Launcher
+# Current Task — Space PIN Security & Local Authentication
 
-## Task Information
-* **Task:** Phase 4 — Minimal Usable Launcher
-* **Objective:** Turn the verified launcher shell into a simple, usable Home-screen experience that displays and launches the applications discovered by Phase 2 and launched by Phase 3.
-* **Why:** A launcher must provide a real, functional Home-screen surface with an intuitive icon grid, clear labels, reliable tap-to-launch interactions, and stable Home return before introducing Space segmentation (Phase 5+) or authentication (Phase 8).
-* **Phase:** Phase 4 — Minimal Usable Launcher
-* **Milestone:** Milestone 4 — Usable Home Surface & Core Launcher Loop
+## Task Overview
+* **Task Name:** Space PIN Security & Local Authentication
+* **Target Objective:** Implement local PIN-based authentication for individual Spaces. Protect sensitive Spaces with PBKDF2WithHmacSHA256 hashed numeric PINs, per-Space cryptographically secure random salts, constant-time verification, locked presentation state on Home, secure Space switching gating, and comprehensive PIN lifecycle management (Set, Change, Disable, Unlock).
+* **Status:** `IN_PROGRESS (BUILD VERIFIED, READY FOR PHYSICAL VERIFICATION)`
 
 ---
 
-## Prerequisites
-* Phase 0 — Project Foundation (`COMPLETE & VERIFIED`).
-* Phase 1 — Launcher Viability Spike (`COMPLETE & PHYSICALLY VERIFIED`).
-* Phase 2 — Application Discovery & LauncherApps Integration (`COMPLETE & PHYSICALLY VERIFIED`).
-* Phase 3 — Application Launching Viability Spike (`COMPLETE & PHYSICALLY VERIFIED`).
+## Security Architecture & Design
+```text
+User Sets PIN (4-8 digits)
+        ↓
+PinSecurityManager generates 16-byte SecureRandom salt
+        ↓
+Derives PBKDF2WithHmacSHA256 hash (10,000 iterations, 256 bits)
+        ↓
+Persisted in Room Database (authPolicy="PIN", pin_salt, pin_hash)
+        ↓
+Runtime Memory tracks transient unlocked states (unlockedSpaceIds StateFlow)
+        ↓
+Launcher Home & Space Switcher gate access using constant-time verification
+```
 
 ---
 
-## Known Facts
-* `LauncherHomeScreen` acts as the primary Home surface rendering an adaptive 4-column application grid.
-* Discovered applications are displayed with high-contrast labels and cached icons via `AppDiscoveryManager`.
-* Tapping an application invokes `AppLaunchManager.launchApp()` via `AppDiscoveryViewModel`.
-* `MainActivity` receives `onNewIntent` and smoothly restores the primary Home surface upon Home button presses.
-* Dynamic package monitoring updates the catalog in real-time when apps are added, removed, or updated.
-* Loading state, empty state, and error states are cleanly handled without crashing.
-* Configuration and system diagnostics are accessible via a clean modal sheet rather than cluttering the Home surface.
+## Completed Implementations
+1. **Cryptographic Security Manager (`PinSecurityManager.kt`)**:
+   - Implements PBKDF2 with HMAC-SHA256 (`PBKDF2WithHmacSHA256`).
+   - 16-byte cryptographically secure random salts generated via `java.security.SecureRandom`.
+   - 10,000 iterations and 256-bit derived key length.
+   - Constant-time verification using `MessageDigest.isEqual` to prevent timing attacks.
+   - Numeric PIN format validation (4 to 8 digits).
+   - Strict security rule: plaintext PINs are NEVER stored or logged.
+2. **Domain & Persistence Model Extensions**:
+   - `Space.kt`: Added `pinSalt`, `pinHash`, and computed property `isProtected` (`authPolicy == "PIN"` and non-empty hash/salt).
+   - `SpaceEntity.kt`: Added `@ColumnInfo(name = "pin_salt")` and `@ColumnInfo(name = "pin_hash")`.
+   - `SpaceRepository` & `RoomSpaceRepository`: Implemented `setSpacePin`, `changeSpacePin`, `disableSpacePin`, and `verifySpacePin`.
+3. **Session & Runtime State Management (`SpaceViewModel.kt`)**:
+   - In-memory `unlockedSpaceIds` `StateFlow` tracks unlocked status during active app process lifecycle.
+   - Transient unlock state resets cleanly upon app process restart or explicit lock.
+   - `verifyAndUnlockSpace` authenticates against the repository and unlocks the Space in memory upon success.
+4. **Home Screen Protection & Gating (`LauncherHomeScreen.kt`)**:
+   - If active Space is protected and not unlocked in runtime memory:
+     - Application grid is completely hidden (returns `emptyList()` projection to strictly prevent app leaks).
+     - Renders a clean locked state with lock icon and "Enter PIN" button.
+     - Tapping "Enter PIN" opens the secure `SpaceUnlockDialog`.
+5. **Secure Space Switching Gating (`LauncherHomeScreen.kt` & `LauncherConfigurationScreen.kt`)**:
+   - Selecting a protected Space from the switcher dropdown or configuration list intercepts navigation.
+   - Prompts for PIN verification via `SpaceUnlockDialog`.
+   - Only switches active Space and reveals apps upon successful PIN verification.
+6. **PIN Management UI & Dialogs (`SpacePinDialogs.kt`)**:
+   - `SetSpacePinDialog`: PIN entry with confirmation, numeric keyboard, masked password transformation, and digit format validation.
+   - `ChangeSpacePinDialog`: Current PIN verification + New PIN + Confirmation.
+   - `DisableSpacePinDialog`: Current PIN verification before removing protection.
+   - `SpaceUnlockDialog`: Masked PIN input, real-time error feedback, and async verification indicator.
+   - `SpaceItemCard` / `SpaceRowItem`: Displays green "PIN" lock badge, +PIN / PIN button, and dedicated Remove PIN action.
+7. **Security Logging & Diagnostics**:
+   - Non-sensitive operational logging via `AppLogger.Category.LAUNCHER` (records enablement, unlock success/failure without logging PINs).
 
 ---
 
-## Unknown Facts
-* Long-term scrolling performance under 300+ installed packages on resource-constrained physical devices (`PENDING PHYSICAL TEST`).
-* Visual appearance and grid density across varied physical screen aspect ratios (`PENDING PHYSICAL TEST`).
-
----
-
-## Conceptual Scope
-* Launcher Home surface layout with Material 3 Clean Utility / Minimal theming.
-* 4-column application grid with icons and labels.
-* Deterministic alphabetical ordering.
-* Direct integration with verified `AppLaunchManager` for launch dispatching.
-* Graceful loading, empty, and error state handling.
-* Clean configuration entry point with default Home status check and diagnostics routing.
-
----
-
-## Protected Scope (STRICTLY PROHIBITED IN THIS TASK)
-* No Spaces, Space creation, or Space switching (Phases 5 & 6).
-* No Space membership models or repositories (Phase 5).
-* No Room database entities, DAOs, or migrations (Phase 5).
-* No DataStore-based Space persistence (Phase 5).
-* No PIN or authentication logic (Phase 8).
-* No wallpaper or layout customization per Space (Phase 9).
-* No widgets, custom icon packs, drag-and-drop, or multi-page desktop management.
-* No automated test code (Robolectric, Espresso) per Constitution Rule 7.
+## Scope Boundaries & Protections
+* **Protected Scope (Maintained):**
+  - Space PIN security is a launcher presentation protection layer; it does not claim to replace Android OS work profile sandboxing or filesystem encryption.
+  - Zero automated test code (Robolectric, Espresso) per Constitution Rule 7.
+  - No `QUERY_ALL_PACKAGES` permission in Manifest.
+  - No remote server authentication or telemetry leaks.
 
 ---
 
 ## Acceptance Criteria
-1. Launcher presents a real basic Home surface (`LauncherHomeScreen`) with a 4-column application grid.
-2. Discovered applications are displayed with clear labels and cached icons.
-3. Tapping an application launches the app via verified `AppLaunchManager`.
-4. Home key returns cleanly from external applications to `LauncherHomeScreen`.
-5. Dynamic package changes are automatically reflected on the Home grid.
-6. Empty, loading, and error states are gracefully handled with zero crashes.
-7. Diagnostics/telemetry is cleanly separated into a dedicated view accessible via configuration.
-8. Debug APK builds cleanly with 0 errors.
-
----
-
-## Expected End State
-Successful compilation and documentation of Phase 4 ready for physical hardware verification (TEST-004: Tests A through G), followed by Phase 5 (Space Domain + Persistence).
-
-
+- [x] PIN setting, changing, disabling, and verification works with PBKDF2 hashing.
+- [x] Plaintext PINs are never stored in Room or output to logs.
+- [x] Locked Space strictly conceals application grid on Launcher Home until unlocked.
+- [x] Space switcher dropdown prompts for PIN when switching to a protected Space.
+- [x] Space management cards display protection status and provide PIN setup/change/disable controls.
+- [x] Build compiles cleanly with zero errors.

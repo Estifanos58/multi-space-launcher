@@ -64,6 +64,26 @@ object HomePlatformManager {
     return Intent(Settings.ACTION_HOME_SETTINGS)
   }
 
+  fun openDefaultHomeSettings(context: Context) {
+    AppLogger.i(AppLogger.Category.LAUNCHER, "Opening default home selection settings")
+    val intents = listOf(
+      Intent(Settings.ACTION_HOME_SETTINGS),
+      Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS),
+      Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}")),
+      Intent(Settings.ACTION_SETTINGS)
+    )
+
+    for (intent in intents) {
+      try {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+        return
+      } catch (e: Exception) {
+        AppLogger.w(AppLogger.Category.LAUNCHER, "Intent ${intent.action} failed: ${e.message}")
+      }
+    }
+  }
+
   fun createTestExternalAppIntent(): Intent {
     AppLogger.i(AppLogger.Category.LAUNCH, "Creating external test app launch intent (Settings)")
     return Intent(Settings.ACTION_SETTINGS).apply {

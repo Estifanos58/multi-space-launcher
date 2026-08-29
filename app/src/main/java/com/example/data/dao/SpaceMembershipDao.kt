@@ -21,12 +21,27 @@ interface SpaceMembershipDao {
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertMemberships(memberships: List<SpaceMembershipEntity>)
 
+  @Query("UPDATE space_memberships SET order_index = :newOrderIndex WHERE space_id = :spaceId AND package_name = :packageName AND component_name = :componentName AND user_handle_id = :userHandleId")
+  suspend fun updateMembershipOrder(
+    spaceId: String,
+    packageName: String,
+    componentName: String,
+    userHandleId: Long,
+    newOrderIndex: Int
+  ): Int
+
   @Query("DELETE FROM space_memberships WHERE space_id = :spaceId AND package_name = :packageName AND component_name = :componentName AND user_handle_id = :userHandleId")
   suspend fun deleteMembership(
     spaceId: String,
     packageName: String,
     componentName: String,
     userHandleId: Long
+  ): Int
+
+  @Query("DELETE FROM space_memberships WHERE space_id = :spaceId AND package_name = :packageName")
+  suspend fun deleteMembershipByPackage(
+    spaceId: String,
+    packageName: String
   ): Int
 
   @Query("DELETE FROM space_memberships WHERE space_id = :spaceId")

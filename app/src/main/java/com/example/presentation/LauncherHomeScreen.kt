@@ -1,454 +1,68 @@
 package com.example.presentation
 
-import android.app.Activity
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.domain.model.DiscoveredApp
-import com.example.platform.HomePlatformManager
-import com.example.ui.theme.DarkTerminalAccent
-import com.example.ui.theme.DarkTerminalSurface
-import com.example.ui.theme.DarkTerminalText
-import com.example.ui.theme.LightBackground
-import com.example.ui.theme.LightSurfaceContainer
-import com.example.ui.theme.LightSurfaceContainerHigh
-import com.example.ui.theme.LightSurfaceContainerLow
-import com.example.ui.theme.PrimaryContainerBadge
-import com.example.ui.theme.PrimaryContainerLight
-import com.example.ui.theme.PrimaryPurple
-import com.example.ui.theme.PrimaryPurpleDark
-import com.example.ui.theme.StatusGreen
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.example.domain.model.Space
+import com.example.ui.theme.*
 
 /**
- * Phase 4 — Minimal Usable Launcher Home Screen.
+ * Android Home / Launcher Surface (Phase 6 Clean Home).
+ * Displays ONLY:
+ * 1. Current Space Name (with a clean, quick Space Switcher popover)
+ * 2. Applications belonging strictly to the active Space
  *
- * Provides a clean, functional Home experience:
- * - Simple, responsive 4-column application grid
- * - Application icons and labels loaded from LauncherApps discovery
- * - Direct tap-to-launch integration with verified AppLaunchManager
- * - Reactive catalog synchronization with dynamic package events
- * - Empty, loading, and error states
- * - Clean configuration / info entry point
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun LauncherHomeScreen(
-  viewModel: AppDiscoveryViewModel,
-  onNavigateDiagnostics: () -> Unit,
-  spaceViewModel: SpaceViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
-  modifier: Modifier = Modifier
-) {
-  val uiState by viewModel.uiState.collectAsState()
-  val activeSpace by spaceViewModel.activeSpace.collectAsState()
-  val context = LocalContext.current
-  val focusManager = LocalFocusManager.current
-  val snackbarHostState = remember { SnackbarHostState() }
-
-  var showConfigSheet by remember { mutableStateOf(false) }
-  val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-  LaunchedEffect(viewModel) {
-    viewModel.userFeedback.collect { message ->
-      snackbarHostState.showSnackbar(message)
-    }
-  }
-
-  LaunchedEffect(spaceViewModel) {
-    spaceViewModel.userFeedback.collect { message ->
-      snackbarHostState.showSnackbar(message)
-    }
-  }
-
-  Scaffold(
-    modifier = modifier
-      .background(LightBackground)
-      .testTag("launcher_home_scaffold"),
-    snackbarHost = { SnackbarHost(snackbarHostState) },
-    topBar = {
-      TopAppBar(
-        title = {
-          Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-          ) {
-            Box(
-              modifier = Modifier
-                .size(34.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(PrimaryPurple),
-              contentAlignment = Alignment.Center
-            ) {
-              Icon(
-                imageVector = Icons.Default.Home,
-                contentDescription = "Home",
-                tint = Color.White,
-                modifier = Modifier.size(20.dp)
-              )
-            }
-            Column {
-              Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-              ) {
-                Text(
-                  text = "Home",
-                  style = MaterialTheme.typography.titleMedium,
-                  fontWeight = FontWeight.Bold,
-                  color = TextPrimary
-                )
-                if (activeSpace != null) {
-                  Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = PrimaryContainerLight
-                  ) {
-                    Text(
-                      text = activeSpace?.name ?: "Default",
-                      style = MaterialTheme.typography.labelSmall,
-                      fontWeight = FontWeight.SemiBold,
-                      color = PrimaryPurpleDark,
-                      modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                  }
-                }
-              }
-              Text(
-                text = "${uiState.filteredApps.size} apps available",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
-              )
-            }
-          }
-        },
-        actions = {
-          IconButton(
-            onClick = { viewModel.loadApps() },
-            modifier = Modifier.testTag("home_refresh_button")
-          ) {
-            Icon(
-              imageVector = Icons.Default.Refresh,
-              contentDescription = "Refresh Applications",
-              tint = PrimaryPurpleDark
-            )
-          }
-          IconButton(
-            onClick = { showConfigSheet = true },
-            modifier = Modifier.testTag("home_config_button")
-          ) {
-            Icon(
-              imageVector = Icons.Default.Settings,
-              contentDescription = "Launcher Configuration",
-              tint = PrimaryPurpleDark
-            )
-          }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-          containerColor = LightBackground
-        )
-      )
-    }
-  ) { innerPadding ->
-    Column(
-      modifier = Modifier
-        .fillMaxSize()
-        .padding(innerPadding)
-        .padding(horizontal = 16.dp)
-    ) {
-      // Search Bar
-      OutlinedTextField(
-        value = uiState.searchQuery,
-        onValueChange = { viewModel.onSearchQueryChanged(it) },
-        placeholder = {
-          Text(
-            text = "Search apps...",
-            color = TextMuted,
-            style = MaterialTheme.typography.bodyMedium
-          )
-        },
-        leadingIcon = {
-          Icon(
-            imageVector = Icons.Default.Search,
-            contentDescription = "Search",
-            tint = PrimaryPurple
-          )
-        },
-        trailingIcon = {
-          if (uiState.searchQuery.isNotEmpty()) {
-            IconButton(onClick = {
-              viewModel.onSearchQueryChanged("")
-              focusManager.clearFocus()
-            }) {
-              Icon(
-                imageVector = Icons.Default.Clear,
-                contentDescription = "Clear search",
-                tint = TextSecondary
-              )
-            }
-          }
-        },
-        singleLine = true,
-        shape = RoundedCornerShape(16.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-          focusedContainerColor = LightSurfaceContainerLow,
-          unfocusedContainerColor = LightSurfaceContainerLow,
-          focusedBorderColor = PrimaryPurple,
-          unfocusedBorderColor = LightSurfaceContainerHigh
-        ),
-        modifier = Modifier
-          .fillMaxWidth()
-          .testTag("home_search_input")
-      )
-
-      Spacer(modifier = Modifier.height(10.dp))
-
-      // Category Filter Chips
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-      ) {
-        FilterChip(
-          selected = uiState.activeFilter == AppFilter.ALL,
-          onClick = { viewModel.onFilterChanged(AppFilter.ALL) },
-          label = { Text("All (${uiState.totalAppCount})", fontSize = 12.sp) },
-          shape = RoundedCornerShape(12.dp),
-          colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = PrimaryContainerBadge,
-            selectedLabelColor = PrimaryPurpleDark
-          ),
-          modifier = Modifier.testTag("home_filter_all")
-        )
-
-        FilterChip(
-          selected = uiState.activeFilter == AppFilter.USER_ONLY,
-          onClick = { viewModel.onFilterChanged(AppFilter.USER_ONLY) },
-          label = { Text("User (${uiState.userAppCount})", fontSize = 12.sp) },
-          shape = RoundedCornerShape(12.dp),
-          colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = PrimaryContainerBadge,
-            selectedLabelColor = PrimaryPurpleDark
-          ),
-          modifier = Modifier.testTag("home_filter_user")
-        )
-
-        FilterChip(
-          selected = uiState.activeFilter == AppFilter.SYSTEM_ONLY,
-          onClick = { viewModel.onFilterChanged(AppFilter.SYSTEM_ONLY) },
-          label = { Text("System (${uiState.systemAppCount})", fontSize = 12.sp) },
-          shape = RoundedCornerShape(12.dp),
-          colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = PrimaryContainerBadge,
-            selectedLabelColor = PrimaryPurpleDark
-          ),
-          modifier = Modifier.testTag("home_filter_system")
-        )
-      }
-
-      Spacer(modifier = Modifier.height(12.dp))
-
-      // Main Content Area (Loading, Error, Empty, or App Grid)
-      Box(
-        modifier = Modifier
-          .fillMaxWidth()
-          .weight(1f)
-      ) {
-        when {
-          uiState.isLoading && uiState.allApps.isEmpty() -> {
-            LoadingStateView(modifier = Modifier.align(Alignment.Center))
-          }
-          uiState.errorMessage != null && uiState.allApps.isEmpty() -> {
-            ErrorStateView(
-              errorMessage = uiState.errorMessage ?: "Unknown error",
-              onRetry = { viewModel.loadApps() },
-              modifier = Modifier.align(Alignment.Center)
-            )
-          }
-          uiState.filteredApps.isEmpty() -> {
-            EmptyStateView(
-              searchQuery = uiState.searchQuery,
-              onClearSearch = { viewModel.onSearchQueryChanged("") },
-              onRefresh = { viewModel.loadApps() },
-              modifier = Modifier.align(Alignment.Center)
-            )
-          }
-          else -> {
-            LauncherGridContent(
-              apps = uiState.filteredApps,
-              getIcon = { viewModel.getAppIcon(it) },
-              onLaunchApp = { viewModel.launchApp(it) }
-            )
-          }
-        }
-      }
-    }
-  }
-
-  // Launcher Configuration & Diagnostics Sheet
-  if (showConfigSheet) {
-    ModalBottomSheet(
-      onDismissRequest = { showConfigSheet = false },
-      sheetState = sheetState,
-      containerColor = LightBackground,
-      shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-    ) {
-      LauncherConfigSheetContent(
-        uiState = uiState,
-        spaceViewModel = spaceViewModel,
-        onDismiss = { showConfigSheet = false },
-        onOpenDiagnostics = {
-          showConfigSheet = false
-          onNavigateDiagnostics()
-        },
-        onRefreshCatalog = { viewModel.loadApps() }
-      )
-    }
-  }
-}
-
-/**
- * 4-Column Application Grid.
+ * Excludes all administrative controls, telemetry, diagnostics, and giant toolbars.
  */
 @Composable
-private fun LauncherGridContent(
-  apps: List<DiscoveredApp>,
-  getIcon: (DiscoveredApp) -> Drawable?,
-  onLaunchApp: (DiscoveredApp) -> Unit
-) {
-  LazyVerticalGrid(
-    columns = GridCells.Fixed(4),
-    contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
-    horizontalArrangement = Arrangement.spacedBy(8.dp),
-    verticalArrangement = Arrangement.spacedBy(16.dp),
-    modifier = Modifier
-      .fillMaxSize()
-      .testTag("launcher_app_grid")
-  ) {
-    items(apps, key = { it.id }) { app ->
-      LauncherGridItem(
-        app = app,
-        icon = getIcon(app),
-        onLaunch = { onLaunchApp(app) }
-      )
-    }
-  }
-}
-
-/**
- * Individual Application Icon + Label Grid Tile.
- */
-@Composable
-private fun LauncherGridItem(
+private fun HomeAppGridItem(
   app: DiscoveredApp,
-  icon: Drawable?,
+  getIcon: (DiscoveredApp) -> Drawable?,
   onLaunch: () -> Unit
 ) {
+  val icon = remember(app.id) { getIcon(app) }
+
   Column(
     horizontalAlignment = Alignment.CenterHorizontally,
     modifier = Modifier
       .fillMaxWidth()
-      .clip(RoundedCornerShape(16.dp))
+      .clip(RoundedCornerShape(14.dp))
       .clickable { onLaunch() }
-      .padding(vertical = 8.dp, horizontal = 4.dp)
-      .testTag("app_item_${app.packageName}")
+      .padding(vertical = 6.dp, horizontal = 2.dp)
+      .testTag("home_app_item_${app.packageName}")
   ) {
     Box(
       modifier = Modifier
-        .size(56.dp)
-        .clip(RoundedCornerShape(16.dp))
-        .background(LightSurfaceContainerHigh),
+        .size(52.dp)
+        .clip(RoundedCornerShape(14.dp)),
       contentAlignment = Alignment.Center
     ) {
-      LauncherIconImage(
+      AppIconImage(
         drawable = icon,
         contentDescription = app.label,
-        modifier = Modifier.size(46.dp)
+        modifier = Modifier.size(48.dp)
       )
     }
 
@@ -456,434 +70,441 @@ private fun LauncherGridItem(
 
     Text(
       text = app.label,
-      style = MaterialTheme.typography.labelSmall,
+      style = MaterialTheme.typography.bodySmall,
       fontWeight = FontWeight.Medium,
       color = TextPrimary,
-      textAlign = TextAlign.Center,
-      maxLines = 2,
+      maxLines = 1,
       overflow = TextOverflow.Ellipsis,
-      lineHeight = 14.sp
+      textAlign = TextAlign.Center,
+      fontSize = 11.sp
     )
   }
 }
 
-/**
- * Loading State.
- */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LoadingStateView(modifier: Modifier = Modifier) {
-  Column(
-    modifier = modifier.padding(24.dp),
-    horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(16.dp)
-  ) {
-    CircularProgressIndicator(
-      color = PrimaryPurple,
-      strokeWidth = 3.dp,
-      modifier = Modifier.size(40.dp)
-    )
-    Text(
-      text = "Loading applications...",
-      style = MaterialTheme.typography.bodyMedium,
-      color = TextSecondary
-    )
-  }
-}
-
-/**
- * Empty State.
- */
-@Composable
-private fun EmptyStateView(
-  searchQuery: String,
-  onClearSearch: () -> Unit,
-  onRefresh: () -> Unit,
-  modifier: Modifier = Modifier
-) {
-  Card(
-    modifier = modifier
-      .fillMaxWidth()
-      .padding(16.dp),
-    shape = RoundedCornerShape(20.dp),
-    colors = CardDefaults.cardColors(containerColor = LightSurfaceContainer)
-  ) {
-    Column(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(24.dp),
-      horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-      Box(
-        modifier = Modifier
-          .size(52.dp)
-          .clip(CircleShape)
-          .background(PrimaryContainerLight),
-        contentAlignment = Alignment.Center
-      ) {
-        Icon(
-          imageVector = Icons.Default.Apps,
-          contentDescription = "No Apps",
-          tint = PrimaryPurpleDark,
-          modifier = Modifier.size(28.dp)
-        )
-      }
-
-      Text(
-        text = if (searchQuery.isNotEmpty()) "No matches found" else "No applications found",
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        color = TextPrimary
-      )
-
-      Text(
-        text = if (searchQuery.isNotEmpty()) {
-          "No applications match \"$searchQuery\" in the current filter."
-        } else {
-          "No launchable applications were detected on this device profile."
-        },
-        style = MaterialTheme.typography.bodySmall,
-        color = TextSecondary,
-        textAlign = TextAlign.Center
-      )
-
-      Spacer(modifier = Modifier.height(4.dp))
-
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (searchQuery.isNotEmpty()) {
-          OutlinedButton(
-            onClick = onClearSearch,
-            shape = RoundedCornerShape(12.dp)
-          ) {
-            Text("Clear Search")
-          }
-        }
-        Button(
-          onClick = onRefresh,
-          shape = RoundedCornerShape(12.dp),
-          colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
-        ) {
-          Text("Refresh")
-        }
-      }
-    }
-  }
-}
-
-/**
- * Error State.
- */
-@Composable
-private fun ErrorStateView(
-  errorMessage: String,
-  onRetry: () -> Unit,
-  modifier: Modifier = Modifier
-) {
-  Card(
-    modifier = modifier
-      .fillMaxWidth()
-      .padding(16.dp),
-    shape = RoundedCornerShape(20.dp),
-    colors = CardDefaults.cardColors(containerColor = LightSurfaceContainer)
-  ) {
-    Column(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(24.dp),
-      horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-      Box(
-        modifier = Modifier
-          .size(52.dp)
-          .clip(CircleShape)
-          .background(Color(0xFFFFEBEE)),
-        contentAlignment = Alignment.Center
-      ) {
-        Icon(
-          imageVector = Icons.Default.ErrorOutline,
-          contentDescription = "Error",
-          tint = Color(0xFFC62828),
-          modifier = Modifier.size(28.dp)
-        )
-      }
-
-      Text(
-        text = "Discovery Issue",
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        color = TextPrimary
-      )
-
-      Text(
-        text = errorMessage,
-        style = MaterialTheme.typography.bodySmall,
-        color = TextSecondary,
-        textAlign = TextAlign.Center
-      )
-
-      Button(
-        onClick = onRetry,
-        shape = RoundedCornerShape(12.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
-      ) {
-        Text("Retry Scan")
-      }
-    }
-  }
-}
-
-/**
- * Launcher Configuration & System Info Bottom Sheet.
- */
-@Composable
-private fun LauncherConfigSheetContent(
-  uiState: AppDiscoveryUiState,
+fun LauncherHomeScreen(
+  modifier: Modifier = Modifier,
+  discoveryViewModel: AppDiscoveryViewModel,
   spaceViewModel: SpaceViewModel,
-  onDismiss: () -> Unit,
-  onOpenDiagnostics: () -> Unit,
-  onRefreshCatalog: () -> Unit
+  onLaunchApp: (DiscoveredApp) -> Unit,
+  onOpenConfiguration: () -> Unit
 ) {
-  val context = LocalContext.current
-  val scrollState = rememberScrollState()
-  var homeStatus by remember {
-    mutableStateOf(HomePlatformManager.checkHomeStatus(context))
+  val discoveryUiState by discoveryViewModel.uiState.collectAsStateWithLifecycle()
+  val activeSpace by spaceViewModel.activeSpace.collectAsStateWithLifecycle()
+  val activeMemberships by spaceViewModel.activeMemberships.collectAsStateWithLifecycle()
+  val allSpaces by spaceViewModel.allSpaces.collectAsStateWithLifecycle()
+  val unlockedSpaceIds by spaceViewModel.unlockedSpaceIds.collectAsStateWithLifecycle()
+
+  var showSpaceSwitcherMenu by remember { mutableStateOf(false) }
+  var spaceToUnlockForSwitch by remember { mutableStateOf<Space?>(null) }
+  var showUnlockForActiveSpace by remember { mutableStateOf(false) }
+
+  val isCurrentSpaceUnlocked = remember(activeSpace, unlockedSpaceIds) {
+    spaceViewModel.isSpaceUnlocked(activeSpace)
   }
 
-  val defaultHomeLauncher = rememberLauncherForActivityResult(
-    contract = ActivityResultContracts.StartActivityForResult()
-  ) {
-    homeStatus = HomePlatformManager.checkHomeStatus(context)
-  }
+  // Resolve Space presentation: Project active Space's persisted memberships against current Android LauncherApps catalog
+  // - Respects persisted ordering (order_index ASC, added_at ASC from Room)
+  // - Excludes unavailable/uninstalled applications while preserving their durable membership
+  // - Dynamically includes reinstalled applications when discovery updates
+  // - If Space is protected and NOT unlocked in runtime, returns emptyList() to strictly prevent app leak
+  // - If active Space is Default and no custom memberships are set yet, displays all discovered apps out-of-the-box
+  val spaceScopedApps = remember(discoveryUiState.allApps, activeMemberships, isCurrentSpaceUnlocked, activeSpace) {
+    if (!isCurrentSpaceUnlocked || discoveryUiState.allApps.isEmpty()) {
+      emptyList()
+    } else if (activeMemberships.isEmpty() && (activeSpace?.id == Space.DEFAULT_SPACE_ID || activeSpace == null)) {
+      discoveryUiState.allApps
+    } else if (activeMemberships.isEmpty()) {
+      emptyList()
+    } else {
+      val appsByComponent = discoveryUiState.allApps.associateBy { "${it.packageName}/${it.activityName}" }
+      val appsByPackage = discoveryUiState.allApps.associateBy { it.packageName }
 
-  Column(
-    modifier = Modifier
-      .fillMaxWidth()
-      .verticalScroll(scrollState)
-      .padding(horizontal = 24.dp, vertical = 16.dp),
-    verticalArrangement = Arrangement.spacedBy(16.dp)
-  ) {
-    // Header
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically
-    ) {
-      Column {
-        Text(
-          text = "Launcher Configuration",
-          style = MaterialTheme.typography.titleLarge,
-          fontWeight = FontWeight.Bold,
-          color = TextPrimary
-        )
-        Text(
-          text = "Multi-Space Launcher · V1 Minimal Home",
-          style = MaterialTheme.typography.bodySmall,
-          color = TextSecondary
-        )
-      }
-    }
+      val result = mutableListOf<DiscoveredApp>()
+      val includedKeys = mutableSetOf<String>()
 
-    HorizontalDivider(color = LightSurfaceContainerHigh)
+      // activeMemberships is already ordered by order_index ASC, added_at ASC from Room DAO
+      for (membership in activeMemberships) {
+        val matchedApp = appsByComponent["${membership.packageName}/${membership.componentName}"]
+          ?: appsByPackage[membership.packageName]
 
-    // Space Domain & Persistence Section
-    SpaceManagementSection(
-      spaceViewModel = spaceViewModel,
-      allApps = uiState.allApps
-    )
-
-    // Default Home Role Card
-    Surface(
-      shape = RoundedCornerShape(16.dp),
-      color = LightSurfaceContainer,
-      modifier = Modifier.fillMaxWidth()
-    ) {
-      Row(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
-      ) {
-        Box(
-          modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .background(if (homeStatus == HomePlatformManager.HomeRoleState.DEFAULT_HOME) PrimaryContainerLight else Color(0xFFFFF3E0)),
-          contentAlignment = Alignment.Center
-        ) {
-          Icon(
-            imageVector = if (homeStatus == HomePlatformManager.HomeRoleState.DEFAULT_HOME) Icons.Default.CheckCircle else Icons.Default.Warning,
-            contentDescription = "Home Status",
-            tint = if (homeStatus == HomePlatformManager.HomeRoleState.DEFAULT_HOME) StatusGreen else Color(0xFFE65100),
-            modifier = Modifier.size(24.dp)
-          )
-        }
-
-        Column(modifier = Modifier.weight(1f)) {
-          Text(
-            text = if (homeStatus == HomePlatformManager.HomeRoleState.DEFAULT_HOME) "Active Default Home" else "Not Default Home",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = TextPrimary
-          )
-          Text(
-            text = if (homeStatus == HomePlatformManager.HomeRoleState.DEFAULT_HOME) {
-              "Multi-Space Launcher handles Home key events."
-            } else {
-              "Set as default to capture Home button presses."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary
-          )
-        }
-
-        if (homeStatus != HomePlatformManager.HomeRoleState.DEFAULT_HOME) {
-          Button(
-            onClick = {
-              val intent = HomePlatformManager.createRequestDefaultHomeIntent(context)
-              defaultHomeLauncher.launch(intent)
-            },
-            shape = RoundedCornerShape(10.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
-          ) {
-            Text("Set Default", fontSize = 12.sp)
+        if (matchedApp != null) {
+          val appKey = "${matchedApp.packageName}/${matchedApp.activityName}/${matchedApp.userHandleId}"
+          if (includedKeys.add(appKey)) {
+            result.add(matchedApp)
           }
         }
       }
+      result
     }
+  }
 
-    // Catalog Statistics
-    Surface(
-      shape = RoundedCornerShape(16.dp),
-      color = LightSurfaceContainer,
-      modifier = Modifier.fillMaxWidth()
-    ) {
-      Column(
+  Scaffold(
+    modifier = modifier.fillMaxSize(),
+    containerColor = LightBackground,
+    topBar = {
+      // Extremely minimal Home header: Space indicator with quick switcher + subtle config access
+      Row(
         modifier = Modifier
           .fillMaxWidth()
-          .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-      ) {
-        Text(
-          text = "CATALOG STATISTICS",
-          style = MaterialTheme.typography.labelSmall,
-          fontWeight = FontWeight.Bold,
-          color = PrimaryPurpleDark
-        )
-
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-          Text("Total Applications", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
-          Text("${uiState.totalAppCount}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-        }
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-          Text("User Installed", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-          Text("${uiState.userAppCount}", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-        }
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-          Text("System Pre-installed", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-          Text("${uiState.systemAppCount}", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-        }
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-          Text("Package Events", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-          Text(uiState.recentPackageEvent, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1)
-        }
-      }
-    }
-
-    // Engineering Diagnostics Entry Action
-    OutlinedButton(
-      onClick = onOpenDiagnostics,
-      modifier = Modifier.fillMaxWidth(),
-      shape = RoundedCornerShape(14.dp)
-    ) {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
+          .statusBarsPadding()
+          .padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
       ) {
-        Text("Open Engineering Diagnostics & Telemetry")
-        Icon(
-          imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-          contentDescription = "Diagnostics",
-          modifier = Modifier.size(18.dp)
-        )
+        // Space Title & Quick Switcher Chip
+        Box {
+          Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = PrimaryContainerLight,
+            modifier = Modifier
+              .clickable { showSpaceSwitcherMenu = true }
+              .testTag("home_space_indicator")
+          ) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(6.dp),
+              modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+              if (activeSpace?.isProtected == true) {
+                Icon(
+                  imageVector = if (isCurrentSpaceUnlocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                  contentDescription = if (isCurrentSpaceUnlocked) "Unlocked" else "Locked",
+                  tint = if (isCurrentSpaceUnlocked) Color(0xFF2E7D32) else PrimaryPurpleDark,
+                  modifier = Modifier.size(14.dp)
+                )
+              } else {
+                Box(
+                  modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(PrimaryPurpleDark)
+                )
+              }
+              Text(
+                text = activeSpace?.name ?: "Default",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+              )
+              Icon(
+                imageVector = Icons.Default.ArrowDropDown,
+                contentDescription = "Switch Space",
+                tint = TextSecondary,
+                modifier = Modifier.size(18.dp)
+              )
+            }
+          }
+
+          // Space Switcher Dropdown Menu
+          DropdownMenu(
+            expanded = showSpaceSwitcherMenu,
+            onDismissRequest = { showSpaceSwitcherMenu = false },
+            modifier = Modifier.background(LightBackground)
+          ) {
+            Text(
+              text = "SWITCH SPACE",
+              style = MaterialTheme.typography.labelSmall,
+              fontWeight = FontWeight.Bold,
+              color = TextSecondary,
+              modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+              fontSize = 10.sp
+            )
+            allSpaces.forEach { space ->
+              val isCurrent = space.id == activeSpace?.id
+              DropdownMenuItem(
+                text = {
+                  Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                  ) {
+                    Icon(
+                      imageVector = if (isCurrent) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                      contentDescription = null,
+                      tint = if (isCurrent) PrimaryPurpleDark else TextMuted,
+                      modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                      text = space.name,
+                      fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                      color = TextPrimary
+                    )
+                    if (space.isProtected) {
+                      Spacer(modifier = Modifier.weight(1f))
+                      Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Protected",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(14.dp)
+                      )
+                    }
+                  }
+                },
+                onClick = {
+                  showSpaceSwitcherMenu = false
+                  if (space.isProtected && !spaceViewModel.isSpaceUnlocked(space)) {
+                    spaceToUnlockForSwitch = space
+                  } else {
+                    spaceViewModel.selectActiveSpace(space.id)
+                  }
+                },
+                modifier = Modifier.testTag("menu_switch_space_${space.id}")
+              )
+            }
+            HorizontalDivider(color = LightSurfaceContainerHigh)
+            DropdownMenuItem(
+              text = {
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = null,
+                    tint = PrimaryPurpleDark,
+                    modifier = Modifier.size(18.dp)
+                  )
+                  Text("Manage Spaces...", color = PrimaryPurpleDark, fontWeight = FontWeight.Medium)
+                }
+              },
+              onClick = {
+                showSpaceSwitcherMenu = false
+                onOpenConfiguration()
+              }
+            )
+          }
+        }
+
+        // Discreet button to enter full Configuration & App Manager
+        IconButton(
+          onClick = onOpenConfiguration,
+          modifier = Modifier
+            .size(36.dp)
+            .testTag("btn_open_config")
+        ) {
+          Icon(
+            imageVector = Icons.Default.Settings,
+            contentDescription = "Launcher Settings",
+            tint = TextSecondary,
+            modifier = Modifier.size(20.dp)
+          )
+        }
       }
     }
-
-    Spacer(modifier = Modifier.height(16.dp))
-  }
-}
-
-/**
- * Renders the application icon from Drawable.
- */
-@Composable
-private fun LauncherIconImage(
-  drawable: Drawable?,
-  contentDescription: String,
-  modifier: Modifier = Modifier
-) {
-  if (drawable != null) {
-    val bitmap = remember(drawable) {
-      drawableToBitmap(drawable)
+  ) { paddingValues ->
+    Box(
+      modifier = Modifier
+        .fillMaxSize()
+        .padding(paddingValues)
+    ) {
+      when {
+        !isCurrentSpaceUnlocked -> {
+          // Protected Space Locked State
+          Column(
+            modifier = Modifier
+              .fillMaxSize()
+              .padding(32.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+          ) {
+            Surface(
+              shape = CircleShape,
+              color = PrimaryContainerLight,
+              modifier = Modifier.size(72.dp)
+            ) {
+              Box(contentAlignment = Alignment.Center) {
+                Icon(
+                  imageVector = Icons.Default.Lock,
+                  contentDescription = null,
+                  tint = PrimaryPurpleDark,
+                  modifier = Modifier.size(36.dp)
+                )
+              }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+              text = "${activeSpace?.name ?: "Space"} is Protected",
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Bold,
+              color = TextPrimary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+              text = "Enter your PIN to access applications in this Space.",
+              style = MaterialTheme.typography.bodySmall,
+              color = TextSecondary,
+              textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Button(
+              onClick = { showUnlockForActiveSpace = true },
+              shape = RoundedCornerShape(8.dp),
+              colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+              modifier = Modifier.testTag("btn_unlock_active_space")
+            ) {
+              Icon(
+                imageVector = Icons.Default.Key,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp)
+              )
+              Spacer(modifier = Modifier.width(6.dp))
+              Text("Enter PIN")
+            }
+          }
+        }
+        discoveryUiState.isLoading && discoveryUiState.allApps.isEmpty() -> {
+          Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+          ) {
+            CircularProgressIndicator(color = PrimaryPurpleDark)
+          }
+        }
+        discoveryUiState.errorMessage != null && spaceScopedApps.isEmpty() -> {
+          Column(
+            modifier = Modifier
+              .fillMaxSize()
+              .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+          ) {
+            Icon(
+              imageVector = Icons.Default.ErrorOutline,
+              contentDescription = null,
+              tint = Color(0xFFC62828),
+              modifier = Modifier.size(48.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+              text = "Unable to load Space apps",
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Bold,
+              color = TextPrimary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+              text = discoveryUiState.errorMessage ?: "",
+              style = MaterialTheme.typography.bodySmall,
+              color = TextSecondary,
+              textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+              onClick = { discoveryViewModel.loadApps() },
+              shape = RoundedCornerShape(8.dp)
+            ) {
+              Text("Retry")
+            }
+          }
+        }
+        spaceScopedApps.isEmpty() -> {
+          // Empty Space State prompting to configure app memberships
+          Column(
+            modifier = Modifier
+              .fillMaxSize()
+              .padding(32.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+          ) {
+            Surface(
+              shape = CircleShape,
+              color = PrimaryContainerLight,
+              modifier = Modifier.size(72.dp)
+            ) {
+              Box(contentAlignment = Alignment.Center) {
+                Icon(
+                  imageVector = Icons.Default.Apps,
+                  contentDescription = null,
+                  tint = PrimaryPurpleDark,
+                  modifier = Modifier.size(36.dp)
+                )
+              }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+              text = "No apps in ${activeSpace?.name ?: "this Space"}",
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Bold,
+              color = TextPrimary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+              text = "Assign apps to this Space to display them on your Home screen.",
+              style = MaterialTheme.typography.bodySmall,
+              color = TextSecondary,
+              textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Button(
+              onClick = onOpenConfiguration,
+              shape = RoundedCornerShape(8.dp),
+              modifier = Modifier.testTag("btn_empty_space_configure")
+            ) {
+              Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp)
+              )
+              Spacer(modifier = Modifier.width(6.dp))
+              Text("Add Apps to Space")
+            }
+          }
+        }
+        else -> {
+          // 4-Column Clean Application Grid
+          LazyVerticalGrid(
+            columns = GridCells.Fixed(4),
+            modifier = Modifier
+              .fillMaxSize()
+              .padding(horizontal = 8.dp)
+              .testTag("home_apps_grid"),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp, start = 4.dp, end = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+          ) {
+            items(
+              count = spaceScopedApps.size,
+              key = { index ->
+                val app = spaceScopedApps[index]
+                "${app.packageName}/${app.activityName}/${app.userHandleId}"
+              }
+            ) { index ->
+              val app = spaceScopedApps[index]
+              HomeAppGridItem(
+                app = app,
+                getIcon = { discoveryViewModel.getAppIcon(it) },
+                onLaunch = { onLaunchApp(app) }
+              )
+            }
+          }
+        }
+      }
     }
-    if (bitmap != null) {
-      Image(
-        bitmap = bitmap.asImageBitmap(),
-        contentDescription = contentDescription,
-        modifier = modifier
-      )
-    } else {
-      FallbackIcon(contentDescription, modifier)
-    }
-  } else {
-    FallbackIcon(contentDescription, modifier)
   }
-}
 
-@Composable
-private fun FallbackIcon(contentDescription: String, modifier: Modifier) {
-  Box(
-    modifier = modifier
-      .clip(RoundedCornerShape(12.dp))
-      .background(PrimaryContainerLight),
-    contentAlignment = Alignment.Center
-  ) {
-    Icon(
-      imageVector = Icons.Default.Apps,
-      contentDescription = contentDescription,
-      tint = PrimaryPurpleDark,
-      modifier = Modifier.size(24.dp)
+  // Active space unlock dialog
+  if (showUnlockForActiveSpace && activeSpace != null) {
+    SpaceUnlockDialog(
+      space = activeSpace!!,
+      onDismiss = { showUnlockForActiveSpace = false },
+      onUnlockSuccess = {
+        showUnlockForActiveSpace = false
+      },
+      spaceViewModel = spaceViewModel
     )
   }
-}
 
-private fun drawableToBitmap(drawable: Drawable): Bitmap? {
-  return try {
-    if (drawable is BitmapDrawable && drawable.bitmap != null) {
-      return drawable.bitmap
-    }
-    val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 96
-    val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 96
-    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    drawable.setBounds(0, 0, canvas.width, canvas.height)
-    drawable.draw(canvas)
-    bitmap
-  } catch (e: Exception) {
-    null
+  // Target space unlock dialog for switching
+  spaceToUnlockForSwitch?.let { space ->
+    SpaceUnlockDialog(
+      space = space,
+      onDismiss = { spaceToUnlockForSwitch = null },
+      onUnlockSuccess = {
+        spaceViewModel.selectActiveSpace(space.id)
+        spaceToUnlockForSwitch = null
+      },
+      spaceViewModel = spaceViewModel
+    )
   }
 }

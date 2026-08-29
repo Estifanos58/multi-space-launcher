@@ -25,4 +25,30 @@ interface SpaceRepository {
   suspend fun addAppToSpace(spaceId: String, app: DiscoveredApp): Result<Unit>
   suspend fun removeAppFromSpace(spaceId: String, app: DiscoveredApp): Result<Unit>
   suspend fun isAppInSpace(spaceId: String, app: DiscoveredApp): Boolean
+
+  suspend fun setSpacePin(spaceId: String, pin: String): Result<Unit>
+  suspend fun changeSpacePin(spaceId: String, currentPin: String, newPin: String): Result<Unit>
+  suspend fun disableSpacePin(spaceId: String, currentPin: String): Result<Unit>
+  suspend fun verifySpacePin(spaceId: String, pin: String): Boolean
+
+  suspend fun updateSpaceCustomization(
+    spaceId: String,
+    backgroundType: String,
+    backgroundColor: Long?,
+    backgroundImageUri: String?,
+    gridColumns: Int,
+    iconSize: String,
+    labelVisibility: Boolean
+  ): Result<Unit>
+
+  suspend fun reorderSpaceApp(
+    spaceId: String,
+    app: DiscoveredApp,
+    direction: Int
+  ): Result<Unit>
+
+  suspend fun reorderSpaceApps(
+    spaceId: String,
+    orderedApps: List<DiscoveredApp>
+  ): Result<Unit>
 }

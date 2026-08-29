@@ -1,10 +1,10 @@
-# Agent Handoff — Phase 4 Minimal Usable Launcher
+# Agent Handoff — Space PIN Security & Local Authentication
 
 ## Task
-Phase 4 — Minimal Usable Launcher
+Space PIN Security & Local Authentication
 
 ## Session Date
-2026-08-28
+2026-08-29
 
 ## Agent / Environment
 AI Studio Agent (Antigravity) / Cloud Android Build Environment
@@ -12,50 +12,55 @@ AI Studio Agent (Antigravity) / Cloud Android Build Environment
 ---
 
 ## Completed Work
-1. **Minimal Usable Home Surface (`LauncherHomeScreen`):**
-   - Implemented `LauncherHomeScreen.kt` in `com.example.presentation` providing a clean, responsive 4-column application grid.
-   - Integrated with `AppDiscoveryViewModel` to display discovered applications with high-resolution cached icons and readable labels.
-   - Built fast in-place search filtering and category chips (All, User, System).
-2. **App Launching Connection:**
-   - Wired application grid item tap handlers directly to `viewModel.launchApp(app)` backed by the verified Phase 3 `AppLaunchManager`.
-3. **Home Lifecycle & Navigation:**
-   - Updated `MainActivity.kt` to set `LauncherHomeScreen` as the primary launcher Home surface.
-   - Smoothly restored the Home screen upon `onNewIntent` when the user presses the hardware/gesture Home button from external applications.
-4. **State Robustness:**
-   - Implemented `LoadingStateView`, `EmptyStateView` (with clear search and refresh actions), and `ErrorStateView` (with retry triggers).
-   - Display non-intrusive snackbars for launch error feedback.
-5. **Clean Diagnostics Separation:**
-   - Built `LauncherConfigSheetContent` bottom sheet to handle default Home status check (`HomePlatformManager`), catalog statistics, and direct navigation to developer diagnostics without cluttering the primary Home surface.
-6. **Continuity Documentation Updates:**
-   - Updated `CURRENT_TASK.md`, `PROJECT_STATE.md`, `PHYSICAL_TEST_LOG.md` (added TEST-004: Tests A through G), `DECISIONS.md` (added DECISION-013 & 014), `AGENT_HANDOFF.md`, and `REPOSITORY_SNAPSHOT.md`.
+1. **Cryptographic Security Engine (`PinSecurityManager.kt`):**
+   - Implemented standard PBKDF2 with HMAC-SHA256 (`PBKDF2WithHmacSHA256`).
+   - 16-byte cryptographically secure random salt generation via `java.security.SecureRandom`.
+   - Constant-time verification with `MessageDigest.isEqual` to prevent timing attacks.
+   - Numeric PIN validation (4 to 8 digits). Zero plaintext PIN storage or logging.
+2. **Domain & Data Schema Extensions:**
+   - `Space.kt` & `SpaceEntity.kt`: Added `pinSalt`, `pinHash`, and `isProtected` property (`authPolicy == "PIN"` and non-empty salt/hash).
+   - `SpaceRepository.kt` & `RoomSpaceRepository.kt`: Implemented `setSpacePin`, `changeSpacePin`, `disableSpacePin`, and `verifySpacePin`.
+3. **Session & Runtime State Management (`SpaceViewModel.kt`):**
+   - Added in-memory `unlockedSpaceIds` `StateFlow` to track transient unlock sessions during app process lifecycle.
+   - Implemented `isSpaceUnlocked`, `unlockSpace`, `lockSpace`, `lockAllProtectedSpaces`, `verifyAndUnlockSpace`, `setSpacePin`, `changeSpacePin`, and `disableSpacePin`.
+4. **Home Presentation Gating (`LauncherHomeScreen.kt`):**
+   - If active Space is protected and not unlocked in runtime memory:
+     - Returns empty projection list, completely concealing assigned applications.
+     - Renders a clean locked state card with Lock icon, title, and "Enter PIN" button.
+     - Tapping "Enter PIN" opens `SpaceUnlockDialog`.
+5. **Gated Space Switching:**
+   - Selecting a protected Space from the switcher dropdown or configuration list intercepts navigation and triggers `SpaceUnlockDialog`.
+   - Space only switches upon successful PIN verification.
+6. **PIN Management UI & Dialogs (`SpacePinDialogs.kt`, `SpaceManagementComponents.kt`, `LauncherConfigurationScreen.kt`):**
+   - `SetSpacePinDialog`: PIN entry with confirmation, masked visual transformation, and digit format validation.
+   - `ChangeSpacePinDialog`: Current PIN verification + New PIN + Confirmation.
+   - `DisableSpacePinDialog`: Current PIN verification before removing protection.
+   - `SpaceUnlockDialog`: Masked PIN input, real-time error feedback, and async verification indicator.
+   - `SpaceItemCard` / `SpaceRowItem`: Shows green "PIN" badge, +PIN / PIN management button, and Remove PIN button.
+7. **Continuity Documentation Updates:**
+   - Updated `CURRENT_TASK.md`, `PROJECT_STATE.md`, `DECISIONS.md` (added DECISION-022, DECISION-023), `PHYSICAL_TEST_LOG.md` (added TEST-007: Tests A through H), `AGENT_HANDOFF.md`, and `REPOSITORY_SNAPSHOT.md`.
 
 ---
 
-## Files Created
+## Files Modified / Created
+* `/app/src/main/java/com/example/platform/PinSecurityManager.kt` (Created)
+* `/app/src/main/java/com/example/domain/model/Space.kt`
+* `/app/src/main/java/com/example/data/entity/SpaceEntity.kt`
+* `/app/src/main/java/com/example/domain/repository/SpaceRepository.kt`
+* `/app/src/main/java/com/example/data/repository/RoomSpaceRepository.kt`
+* `/app/src/main/java/com/example/presentation/SpaceViewModel.kt`
+* `/app/src/main/java/com/example/presentation/SpacePinDialogs.kt` (Created)
+* `/app/src/main/java/com/example/presentation/SpaceManagementComponents.kt`
 * `/app/src/main/java/com/example/presentation/LauncherHomeScreen.kt`
-
-## Files Modified
-* `/app/src/main/java/com/example/MainActivity.kt`
-* `/app/src/main/java/com/example/presentation/AppDiscoveryViewModel.kt`
-* `/app/src/main/java/com/example/presentation/Phase2AppDiscoveryScreen.kt`
+* `/app/src/main/java/com/example/presentation/LauncherConfigurationScreen.kt`
 * `/docs/CURRENT_TASK.md`
 * `/docs/PROJECT_STATE.md`
-* `/docs/PHYSICAL_TEST_LOG.md`
 * `/docs/DECISIONS.md`
+* `/docs/PHYSICAL_TEST_LOG.md`
 * `/docs/AGENT_HANDOFF.md`
-* `/docs/REPOSITORY_SNAPSHOT.md`
-
-## Files Intentionally Not Changed / Preserved
-* Room database & DataStore (Protected until Phase 5).
-* Space domain entities, models, and switcher (Protected until Phases 5 & 6).
-* PIN security & authentication (Protected until Phase 8).
-* Wallpaper & customization (Protected until Phase 9).
-* Automated test code (Robolectric, Espresso) per Constitution Rule 7.
-
----
 
 ## Build Verification
-* **Build System:** Gradle Kotlin DSL (`compile_applet` / `assembleDebug`)
+* **Build System:** Gradle Kotlin DSL (`compile_applet`)
 * **Build Result:** `SUCCESS` (Debug APK compiled cleanly with 0 errors)
 * **Target Artifact:** `app/build/outputs/apk/debug/app-debug.apk`
 
@@ -63,21 +68,4 @@ AI Studio Agent (Antigravity) / Cloud Android Build Environment
 
 ## Manual Testing Status
 * **Status:** `NOT PERFORMED`
-* **Test Plan:** TEST-004 (Phase 4 Physical Verification Matrix: Tests A through G in `docs/PHYSICAL_TEST_LOG.md`).
-* **Physical Testing Procedure:**
-  1. `adb install -r app/build/outputs/apk/debug/app-debug.apk`
-  2. Set Multi-Space Launcher as default Home app.
-  3. Verify Home startup (Test A) -> confirm 4-column application grid appears immediately.
-  4. Verify Grid layout & 60fps scrolling (Test B).
-  5. Tap an application to launch (Test C) -> confirm instant opening.
-  6. Press Home button from external app (Test D) -> confirm return to Home grid.
-  7. Test repeated launch and return cycle across apps (Test E).
-  8. Test real-time catalog changes upon app install/uninstall (Test F).
-  9. Test empty and error state handling with non-matching queries (Test G).
-
----
-
-## Recommended Next Action
-Execute physical verification TEST-004 on hardware. Upon human validation, proceed to **Phase 5 — Space Domain + Persistence**.
-
-
+* **Test Plan:** TEST-007 (Space PIN Security Physical Verification Matrix: Tests A through H in `docs/PHYSICAL_TEST_LOG.md`).

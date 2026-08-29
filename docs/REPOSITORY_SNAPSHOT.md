@@ -1,10 +1,10 @@
-# Repository Snapshot — Phase 4 Minimal Usable Launcher
+# Repository Snapshot — Per-Space Application Presentation
 
 ## Snapshot Date
-2026-08-28
+2026-08-29
 
 ## Current Git Commit / Branch
-* **Commit:** UNKNOWN (Phase 4 implementation)
+* **Commit:** UNKNOWN (Per-Space Application Presentation implementation)
 * **Branch:** main / workspace
 
 ---
@@ -36,10 +36,26 @@
 │           │           │   └── AppLogger.kt
 │           │           ├── domain/
 │           │           │   ├── DomainContract.kt
-│           │           │   └── model/
-│           │           │       └── DiscoveredApp.kt
+│           │           │   ├── model/
+│           │           │   │   ├── DiscoveredApp.kt
+│           │           │   │   ├── Space.kt
+│           │           │   │   └── SpaceMembership.kt
+│           │           │   └── repository/
+│           │           │       └── SpaceRepository.kt
 │           │           ├── data/
-│           │           │   └── DataContract.kt
+│           │           │   ├── DataContract.kt
+│           │           │   ├── database/
+│           │           │   │   └── LauncherDatabase.kt
+│           │           │   ├── entity/
+│           │           │   │   ├── SpaceEntity.kt
+│           │           │   │   └── SpaceMembershipEntity.kt
+│           │           │   ├── dao/
+│           │           │   │   ├── SpaceDao.kt
+│           │           │   │   └── SpaceMembershipDao.kt
+│           │           │   ├── preferences/
+│           │           │   │   └── LauncherPreferences.kt
+│           │           │   └── repository/
+│           │           │       └── RoomSpaceRepository.kt
 │           │           ├── platform/
 │           │           │   ├── PlatformContract.kt
 │           │           │   ├── HomePlatformManager.kt
@@ -47,10 +63,13 @@
 │           │           │   └── AppLaunchManager.kt
 │           │           ├── presentation/
 │           │           │   ├── AppDiscoveryViewModel.kt
+│           │           │   ├── SpaceViewModel.kt
 │           │           │   ├── LauncherHomeScreen.kt
-│           │           │   ├── Phase0FoundationScreen.kt
-│           │           │   ├── Phase1LauncherSpikeScreen.kt
-│           │           │   └── Phase2AppDiscoveryScreen.kt
+│           │           │   ├── LauncherConfigurationScreen.kt
+│           │           │   ├── AppCatalogScreen.kt
+│           │           │   ├── SpaceManagementComponents.kt
+│           │           │   ├── FoundationOverviewScreen.kt
+│           │           │   └── LauncherDiagnosticsScreen.kt
 │           │           └── ui/
 │           │               └── theme/
 │           │                   ├── Color.kt
@@ -92,32 +111,33 @@
 * **Target SDK:** 36
 * **Min SDK:** 28
 * **UI Foundation:** Jetpack Compose (BOM 2024.09.00) with Material 3 (Clean Utility / Minimal Theme)
-* **Launcher Manifest Config:** `HOME`, `DEFAULT`, `LAUNCHER` intent filters, `<queries>` package visibility block, `launchMode="singleTask"`, `stateNotNeeded="true"`, `clearTaskOnLaunch="true"`
-* **Platform Discovery Stack:** `LauncherApps` multi-profile querying, `UserManager.userProfiles`, `LruCache` icon loader, `LauncherApps.Callback` package receiver
-* **Platform Launch Stack:** `LauncherApps.startMainActivity`, launch-time profile resolution, component verification, PackageManager fallback, zero-crash exception handling
-* **Home Surface UI:** `LauncherHomeScreen` with 4-column adaptive grid, search filtering, empty/loading/error states, and configuration bottom sheet
+* **Launcher Manifest Config:** `HOME`, `DEFAULT`, `LAUNCHER` intent filters, `<queries>` package visibility block, `launchMode="singleTask"`, `stateNotNeeded="true"`, `clearTaskOnLaunch="true"`; zero `QUERY_ALL_PACKAGES`
+* **Persistence Stack:** Room Database v1 (`LauncherDatabase`), `SpaceDao`, `SpaceMembershipDao`, `LauncherPreferences` (DataStore)
+* **Platform Stack:** `LauncherApps` multi-profile querying, `UserManager`, `LruCache` icon loader, `AppLaunchManager`
+* **Home Surface UI:** `LauncherHomeScreen` with 4-column adaptive grid, active Space indicator chip with fast switcher popover, tap-to-launch, and empty state
+* **Configuration Surface UI:** `LauncherConfigurationScreen` with Space creation, renaming, safe deletion, and per-app membership management
+* **Presentation Engine:** Reactive projection of active Space Room memberships against live `LauncherApps` catalog with persisted ordering and graceful unavailable app handling
 
 ---
 
 ## Implementation Summary
-* **Phase 4 Status:** `COMPLETE & BUILD VERIFIED`
+* **Current Status:** `COMPLETE & BUILD VERIFIED`
 * **Features Implemented:**
-  - `LauncherHomeScreen.kt` in `com.example.presentation` providing the primary 4-column application launcher grid with search filtering.
-  - High-performance icon rendering and centered labels with clean ellipsis formatting.
-  - Direct tap-to-launch connection via `AppDiscoveryViewModel` and `AppLaunchManager`.
-  - `MainActivity.kt` updated to set `LauncherHomeScreen` as default and smoothly restore it upon receiving `onNewIntent` (Home key press).
-  - Empty, loading, and error states handled with zero crashes.
-  - Configuration bottom sheet (`LauncherConfigSheetContent`) providing Home status check and diagnostics navigation.
+  - Dynamic Space presentation projection: `LauncherHomeScreen` resolves active Space memberships against Android's `LauncherApps` catalog in real time.
+  - Persisted ordering: Grid elements follow `order_index ASC, added_at ASC` as queried from Room without alphabetical override.
+  - Unavailable application handling: Missing/uninstalled applications are omitted from the visible grid while keeping their Room membership records intact.
+  - Reinstallation recovery: When an application is reinstalled, discovery updates and the matching component identity automatically restores presentation at its persisted order slot.
+  - Real-time reactive flow: Membership edits in Configuration immediately reflect on Home via Room Flow without app restarts.
+  - Complete Home vs Configuration UX separation.
+  - Zero `QUERY_ALL_PACKAGES` permission and zero automated test code.
 * **Protected Boundaries Preserved:**
-  - No Space domain entities or switcher (reserved for Phases 5 & 6).
-  - No Room database entities or DAOs (reserved for Phase 5).
-  - No PIN security or authentication (reserved for Phase 8).
-  - No wallpaper or layout customization (reserved for Phase 9).
+  - No PIN security or authentication (reserved for Security task).
+  - No drag-and-drop or widget layout customization (reserved for Layout task).
+  - No Android profile management or OS sandboxing.
   - No automated test code (Robolectric, Espresso) per Constitution Rule 7.
 
 ---
 
 ## Unresolved Items & Unknowns
 * Physical test device hardware and performance profile (`UNKNOWN`).
-* Physical on-device TEST-004 verification execution (`NOT PERFORMED`).
-
+* Physical on-device TEST-006 verification execution (`NOT PERFORMED`).

@@ -20,16 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.RadioButtonChecked
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -99,6 +90,10 @@ fun SpaceManagementSection(
   var spaceToRename by remember { mutableStateOf<Space?>(null) }
   var spaceToDelete by remember { mutableStateOf<Space?>(null) }
   var spaceForMemberships by remember { mutableStateOf<Space?>(null) }
+  var spaceForSetPin by remember { mutableStateOf<Space?>(null) }
+  var spaceForChangePin by remember { mutableStateOf<Space?>(null) }
+  var spaceForDisablePin by remember { mutableStateOf<Space?>(null) }
+  var spaceToUnlockForSwitch by remember { mutableStateOf<Space?>(null) }
 
   Surface(
     shape = RoundedCornerShape(16.dp),
@@ -159,10 +154,24 @@ fun SpaceManagementSection(
           SpaceItemCard(
             space = space,
             isActive = isActive,
-            onSelectActive = { spaceViewModel.selectActiveSpace(space.id) },
+            onSelectActive = {
+              if (space.isProtected && !spaceViewModel.isSpaceUnlocked(space)) {
+                spaceToUnlockForSwitch = space
+              } else {
+                spaceViewModel.selectActiveSpace(space.id)
+              }
+            },
             onRename = { spaceToRename = space },
             onDelete = { spaceToDelete = space },
-            onManageMemberships = { spaceForMemberships = space }
+            onManageMemberships = { spaceForMemberships = space },
+            onManagePin = {
+              if (space.isProtected) {
+                spaceForChangePin = space
+              } else {
+                spaceForSetPin = space
+              }
+            },
+            onDisablePin = { spaceForDisablePin = space }
           )
         }
       }
@@ -210,6 +219,51 @@ fun SpaceManagementSection(
       onDismiss = { spaceForMemberships = null }
     )
   }
+
+  spaceForSetPin?.let { space ->
+    SetSpacePinDialog(
+      space = space,
+      onDismiss = { spaceForSetPin = null },
+      onPinSet = { pin ->
+        spaceViewModel.setSpacePin(space.id, pin)
+        spaceForSetPin = null
+      }
+    )
+  }
+
+  spaceForChangePin?.let { space ->
+    ChangeSpacePinDialog(
+      space = space,
+      onDismiss = { spaceForChangePin = null },
+      onPinChanged = { currentPin, newPin ->
+        spaceViewModel.changeSpacePin(space.id, currentPin, newPin)
+        spaceForChangePin = null
+      }
+    )
+  }
+
+  spaceForDisablePin?.let { space ->
+    DisableSpacePinDialog(
+      space = space,
+      onDismiss = { spaceForDisablePin = null },
+      onPinDisabled = { currentPin ->
+        spaceViewModel.disableSpacePin(space.id, currentPin)
+        spaceForDisablePin = null
+      }
+    )
+  }
+
+  spaceToUnlockForSwitch?.let { space ->
+    SpaceUnlockDialog(
+      space = space,
+      onDismiss = { spaceToUnlockForSwitch = null },
+      onUnlockSuccess = {
+        spaceViewModel.selectActiveSpace(space.id)
+        spaceToUnlockForSwitch = null
+      },
+      spaceViewModel = spaceViewModel
+    )
+  }
 }
 
 @Composable
@@ -219,14 +273,16 @@ private fun SpaceItemCard(
   onSelectActive: () -> Unit,
   onRename: () -> Unit,
   onDelete: () -> Unit,
-  onManageMemberships: () -> Unit
+  onManageMemberships: () -> Unit,
+  onManagePin: () -> Unit,
+  onDisablePin: () -> Unit
 ) {
   val formattedDate = remember(space.createdAt) {
     SimpleDateFormat("MM/dd HH:mm", Locale.US).format(Date(space.createdAt))
   }
 
   Surface(
-    shape = RoundedCornerShape(12.dp),
+    shape = RoundedCornerShape(14.dp),
     color = if (isActive) PrimaryContainerLight else LightSurfaceContainerLow,
     modifier = Modifier
       .fillMaxWidth()
@@ -235,95 +291,187 @@ private fun SpaceItemCard(
     Column(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(12.dp),
-      verticalArrangement = Arrangement.spacedBy(8.dp)
+        .padding(14.dp),
+      verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
       Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        modifier = Modifier
+          .fillMaxWidth()
+          .clickable { onSelectActive() },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
       ) {
-        Row(
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          modifier = Modifier.clickable { onSelectActive() }
-        ) {
-          Icon(
-            imageVector = if (isActive) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
-            contentDescription = if (isActive) "Active Space" else "Inactive Space",
-            tint = if (isActive) PrimaryPurpleDark else TextMuted,
-            modifier = Modifier.size(20.dp)
-          )
-          Column {
-            Row(
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-              Text(
-                text = space.name,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-              )
-              if (isActive) {
-                Surface(
-                  shape = RoundedCornerShape(4.dp),
-                  color = PrimaryPurpleDark
+        Icon(
+          imageVector = if (isActive) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+          contentDescription = if (isActive) "Active Space" else "Inactive Space",
+          tint = if (isActive) PrimaryPurpleDark else TextMuted,
+          modifier = Modifier.size(22.dp)
+        )
+        Column(modifier = Modifier.weight(1f)) {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+          ) {
+            Text(
+              text = space.name,
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Bold,
+              color = TextPrimary
+            )
+            if (isActive) {
+              Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = PrimaryPurpleDark
+              ) {
+                Text(
+                  text = "ACTIVE",
+                  color = Color.White,
+                  fontSize = 10.sp,
+                  fontWeight = FontWeight.Bold,
+                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+              }
+            }
+            if (space.isProtected) {
+              Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = Color(0xFF2E7D32)
+              ) {
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                  horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
+                  Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = "Protected",
+                    tint = Color.White,
+                    modifier = Modifier.size(10.dp)
+                  )
                   Text(
-                    text = "ACTIVE",
+                    text = "PIN",
                     color = Color.White,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
                   )
                 }
               }
             }
-            Text(
-              text = "ID: ${space.id} · Created: $formattedDate",
-              style = MaterialTheme.typography.labelSmall,
-              fontFamily = FontFamily.Monospace,
-              color = TextSecondary,
-              fontSize = 10.sp
+          }
+          Text(
+            text = "ID: ${space.id} · Created: $formattedDate",
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace,
+            color = TextSecondary,
+            fontSize = 11.sp
+          )
+        }
+      }
+
+      HorizontalDivider(color = LightSurfaceContainerHigh)
+
+      // Dedicated Action Buttons for Apps Membership, PIN Security, Rename, and Delete
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        OutlinedButton(
+          onClick = onManageMemberships,
+          shape = RoundedCornerShape(8.dp),
+          contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+          modifier = Modifier
+            .weight(1f)
+            .testTag("space_memberships_${space.id}")
+        ) {
+          Icon(
+            imageVector = Icons.Default.List,
+            contentDescription = "Manage Memberships",
+            tint = PrimaryPurpleDark,
+            modifier = Modifier.size(14.dp)
+          )
+          Spacer(modifier = Modifier.width(3.dp))
+          Text("Apps", fontSize = 11.sp, color = PrimaryPurpleDark)
+        }
+
+        OutlinedButton(
+          onClick = onManagePin,
+          shape = RoundedCornerShape(8.dp),
+          contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+          modifier = Modifier
+            .weight(1f)
+            .testTag("space_pin_${space.id}")
+        ) {
+          Icon(
+            imageVector = if (space.isProtected) Icons.Default.LockReset else Icons.Default.Lock,
+            contentDescription = "PIN Security",
+            tint = if (space.isProtected) Color(0xFF2E7D32) else TextSecondary,
+            modifier = Modifier.size(14.dp)
+          )
+          Spacer(modifier = Modifier.width(3.dp))
+          Text(
+            if (space.isProtected) "PIN" else "+PIN",
+            fontSize = 11.sp,
+            color = if (space.isProtected) Color(0xFF2E7D32) else TextPrimary
+          )
+        }
+
+        if (space.isProtected) {
+          OutlinedButton(
+            onClick = onDisablePin,
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+              contentColor = Color(0xFFE65100)
+            ),
+            modifier = Modifier.testTag("space_disable_pin_${space.id}")
+          ) {
+            Icon(
+              imageVector = Icons.Default.LockOpen,
+              contentDescription = "Remove PIN",
+              tint = Color(0xFFE65100),
+              modifier = Modifier.size(14.dp)
             )
           }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-          IconButton(
-            onClick = onManageMemberships,
-            modifier = Modifier.size(32.dp).testTag("space_memberships_${space.id}")
-          ) {
-            Icon(
-              imageVector = Icons.Default.List,
-              contentDescription = "Manage Memberships",
-              tint = PrimaryPurpleDark,
-              modifier = Modifier.size(18.dp)
-            )
-          }
-          IconButton(
-            onClick = onRename,
-            modifier = Modifier.size(32.dp).testTag("space_rename_${space.id}")
-          ) {
-            Icon(
-              imageVector = Icons.Default.Edit,
-              contentDescription = "Rename Space",
-              tint = TextSecondary,
-              modifier = Modifier.size(18.dp)
-            )
-          }
-          IconButton(
-            onClick = onDelete,
-            modifier = Modifier.size(32.dp).testTag("space_delete_${space.id}")
-          ) {
-            Icon(
-              imageVector = Icons.Default.Delete,
-              contentDescription = "Delete Space",
-              tint = Color(0xFFC62828),
-              modifier = Modifier.size(18.dp)
-            )
-          }
+        OutlinedButton(
+          onClick = onRename,
+          shape = RoundedCornerShape(8.dp),
+          contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+          modifier = Modifier
+            .weight(1f)
+            .testTag("space_rename_${space.id}")
+        ) {
+          Icon(
+            imageVector = Icons.Default.Edit,
+            contentDescription = "Rename Space",
+            tint = TextSecondary,
+            modifier = Modifier.size(14.dp)
+          )
+          Spacer(modifier = Modifier.width(3.dp))
+          Text("Rename", fontSize = 11.sp, color = TextPrimary)
+        }
+
+        OutlinedButton(
+          onClick = onDelete,
+          shape = RoundedCornerShape(8.dp),
+          contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+          colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = Color(0xFFC62828)
+          ),
+          modifier = Modifier
+            .weight(1f)
+            .testTag("space_delete_${space.id}")
+        ) {
+          Icon(
+            imageVector = Icons.Default.Delete,
+            contentDescription = "Delete Space",
+            tint = Color(0xFFC62828),
+            modifier = Modifier.size(14.dp)
+          )
+          Spacer(modifier = Modifier.width(3.dp))
+          Text("Delete", fontSize = 11.sp, color = Color(0xFFC62828))
         }
       }
     }
@@ -505,9 +653,26 @@ fun ManageMembershipsDialog(
   onDismiss: () -> Unit
 ) {
   val membershipsFlow = remember(space.id) {
-    spaceViewModel.spaceRepository.getMembershipsForSpaceFlow(space.id)
+    spaceViewModel.getMembershipsFlowForSpace(space.id)
   }
   val memberships by membershipsFlow.collectAsState(initial = emptyList())
+  var searchQuery by remember { mutableStateOf("") }
+
+  val memberPackageSet = remember(memberships) {
+    memberships.map { it.packageName }.toSet()
+  }
+  val memberComponentSet = remember(memberships) {
+    memberships.map { "${it.packageName}/${it.componentName}" }.toSet()
+  }
+
+  val filteredApps = remember(allApps, searchQuery) {
+    if (searchQuery.isBlank()) {
+      allApps
+    } else {
+      val q = searchQuery.trim().lowercase()
+      allApps.filter { it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q) }
+    }
+  }
 
   Dialog(onDismissRequest = onDismiss) {
     Surface(
@@ -515,20 +680,20 @@ fun ManageMembershipsDialog(
       color = LightBackground,
       modifier = Modifier
         .fillMaxWidth()
-        .fillMaxHeight(0.85f)
+        .fillMaxHeight(0.9f)
         .padding(8.dp)
     ) {
       Column(
         modifier = Modifier
           .fillMaxSize()
-          .padding(20.dp)
+          .padding(18.dp)
       ) {
         Row(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.SpaceBetween,
           verticalAlignment = Alignment.CenterVertically
         ) {
-          Column {
+          Column(modifier = Modifier.weight(1f)) {
             Text(
               text = "Space Memberships",
               style = MaterialTheme.typography.titleMedium,
@@ -538,15 +703,78 @@ fun ManageMembershipsDialog(
             Text(
               text = "${space.name} · ${memberships.size} of ${allApps.size} apps assigned",
               style = MaterialTheme.typography.bodySmall,
-              color = TextSecondary
+              color = PrimaryPurpleDark,
+              fontWeight = FontWeight.SemiBold
             )
           }
           IconButton(onClick = onDismiss) {
-            Icon(Icons.Default.Check, contentDescription = "Done")
+            Icon(Icons.Default.Close, contentDescription = "Close")
           }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Search text field
+        OutlinedTextField(
+          value = searchQuery,
+          onValueChange = { searchQuery = it },
+          placeholder = { Text("Search apps...", fontSize = 13.sp) },
+          leadingIcon = {
+            Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(18.dp))
+          },
+          trailingIcon = {
+            if (searchQuery.isNotEmpty()) {
+              IconButton(onClick = { searchQuery = "" }) {
+                Icon(Icons.Default.Clear, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
+              }
+            }
+          },
+          singleLine = true,
+          shape = RoundedCornerShape(12.dp),
+          modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Quick batch actions
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          OutlinedButton(
+            onClick = {
+              filteredApps.forEach { app ->
+                val isMember = memberComponentSet.contains("${app.packageName}/${app.activityName}") || memberPackageSet.contains(app.packageName)
+                if (!isMember) {
+                  spaceViewModel.addAppToSpace(space.id, app)
+                }
+              }
+            },
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.weight(1f)
+          ) {
+            Text("Select All (${filteredApps.size})", fontSize = 11.sp)
+          }
+
+          OutlinedButton(
+            onClick = {
+              filteredApps.forEach { app ->
+                val isMember = memberComponentSet.contains("${app.packageName}/${app.activityName}") || memberPackageSet.contains(app.packageName)
+                if (isMember) {
+                  spaceViewModel.removeAppFromSpace(space.id, app)
+                }
+              }
+            },
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.weight(1f)
+          ) {
+            Text("Clear All", fontSize = 11.sp)
+          }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
         HorizontalDivider(color = LightSurfaceContainerHigh)
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -554,14 +782,11 @@ fun ManageMembershipsDialog(
           modifier = Modifier
             .weight(1f)
             .fillMaxWidth(),
-          verticalArrangement = Arrangement.spacedBy(4.dp)
+          verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-          items(allApps, key = { it.id }) { app ->
-            val isMember = memberships.any {
-              it.packageName == app.packageName &&
-                it.componentName == app.activityName &&
-                it.userHandleId == app.userHandleId
-            }
+          items(filteredApps, key = { it.id }) { app ->
+            val isMember = memberComponentSet.contains("${app.packageName}/${app.activityName}") ||
+              memberPackageSet.contains(app.packageName)
 
             Surface(
               shape = RoundedCornerShape(10.dp),
@@ -569,7 +794,7 @@ fun ManageMembershipsDialog(
               modifier = Modifier
                 .fillMaxWidth()
                 .clickable {
-                  spaceViewModel.toggleAppMembership(space.id, app)
+                  spaceViewModel.setAppMembership(space.id, app, !isMember)
                 }
             ) {
               Row(
@@ -599,11 +824,11 @@ fun ManageMembershipsDialog(
 
                 Checkbox(
                   checked = isMember,
-                  onCheckedChange = {
-                    spaceViewModel.toggleAppMembership(space.id, app)
+                  onCheckedChange = { isChecked ->
+                    spaceViewModel.setAppMembership(space.id, app, isChecked)
                   },
                   colors = CheckboxDefaults.colors(
-                    checkedColor = PrimaryPurple,
+                    checkedColor = PrimaryPurpleDark,
                     checkmarkColor = Color.White
                   )
                 )
@@ -612,15 +837,15 @@ fun ManageMembershipsDialog(
           }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         Button(
           onClick = onDismiss,
           shape = RoundedCornerShape(12.dp),
-          colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+          colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurpleDark),
           modifier = Modifier.fillMaxWidth()
         ) {
-          Text("Done")
+          Text("Done", fontWeight = FontWeight.Bold)
         }
       }
     }

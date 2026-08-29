@@ -206,12 +206,15 @@ class RoomSpaceRepository(
 
   override suspend fun removeAppFromSpace(spaceId: String, app: DiscoveredApp): Result<Unit> {
     return try {
-      membershipDao.deleteMembership(
+      val deletedCount = membershipDao.deleteMembership(
         spaceId = spaceId,
         packageName = app.packageName,
         componentName = app.activityName,
         userHandleId = app.userHandleId
       )
+      if (deletedCount == 0) {
+        membershipDao.deleteMembershipByPackage(spaceId = spaceId, packageName = app.packageName)
+      }
       AppLogger.i(AppLogger.Category.LAUNCHER, "Removed app '${app.label}' from Space ($spaceId)")
       Result.success(Unit)
     } catch (e: Exception) {
@@ -225,11 +228,236 @@ class RoomSpaceRepository(
       val memberships = membershipDao.getMembershipsForSpace(spaceId)
       memberships.any {
         it.packageName == app.packageName &&
-          it.componentName == app.activityName &&
-          it.userHandleId == app.userHandleId
+          (it.componentName == app.activityName || it.componentName.isEmpty() || app.activityName.isEmpty())
       }
     } catch (e: Exception) {
       false
+    }
+  }
+
+  override suspend fun setSpacePin(spaceId: String, pin: String): Result<Unit> {
+    if (!com.example.platform.PinSecurityManager.isValidPinFormat(pin)) {
+      return Result.failure(IllegalArgumentException("PIN must be 4 to 8 numeric digits"))
+    }
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      val salt = com.example.platform.PinSecurityManager.generateSalt()
+      val hash = com.example.platform.PinSecurityManager.hashPin(pin, salt)
+
+      val updated = existing.copy(
+        authPolicy = "PIN",
+        pinSalt = salt,
+        pinHash = hash,
+        updatedAt = System.currentTimeMillis()
+      )
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "PIN protection enabled for Space '${existing.name}' ($spaceId)")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to enable PIN for Space ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun changeSpacePin(spaceId: String, currentPin: String, newPin: String): Result<Unit> {
+    if (!com.example.platform.PinSecurityManager.isValidPinFormat(newPin)) {
+      return Result.failure(IllegalArgumentException("New PIN must be 4 to 8 numeric digits"))
+    }
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      val isCurrentValid = com.example.platform.PinSecurityManager.verifyPin(
+        currentPin,
+        existing.pinSalt,
+        existing.pinHash
+      )
+      if (!isCurrentValid) {
+        AppLogger.w(AppLogger.Category.LAUNCHER, "PIN change failed: incorrect current PIN for Space ($spaceId)")
+        return Result.failure(IllegalArgumentException("Incorrect current PIN"))
+      }
+
+      val newSalt = com.example.platform.PinSecurityManager.generateSalt()
+      val newHash = com.example.platform.PinSecurityManager.hashPin(newPin, newSalt)
+
+      val updated = existing.copy(
+        authPolicy = "PIN",
+        pinSalt = newSalt,
+        pinHash = newHash,
+        updatedAt = System.currentTimeMillis()
+      )
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "PIN changed for Space '${existing.name}' ($spaceId)")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to change PIN for Space ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun disableSpacePin(spaceId: String, currentPin: String): Result<Unit> {
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      val isCurrentValid = com.example.platform.PinSecurityManager.verifyPin(
+        currentPin,
+        existing.pinSalt,
+        existing.pinHash
+      )
+      if (!isCurrentValid) {
+        AppLogger.w(AppLogger.Category.LAUNCHER, "PIN disable failed: incorrect current PIN for Space ($spaceId)")
+        return Result.failure(IllegalArgumentException("Incorrect current PIN"))
+      }
+
+      val updated = existing.copy(
+        authPolicy = "NONE",
+        pinSalt = null,
+        pinHash = null,
+        updatedAt = System.currentTimeMillis()
+      )
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "PIN protection disabled for Space '${existing.name}' ($spaceId)")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to disable PIN for Space ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun verifySpacePin(spaceId: String, pin: String): Boolean {
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId) ?: return false
+      if (existing.authPolicy != "PIN" || existing.pinHash.isNullOrEmpty()) {
+        return true
+      }
+      val isValid = com.example.platform.PinSecurityManager.verifyPin(
+        pin,
+        existing.pinSalt,
+        existing.pinHash
+      )
+      if (isValid) {
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Space PIN authentication succeeded for Space ($spaceId)")
+      } else {
+        AppLogger.w(AppLogger.Category.LAUNCHER, "Space PIN authentication failed for Space ($spaceId)")
+      }
+      isValid
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Error during PIN verification for Space ($spaceId)", e)
+      false
+    }
+  }
+
+  override suspend fun updateSpaceCustomization(
+    spaceId: String,
+    backgroundType: String,
+    backgroundColor: Long?,
+    backgroundImageUri: String?,
+    gridColumns: Int,
+    iconSize: String,
+    labelVisibility: Boolean
+  ): Result<Unit> {
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      val safeGridColumns = gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
+      val safeIconSize = when (iconSize) {
+        Space.ICON_SIZE_SMALL, Space.ICON_SIZE_LARGE -> iconSize
+        else -> Space.ICON_SIZE_MEDIUM
+      }
+      val safeBgType = when (backgroundType) {
+        Space.BACKGROUND_COLOR, Space.BACKGROUND_IMAGE -> backgroundType
+        else -> Space.BACKGROUND_DEFAULT
+      }
+
+      val updated = existing.copy(
+        backgroundType = safeBgType,
+        backgroundColor = backgroundColor,
+        backgroundImageUri = backgroundImageUri,
+        gridColumns = safeGridColumns,
+        iconSize = safeIconSize,
+        labelVisibility = labelVisibility,
+        updatedAt = System.currentTimeMillis()
+      )
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Updated customization for Space '${existing.name}' ($spaceId): bg=$safeBgType, cols=$safeGridColumns, iconSize=$safeIconSize")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update customization for Space ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun reorderSpaceApp(
+    spaceId: String,
+    app: DiscoveredApp,
+    direction: Int
+  ): Result<Unit> {
+    return try {
+      val memberships = membershipDao.getMembershipsForSpace(spaceId).toMutableList()
+      val index = memberships.indexOfFirst {
+        it.packageName == app.packageName &&
+          (it.componentName == app.activityName || it.componentName.isEmpty() || app.activityName.isEmpty())
+      }
+      if (index == -1) {
+        return Result.failure(IllegalArgumentException("App not found in Space memberships"))
+      }
+      val targetIndex = index + direction
+      if (targetIndex < 0 || targetIndex >= memberships.size) {
+        return Result.success(Unit) // Already at boundary
+      }
+
+      // Swap
+      val item = memberships.removeAt(index)
+      memberships.add(targetIndex, item)
+
+      // Update indices
+      memberships.forEachIndexed { i, m ->
+        membershipDao.updateMembershipOrder(
+          spaceId = spaceId,
+          packageName = m.packageName,
+          componentName = m.componentName,
+          userHandleId = m.userHandleId,
+          newOrderIndex = i
+        )
+      }
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Reordered app '${app.label}' in Space ($spaceId) to index $targetIndex")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to reorder app in Space ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun reorderSpaceApps(
+    spaceId: String,
+    orderedApps: List<DiscoveredApp>
+  ): Result<Unit> {
+    return try {
+      val memberships = membershipDao.getMembershipsForSpace(spaceId)
+      val membershipMap = memberships.associateBy { "${it.packageName}/${it.componentName}" }
+
+      orderedApps.forEachIndexed { index, app ->
+        val key = "${app.packageName}/${app.activityName}"
+        val membership = membershipMap[key] ?: memberships.firstOrNull { it.packageName == app.packageName }
+        if (membership != null) {
+          membershipDao.updateMembershipOrder(
+            spaceId = spaceId,
+            packageName = membership.packageName,
+            componentName = membership.componentName,
+            userHandleId = membership.userHandleId,
+            newOrderIndex = index
+          )
+        }
+      }
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Reordered all ${orderedApps.size} apps in Space ($spaceId)")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to reorder apps in Space ($spaceId)", e)
+      Result.failure(e)
     }
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "Multi-Space Launcher",
-  "description": "Phase 2 Application Discovery & LauncherApps Integration for Multi-Space Android Launcher",
+  "description": "Multi-Space Android Launcher with clean Home surface, active Space projection, and local Room persistence",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
