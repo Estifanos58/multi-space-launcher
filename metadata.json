@@ -1,0 +1,6 @@
+{
+  "name": "Multi-Space Launcher",
+  "description": "Phase 2 Application Discovery & LauncherApps Integration for Multi-Space Android Launcher",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
