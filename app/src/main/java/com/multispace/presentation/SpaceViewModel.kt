@@ -95,6 +95,75 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
+  fun createFullSpace(
+    name: String,
+    authPolicy: String = Space.AUTH_NONE,
+    pinSalt: String? = null,
+    pinHash: String? = null,
+    patternRows: Int = Space.DEFAULT_PATTERN_ROWS,
+    patternCols: Int = Space.DEFAULT_PATTERN_COLS,
+    backgroundType: String = Space.BACKGROUND_DEFAULT,
+    backgroundColor: Long? = null,
+    backgroundImageUri: String? = null,
+    homeWallpaperType: String = Space.BACKGROUND_DEFAULT,
+    homeWallpaperColor: Long? = null,
+    homeWallpaperImageUri: String? = null,
+    phoneLockWallpaperType: String = Space.BACKGROUND_DEFAULT,
+    phoneLockWallpaperColor: Long? = null,
+    phoneLockWallpaperImageUri: String? = null,
+    spaceLockWallpaperType: String = Space.BACKGROUND_DEFAULT,
+    spaceLockWallpaperColor: Long? = null,
+    spaceLockWallpaperImageUri: String? = null,
+    appTheme: String = Space.THEME_DEFAULT,
+    gridColumns: Int = Space.DEFAULT_GRID_COLUMNS,
+    iconSize: String = Space.ICON_SIZE_MEDIUM,
+    labelVisibility: Boolean = true,
+    initialApps: List<DiscoveredApp> = emptyList(),
+    onResult: ((Boolean, String?) -> Unit)? = null
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.createFullSpace(
+        name = name,
+        authPolicy = authPolicy,
+        pinSalt = pinSalt,
+        pinHash = pinHash,
+        patternRows = patternRows,
+        patternCols = patternCols,
+        backgroundType = backgroundType,
+        backgroundColor = backgroundColor,
+        backgroundImageUri = backgroundImageUri,
+        homeWallpaperType = homeWallpaperType,
+        homeWallpaperColor = homeWallpaperColor,
+        homeWallpaperImageUri = homeWallpaperImageUri,
+        phoneLockWallpaperType = phoneLockWallpaperType,
+        phoneLockWallpaperColor = phoneLockWallpaperColor,
+        phoneLockWallpaperImageUri = phoneLockWallpaperImageUri,
+        spaceLockWallpaperType = spaceLockWallpaperType,
+        spaceLockWallpaperColor = spaceLockWallpaperColor,
+        spaceLockWallpaperImageUri = spaceLockWallpaperImageUri,
+        appTheme = appTheme,
+        gridColumns = gridColumns,
+        iconSize = iconSize,
+        labelVisibility = labelVisibility,
+        initialApps = initialApps
+      )
+      result.fold(
+        onSuccess = { created ->
+          if (authPolicy != Space.AUTH_NONE) {
+            unlockSpace(created.id)
+          }
+          _userFeedback.tryEmit("Space '${created.name}' created successfully.")
+          onResult?.invoke(true, null)
+        },
+        onFailure = { error ->
+          val msg = error.message ?: "Failed to create Space."
+          _userFeedback.tryEmit("Error: $msg")
+          onResult?.invoke(false, msg)
+        }
+      )
+    }
+  }
+
   fun renameSpace(spaceId: String, newName: String) {
     viewModelScope.launch {
       val result = spaceRepository.renameSpace(spaceId, newName)

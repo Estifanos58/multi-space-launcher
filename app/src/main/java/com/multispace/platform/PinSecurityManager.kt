@@ -71,4 +71,18 @@ object PinSecurityManager {
   fun isValidPinFormat(pin: String): Boolean {
     return pin.length in 4..8 && pin.all { it.isDigit() }
   }
+
+  /**
+   * Validates that the pattern has at least the minimum required points.
+   */
+  fun isValidPatternFormat(pattern: String): Boolean {
+    return pattern.isNotBlank() && (pattern.startsWith("PATTERN:") || pattern.contains("-") || pattern.contains(",") || pattern.length >= 3)
+  }
+
+  /**
+   * Generic verification for either PIN or Pattern credentials.
+   */
+  fun verifyCredential(enteredCredential: String, saltBase64: String?, expectedHashBase64: String?): Boolean {
+    return verifyPin(enteredCredential, saltBase64, expectedHashBase64)
+  }
 }

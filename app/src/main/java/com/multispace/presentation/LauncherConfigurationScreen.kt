@@ -44,7 +44,8 @@ fun LauncherConfigurationScreen(
   isDefaultHome: Boolean,
   onRequestSetDefaultHome: () -> Unit,
   onOpenDiagnostics: () -> Unit,
-  onOpenHomeSurface: () -> Unit
+  onOpenHomeSurface: () -> Unit,
+  onOpenCreateSpace: (() -> Unit)? = null
 ) {
   val spaces by spaceViewModel.allSpaces.collectAsStateWithLifecycle()
   val activeSpace by spaceViewModel.activeSpace.collectAsStateWithLifecycle()
@@ -206,7 +207,13 @@ fun LauncherConfigurationScreen(
                 )
               }
               Button(
-                onClick = { showCreateDialog = true },
+                onClick = {
+                  if (onOpenCreateSpace != null) {
+                    onOpenCreateSpace()
+                  } else {
+                    showCreateDialog = true
+                  }
+                },
                 shape = RoundedCornerShape(8.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 modifier = Modifier.testTag("btn_create_space")

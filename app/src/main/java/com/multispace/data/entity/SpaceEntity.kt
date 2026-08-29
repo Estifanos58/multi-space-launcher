@@ -35,6 +35,12 @@ data class SpaceEntity(
   @ColumnInfo(name = "layout_type")
   val layoutType: String = "GRID_4",
 
+  @ColumnInfo(name = "pattern_rows")
+  val patternRows: Int = 3,
+
+  @ColumnInfo(name = "pattern_cols")
+  val patternCols: Int = 3,
+
   @ColumnInfo(name = "background_type")
   val backgroundType: String = "DEFAULT",
 
@@ -43,6 +49,36 @@ data class SpaceEntity(
 
   @ColumnInfo(name = "background_image_uri")
   val backgroundImageUri: String? = null,
+
+  @ColumnInfo(name = "home_wallpaper_type")
+  val homeWallpaperType: String = "DEFAULT",
+
+  @ColumnInfo(name = "home_wallpaper_color")
+  val homeWallpaperColor: Long? = null,
+
+  @ColumnInfo(name = "home_wallpaper_image_uri")
+  val homeWallpaperImageUri: String? = null,
+
+  @ColumnInfo(name = "phone_lock_wallpaper_type")
+  val phoneLockWallpaperType: String = "DEFAULT",
+
+  @ColumnInfo(name = "phone_lock_wallpaper_color")
+  val phoneLockWallpaperColor: Long? = null,
+
+  @ColumnInfo(name = "phone_lock_wallpaper_image_uri")
+  val phoneLockWallpaperImageUri: String? = null,
+
+  @ColumnInfo(name = "space_lock_wallpaper_type")
+  val spaceLockWallpaperType: String = "DEFAULT",
+
+  @ColumnInfo(name = "space_lock_wallpaper_color")
+  val spaceLockWallpaperColor: Long? = null,
+
+  @ColumnInfo(name = "space_lock_wallpaper_image_uri")
+  val spaceLockWallpaperImageUri: String? = null,
+
+  @ColumnInfo(name = "app_theme")
+  val appTheme: String = "DEFAULT",
 
   @ColumnInfo(name = "grid_columns")
   val gridColumns: Int = 4,
@@ -63,9 +99,21 @@ data class SpaceEntity(
     pinSalt = pinSalt,
     pinHash = pinHash,
     layoutType = layoutType,
+    patternRows = patternRows,
+    patternCols = patternCols,
     backgroundType = backgroundType,
     backgroundColor = backgroundColor,
     backgroundImageUri = backgroundImageUri,
+    homeWallpaperType = homeWallpaperType,
+    homeWallpaperColor = homeWallpaperColor,
+    homeWallpaperImageUri = homeWallpaperImageUri,
+    phoneLockWallpaperType = phoneLockWallpaperType,
+    phoneLockWallpaperColor = phoneLockWallpaperColor,
+    phoneLockWallpaperImageUri = phoneLockWallpaperImageUri,
+    spaceLockWallpaperType = spaceLockWallpaperType,
+    spaceLockWallpaperColor = spaceLockWallpaperColor,
+    spaceLockWallpaperImageUri = spaceLockWallpaperImageUri,
+    appTheme = appTheme,
     gridColumns = gridColumns,
     iconSize = iconSize,
     labelVisibility = labelVisibility
@@ -82,9 +130,21 @@ data class SpaceEntity(
       pinSalt = domain.pinSalt,
       pinHash = domain.pinHash,
       layoutType = domain.layoutType,
+      patternRows = domain.patternRows,
+      patternCols = domain.patternCols,
       backgroundType = domain.backgroundType,
       backgroundColor = domain.backgroundColor,
       backgroundImageUri = domain.backgroundImageUri,
+      homeWallpaperType = domain.homeWallpaperType,
+      homeWallpaperColor = domain.homeWallpaperColor,
+      homeWallpaperImageUri = domain.homeWallpaperImageUri,
+      phoneLockWallpaperType = domain.phoneLockWallpaperType,
+      phoneLockWallpaperColor = domain.phoneLockWallpaperColor,
+      phoneLockWallpaperImageUri = domain.phoneLockWallpaperImageUri,
+      spaceLockWallpaperType = domain.spaceLockWallpaperType,
+      spaceLockWallpaperColor = domain.spaceLockWallpaperColor,
+      spaceLockWallpaperImageUri = domain.spaceLockWallpaperImageUri,
+      appTheme = domain.appTheme,
       gridColumns = domain.gridColumns,
       iconSize = domain.iconSize,
       labelVisibility = domain.labelVisibility

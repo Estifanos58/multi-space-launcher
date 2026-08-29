@@ -120,6 +120,91 @@ class RoomSpaceRepository(
     }
   }
 
+  override suspend fun createFullSpace(
+    name: String,
+    authPolicy: String,
+    pinSalt: String?,
+    pinHash: String?,
+    patternRows: Int,
+    patternCols: Int,
+    backgroundType: String,
+    backgroundColor: Long?,
+    backgroundImageUri: String?,
+    homeWallpaperType: String,
+    homeWallpaperColor: Long?,
+    homeWallpaperImageUri: String?,
+    phoneLockWallpaperType: String,
+    phoneLockWallpaperColor: Long?,
+    phoneLockWallpaperImageUri: String?,
+    spaceLockWallpaperType: String,
+    spaceLockWallpaperColor: Long?,
+    spaceLockWallpaperImageUri: String?,
+    appTheme: String,
+    gridColumns: Int,
+    iconSize: String,
+    labelVisibility: Boolean,
+    initialApps: List<DiscoveredApp>
+  ): Result<Space> {
+    val trimmed = name.trim()
+    if (trimmed.isEmpty()) {
+      return Result.failure(IllegalArgumentException("Space name cannot be empty"))
+    }
+    return try {
+      val newId = "space_" + UUID.randomUUID().toString().replace("-", "").take(12)
+      val orderIndex = spaceDao.getSpaceCount()
+      val space = Space(
+        id = newId,
+        name = trimmed,
+        orderIndex = orderIndex,
+        createdAt = System.currentTimeMillis(),
+        updatedAt = System.currentTimeMillis(),
+        authPolicy = authPolicy,
+        pinSalt = pinSalt,
+        pinHash = pinHash,
+        patternRows = patternRows,
+        patternCols = patternCols,
+        layoutType = "GRID_$gridColumns",
+        backgroundType = backgroundType,
+        backgroundColor = backgroundColor,
+        backgroundImageUri = backgroundImageUri,
+        homeWallpaperType = homeWallpaperType,
+        homeWallpaperColor = homeWallpaperColor,
+        homeWallpaperImageUri = homeWallpaperImageUri,
+        phoneLockWallpaperType = phoneLockWallpaperType,
+        phoneLockWallpaperColor = phoneLockWallpaperColor,
+        phoneLockWallpaperImageUri = phoneLockWallpaperImageUri,
+        spaceLockWallpaperType = spaceLockWallpaperType,
+        spaceLockWallpaperColor = spaceLockWallpaperColor,
+        spaceLockWallpaperImageUri = spaceLockWallpaperImageUri,
+        appTheme = appTheme,
+        gridColumns = gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS),
+        iconSize = iconSize,
+        labelVisibility = labelVisibility
+      )
+      spaceDao.insertSpace(SpaceEntity.fromDomain(space))
+
+      if (initialApps.isNotEmpty()) {
+        val memberships = initialApps.mapIndexed { idx, app ->
+          SpaceMembershipEntity(
+            spaceId = newId,
+            packageName = app.packageName,
+            componentName = app.activityName,
+            userHandleId = app.userHandleId,
+            orderIndex = idx,
+            addedAt = System.currentTimeMillis()
+          )
+        }
+        membershipDao.insertMemberships(memberships)
+      }
+
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Created configured Space: '$trimmed' ($newId) with ${initialApps.size} apps")
+      Result.success(space)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to create configured Space: '$name'", e)
+      Result.failure(e)
+    }
+  }
+
   override suspend fun renameSpace(spaceId: String, newName: String): Result<Unit> {
     val trimmed = newName.trim()
     if (trimmed.isEmpty()) {

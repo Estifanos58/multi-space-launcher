@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.multispace.domain.model.Space
 import com.multispace.platform.PinSecurityManager
+import com.multispace.ui.theme.LightSurfaceContainerHigh
+import com.multispace.ui.theme.LightSurfaceContainerLowest
 import com.multispace.ui.theme.PrimaryContainerLight
 import com.multispace.ui.theme.PrimaryPurple
 import com.multispace.ui.theme.PrimaryPurpleDark
@@ -375,9 +377,11 @@ fun SpaceUnlockDialog(
   onUnlockSuccess: () -> Unit,
   spaceViewModel: SpaceViewModel
 ) {
+  val isPatternAuth = space.isPatternProtected || space.authPolicy == Space.AUTH_PATTERN
   var enteredPin by remember { mutableStateOf("") }
   var isError by remember { mutableStateOf(false) }
   var isVerifying by remember { mutableStateOf(false) }
+  var clearTrigger by remember { mutableIntStateOf(0) }
   val coroutineScope = rememberCoroutineScope()
 
   AlertDialog(
@@ -392,7 +396,7 @@ fun SpaceUnlockDialog(
       ) {
         Box(contentAlignment = Alignment.Center) {
           Icon(
-            imageVector = Icons.Default.Lock,
+            imageVector = if (isPatternAuth) Icons.Default.Gesture else Icons.Default.Lock,
             contentDescription = null,
             tint = PrimaryPurpleDark,
             modifier = Modifier.size(28.dp)
@@ -415,33 +419,73 @@ fun SpaceUnlockDialog(
         horizontalAlignment = Alignment.CenterHorizontally
       ) {
         Text(
-          text = "Enter numeric PIN to access this Space.",
+          text = if (isPatternAuth) "Draw gesture pattern to access this Space." else "Enter numeric PIN to access this Space.",
           style = MaterialTheme.typography.bodySmall,
           color = TextSecondary,
           textAlign = TextAlign.Center
         )
 
-        OutlinedTextField(
-          value = enteredPin,
-          onValueChange = { input ->
-            if (input.all { it.isDigit() } && input.length <= 8) {
-              enteredPin = input
-              isError = false
+        if (isPatternAuth) {
+          Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = LightSurfaceContainerLowest,
+            border = androidx.compose.foundation.BorderStroke(1.dp, LightSurfaceContainerHigh),
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(vertical = 4.dp)
+          ) {
+            Box(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+              contentAlignment = Alignment.Center
+            ) {
+              PatternLockCanvas(
+                rows = space.patternRows,
+                cols = space.patternCols,
+                isError = isError,
+                enabled = !isVerifying,
+                clearTrigger = clearTrigger,
+                onPatternStart = { isError = false },
+                onPatternComplete = { _, patternStr ->
+                  isVerifying = true
+                  coroutineScope.launch {
+                    val success = spaceViewModel.verifyAndUnlockSpace(space.id, patternStr)
+                    isVerifying = false
+                    if (success) {
+                      onUnlockSuccess()
+                    } else {
+                      isError = true
+                      clearTrigger++
+                    }
+                  }
+                }
+              )
             }
-          },
-          label = { Text("PIN") },
-          visualTransformation = PasswordVisualTransformation(),
-          keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-          singleLine = true,
-          isError = isError,
-          modifier = Modifier
-            .fillMaxWidth()
-            .testTag("input_unlock_pin")
-        )
+          }
+        } else {
+          OutlinedTextField(
+            value = enteredPin,
+            onValueChange = { input ->
+              if (input.all { it.isDigit() } && input.length <= 8) {
+                enteredPin = input
+                isError = false
+              }
+            },
+            label = { Text("PIN") },
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            singleLine = true,
+            isError = isError,
+            modifier = Modifier
+              .fillMaxWidth()
+              .testTag("input_unlock_pin")
+          )
+        }
 
         if (isError) {
           Text(
-            text = "Incorrect PIN. Please try again.",
+            text = if (isPatternAuth) "Incorrect pattern. Please try again." else "Incorrect PIN. Please try again.",
             style = MaterialTheme.typography.bodySmall,
             color = Color(0xFFC62828),
             fontWeight = FontWeight.Medium
@@ -458,29 +502,31 @@ fun SpaceUnlockDialog(
       }
     },
     confirmButton = {
-      Button(
-        onClick = {
-          if (enteredPin.isBlank()) {
-            isError = true
-            return@Button
-          }
-          isVerifying = true
-          coroutineScope.launch {
-            val success = spaceViewModel.verifyAndUnlockSpace(space.id, enteredPin)
-            isVerifying = false
-            if (success) {
-              onUnlockSuccess()
-            } else {
+      if (!isPatternAuth) {
+        Button(
+          onClick = {
+            if (enteredPin.isBlank()) {
               isError = true
-              enteredPin = ""
+              return@Button
             }
-          }
-        },
-        enabled = !isVerifying && enteredPin.length >= 4,
-        colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
-        modifier = Modifier.testTag("btn_submit_unlock_pin")
-      ) {
-        Text("Unlock")
+            isVerifying = true
+            coroutineScope.launch {
+              val success = spaceViewModel.verifyAndUnlockSpace(space.id, enteredPin)
+              isVerifying = false
+              if (success) {
+                onUnlockSuccess()
+              } else {
+                isError = true
+                enteredPin = ""
+              }
+            }
+          },
+          enabled = !isVerifying && enteredPin.length >= 4,
+          colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+          modifier = Modifier.testTag("btn_submit_unlock_pin")
+        ) {
+          Text("Unlock")
+        }
       }
     },
     dismissButton = {

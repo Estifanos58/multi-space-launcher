@@ -102,6 +102,8 @@ import com.multispace.ui.theme.StatusGreen
 import com.multispace.ui.theme.TextMuted
 import com.multispace.ui.theme.TextPrimary
 import com.multispace.ui.theme.TextSecondary
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -377,13 +379,13 @@ fun AppCatalogScreen(
             if (uiState.viewMode == AppViewMode.GRID) {
               AppGridContent(
                 apps = uiState.filteredApps,
-                getIcon = { viewModel.getAppIcon(it) },
+                getBitmap = { viewModel.getAppIconBitmap(it) },
                 onLaunchApp = { viewModel.launchApp(it) }
               )
             } else {
               AppListContent(
                 apps = uiState.filteredApps,
-                getIcon = { viewModel.getAppIcon(it) },
+                getBitmap = { viewModel.getAppIconBitmap(it) },
                 onLaunchApp = { viewModel.launchApp(it) }
               )
             }
@@ -700,7 +702,7 @@ private fun SearchAndControlsBar(
 @Composable
 private fun AppGridContent(
   apps: List<DiscoveredApp>,
-  getIcon: (DiscoveredApp) -> Drawable?,
+  getBitmap: (DiscoveredApp) -> Bitmap?,
   onLaunchApp: (DiscoveredApp) -> Unit
 ) {
   LazyVerticalGrid(
@@ -712,10 +714,14 @@ private fun AppGridContent(
       .fillMaxSize()
       .testTag("app_discovery_grid")
   ) {
-    items(apps, key = { it.id }) { app ->
+    items(
+      items = apps,
+      key = { it.id },
+      contentType = { "app_grid_item" }
+    ) { app ->
       AppGridItem(
         app = app,
-        icon = getIcon(app),
+        getBitmap = getBitmap,
         onLaunch = { onLaunchApp(app) }
       )
     }
@@ -725,7 +731,7 @@ private fun AppGridContent(
 @Composable
 private fun AppGridItem(
   app: DiscoveredApp,
-  icon: Drawable?,
+  getBitmap: (DiscoveredApp) -> Bitmap?,
   onLaunch: () -> Unit
 ) {
   Column(
@@ -743,8 +749,9 @@ private fun AppGridItem(
         .clip(RoundedCornerShape(14.dp)),
       contentAlignment = Alignment.Center
     ) {
-      AppIconImage(
-        drawable = icon,
+      AsyncAppIcon(
+        app = app,
+        getBitmap = getBitmap,
         contentDescription = app.label,
         modifier = Modifier.size(48.dp)
       )
@@ -777,7 +784,7 @@ private fun AppGridItem(
 @Composable
 private fun AppListContent(
   apps: List<DiscoveredApp>,
-  getIcon: (DiscoveredApp) -> Drawable?,
+  getBitmap: (DiscoveredApp) -> Bitmap?,
   onLaunchApp: (DiscoveredApp) -> Unit
 ) {
   LazyColumn(
@@ -787,10 +794,14 @@ private fun AppListContent(
       .fillMaxSize()
       .testTag("app_discovery_list")
   ) {
-    items(apps, key = { it.id }) { app ->
+    items(
+      items = apps,
+      key = { it.id },
+      contentType = { "app_list_item" }
+    ) { app ->
       AppListItem(
         app = app,
-        icon = getIcon(app),
+        getBitmap = getBitmap,
         onLaunch = { onLaunchApp(app) }
       )
     }
@@ -800,7 +811,7 @@ private fun AppListContent(
 @Composable
 private fun AppListItem(
   app: DiscoveredApp,
-  icon: Drawable?,
+  getBitmap: (DiscoveredApp) -> Bitmap?,
   onLaunch: () -> Unit
 ) {
   Surface(
@@ -818,8 +829,9 @@ private fun AppListItem(
         .padding(12.dp),
       verticalAlignment = Alignment.CenterVertically
     ) {
-      AppIconImage(
-        drawable = icon,
+      AsyncAppIcon(
+        app = app,
+        getBitmap = getBitmap,
         contentDescription = app.label,
         modifier = Modifier.size(44.dp)
       )
@@ -1034,23 +1046,72 @@ private fun DiscoveryTelemetryView(uiState: AppDiscoveryUiState) {
 }
 
 @Composable
+fun AsyncAppIcon(
+  app: DiscoveredApp,
+  getBitmap: (DiscoveredApp) -> Bitmap?,
+  contentDescription: String,
+  modifier: Modifier = Modifier
+) {
+  var bitmap by remember(app.id) { mutableStateOf(getBitmap(app)) }
+
+  LaunchedEffect(app.id) {
+    if (bitmap == null) {
+      withContext(Dispatchers.IO) {
+        val loaded = getBitmap(app)
+        withContext(Dispatchers.Main) {
+          bitmap = loaded
+        }
+      }
+    }
+  }
+
+  AppIconImage(
+    bitmap = bitmap,
+    contentDescription = contentDescription,
+    modifier = modifier
+  )
+}
+
+@Composable
+fun AppIconImage(
+  bitmap: Bitmap?,
+  contentDescription: String,
+  modifier: Modifier = Modifier
+) {
+  if (bitmap != null) {
+    val imageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
+    Image(
+      bitmap = imageBitmap,
+      contentDescription = contentDescription,
+      modifier = modifier
+    )
+  } else {
+    FallbackAppIcon(contentDescription, modifier)
+  }
+}
+
+@Composable
 fun AppIconImage(
   drawable: Drawable?,
   contentDescription: String,
   modifier: Modifier = Modifier
 ) {
   if (drawable != null) {
-    val bitmap = remember(drawable) {
-      drawableToBitmap(drawable)
-    }
-    if (bitmap != null) {
-      Image(
-        bitmap = bitmap.asImageBitmap(),
+    if (drawable is BitmapDrawable && drawable.bitmap != null) {
+      AppIconImage(
+        bitmap = drawable.bitmap,
         contentDescription = contentDescription,
         modifier = modifier
       )
     } else {
-      FallbackAppIcon(contentDescription, modifier)
+      val bitmap = remember(drawable) {
+        drawableToBitmap(drawable)
+      }
+      AppIconImage(
+        bitmap = bitmap,
+        contentDescription = contentDescription,
+        modifier = modifier
+      )
     }
   } else {
     FallbackAppIcon(contentDescription, modifier)

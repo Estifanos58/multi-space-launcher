@@ -1,6 +1,7 @@
 package com.multispace.presentation
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import androidx.lifecycle.AndroidViewModel
@@ -10,6 +11,7 @@ import com.multispace.domain.model.DiscoveredApp
 import com.multispace.platform.AppDiscoveryManager
 import com.multispace.platform.AppLaunchManager
 import com.multispace.platform.LaunchResult
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -111,6 +113,12 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
             lastScannedTime = System.currentTimeMillis()
           )
         }
+
+        // Asynchronously pre-warm in-memory bitmap cache on IO dispatcher
+        // so scrolling in Home and App Catalog hits RAM cache with zero UI-thread latency
+        viewModelScope.launch(Dispatchers.IO) {
+          discoveryManager.prewarmIconCache(apps)
+        }
       } catch (e: Exception) {
         AppLogger.e(AppLogger.Category.LAUNCHER, "Error scanning apps in ViewModel", e)
         _uiState.update {
@@ -150,6 +158,10 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
 
   fun getAppIcon(app: DiscoveredApp): Drawable? {
     return discoveryManager.loadAppIcon(app)
+  }
+
+  fun getAppIconBitmap(app: DiscoveredApp): Bitmap? {
+    return discoveryManager.loadAppIconBitmap(app)
   }
 
   /**

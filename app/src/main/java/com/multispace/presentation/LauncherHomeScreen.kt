@@ -1,5 +1,6 @@
 package com.multispace.presentation
 
+import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -7,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,15 +47,13 @@ import com.multispace.ui.theme.*
 @Composable
 private fun HomeAppGridItem(
   app: DiscoveredApp,
-  getIcon: (DiscoveredApp) -> Drawable?,
+  getBitmap: (DiscoveredApp) -> Bitmap?,
   containerSize: Dp,
   iconSize: Dp,
   showLabel: Boolean,
   labelColor: Color,
   onLaunch: () -> Unit
 ) {
-  val icon = remember(app.id) { getIcon(app) }
-
   Column(
     horizontalAlignment = Alignment.CenterHorizontally,
     modifier = Modifier
@@ -69,8 +69,9 @@ private fun HomeAppGridItem(
         .clip(RoundedCornerShape(14.dp)),
       contentAlignment = Alignment.Center
     ) {
-      AppIconImage(
-        drawable = icon,
+      AsyncAppIcon(
+        app = app,
+        getBitmap = getBitmap,
         contentDescription = app.label,
         modifier = Modifier.size(iconSize)
       )
@@ -588,16 +589,13 @@ fun LauncherHomeScreen(
               horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
               items(
-                count = spaceScopedApps.size,
-                key = { index ->
-                  val app = spaceScopedApps[index]
-                  "${app.packageName}/${app.activityName}/${app.userHandleId}"
-                }
-              ) { index ->
-                val app = spaceScopedApps[index]
+                items = spaceScopedApps,
+                key = { it.id },
+                contentType = { "home_app_item" }
+              ) { app ->
                 HomeAppGridItem(
                   app = app,
-                  getIcon = { discoveryViewModel.getAppIcon(it) },
+                  getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
                   containerSize = iconContainerDp,
                   iconSize = iconDrawableDp,
                   showLabel = labelVisibility,

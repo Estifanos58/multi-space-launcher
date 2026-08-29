@@ -17,6 +17,31 @@ interface SpaceRepository {
   suspend fun getSpaceById(spaceId: String): Space?
   suspend fun setActiveSpaceId(spaceId: String): Result<Unit>
   suspend fun createSpace(name: String, layoutType: String = "GRID_4"): Result<Space>
+  suspend fun createFullSpace(
+    name: String,
+    authPolicy: String = Space.AUTH_NONE,
+    pinSalt: String? = null,
+    pinHash: String? = null,
+    patternRows: Int = Space.DEFAULT_PATTERN_ROWS,
+    patternCols: Int = Space.DEFAULT_PATTERN_COLS,
+    backgroundType: String = Space.BACKGROUND_DEFAULT,
+    backgroundColor: Long? = null,
+    backgroundImageUri: String? = null,
+    homeWallpaperType: String = Space.BACKGROUND_DEFAULT,
+    homeWallpaperColor: Long? = null,
+    homeWallpaperImageUri: String? = null,
+    phoneLockWallpaperType: String = Space.BACKGROUND_DEFAULT,
+    phoneLockWallpaperColor: Long? = null,
+    phoneLockWallpaperImageUri: String? = null,
+    spaceLockWallpaperType: String = Space.BACKGROUND_DEFAULT,
+    spaceLockWallpaperColor: Long? = null,
+    spaceLockWallpaperImageUri: String? = null,
+    appTheme: String = Space.THEME_DEFAULT,
+    gridColumns: Int = Space.DEFAULT_GRID_COLUMNS,
+    iconSize: String = Space.ICON_SIZE_MEDIUM,
+    labelVisibility: Boolean = true,
+    initialApps: List<DiscoveredApp> = emptyList()
+  ): Result<Space>
   suspend fun renameSpace(spaceId: String, newName: String): Result<Unit>
   suspend fun deleteSpace(spaceId: String): Result<Unit>
 

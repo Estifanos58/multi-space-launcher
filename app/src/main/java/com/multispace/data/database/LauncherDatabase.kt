@@ -16,7 +16,7 @@ import com.multispace.data.entity.SpaceMembershipEntity
     SpaceEntity::class,
     SpaceMembershipEntity::class
   ],
-  version = 2,
+  version = 3,
   exportSchema = false
 )
 abstract class LauncherDatabase : RoomDatabase() {
@@ -38,6 +38,23 @@ abstract class LauncherDatabase : RoomDatabase() {
       }
     }
 
+    private val MIGRATION_2_3 = object : Migration(2, 3) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE spaces ADD COLUMN pattern_rows INTEGER NOT NULL DEFAULT 3")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN pattern_cols INTEGER NOT NULL DEFAULT 3")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN home_wallpaper_type TEXT NOT NULL DEFAULT 'DEFAULT'")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN home_wallpaper_color INTEGER DEFAULT NULL")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN home_wallpaper_image_uri TEXT DEFAULT NULL")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN phone_lock_wallpaper_type TEXT NOT NULL DEFAULT 'DEFAULT'")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN phone_lock_wallpaper_color INTEGER DEFAULT NULL")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN phone_lock_wallpaper_image_uri TEXT DEFAULT NULL")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN space_lock_wallpaper_type TEXT NOT NULL DEFAULT 'DEFAULT'")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN space_lock_wallpaper_color INTEGER DEFAULT NULL")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN space_lock_wallpaper_image_uri TEXT DEFAULT NULL")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN app_theme TEXT NOT NULL DEFAULT 'DEFAULT'")
+      }
+    }
+
     fun getInstance(context: Context): LauncherDatabase {
       return INSTANCE ?: synchronized(this) {
         val instance = Room.databaseBuilder(
@@ -45,7 +62,7 @@ abstract class LauncherDatabase : RoomDatabase() {
           LauncherDatabase::class.java,
           "multispace_launcher.db"
         )
-        .addMigrations(MIGRATION_1_2)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
         .fallbackToDestructiveMigration()
         .build()
         INSTANCE = instance

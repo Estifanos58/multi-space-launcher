@@ -96,13 +96,28 @@ class MainActivity : ComponentActivity() {
           val currentScreen by activeScreenState
           val isDefaultHome by isDefaultHomeState
 
-          if (currentScreen == "diagnostics") {
+          if (currentScreen == "diagnostics" || currentScreen == "create_space") {
             androidx.activity.compose.BackHandler {
               activeScreenState.value = "config"
             }
           }
 
           when (currentScreen) {
+            "create_space" -> {
+              val discoveryUiState by discoveryViewModel.uiState.collectAsState()
+              CreateSpaceScreen(
+                allApps = discoveryUiState.allApps,
+                spaceViewModel = spaceViewModel,
+                getBitmap = { app -> discoveryViewModel.getAppIconBitmap(app) },
+                onNavigateBack = {
+                  activeScreenState.value = "config"
+                },
+                onSpaceCreated = { newSpaceId ->
+                  activeScreenState.value = "config"
+                },
+                modifier = Modifier.fillMaxSize()
+              )
+            }
             "home" -> {
               LauncherHomeScreen(
                 discoveryViewModel = discoveryViewModel,
@@ -127,6 +142,9 @@ class MainActivity : ComponentActivity() {
                 },
                 onOpenHomeSurface = {
                   activeScreenState.value = "home"
+                },
+                onOpenCreateSpace = {
+                  activeScreenState.value = "create_space"
                 },
                 modifier = Modifier.fillMaxSize()
               )

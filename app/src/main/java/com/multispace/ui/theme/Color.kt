@@ -8,6 +8,7 @@ val LightSurface = Color(0xFFFEF7FF)
 val LightSurfaceContainer = Color(0xFFF3EDF7)
 val LightSurfaceContainerHigh = Color(0xFFECE6EE)
 val LightSurfaceContainerLow = Color(0xFFF7F2FA)
+val LightSurfaceContainerLowest = Color(0xFFFFFFFF)
 
 val PrimaryPurple = Color(0xFF6750A4)
 val PrimaryPurpleDark = Color(0xFF21005D)

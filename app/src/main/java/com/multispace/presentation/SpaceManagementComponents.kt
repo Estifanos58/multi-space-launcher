@@ -848,7 +848,11 @@ fun ManageMembershipsDialog(
             .fillMaxWidth(),
           verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-          items(filteredApps, key = { it.id }) { app ->
+          items(
+            items = filteredApps,
+            key = { it.id },
+            contentType = { "membership_item" }
+          ) { app ->
             val isMember = memberComponentSet.contains("${app.packageName}/${app.activityName}") ||
               memberPackageSet.contains(app.packageName)
 
