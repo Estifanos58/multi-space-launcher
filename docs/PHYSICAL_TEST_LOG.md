@@ -501,6 +501,200 @@ This document contains the authoritative history of physical on-device functiona
 * **Observations:** Space PIN Security implemented, build verified with compile_applet, and ready for human on-device verification.
 * **Tested By:** UNKNOWN
 
+---
+
+### TEST-008: Space Customization, Theming & Layout Physical Verification
+* **Date:** 2026-08-29
+* **Build Version:** 1.0 (versionCode 1)
+* **Git Commit:** UNKNOWN
+* **Device:** UNKNOWN
+* **Android Version:** UNKNOWN (Targeting Android 9.0+ / API 28+)
+* **API Level:** UNKNOWN
+* **Feature:** Space Customization, Wallpapers, Grid Sizing & App Ordering
+* **Related Task:** Space Customization, Wallpapers, Grid Sizing & App Ordering
+
+#### Preconditions
+* Debug APK built successfully from repository (`app-debug.apk`).
+* Physical Android device running Android 9.0+ (API 28+).
+* At least two Spaces configured ("Work", "Personal") with assigned apps.
+
+#### Physical Test Matrix (Tests A through G)
+
+##### Test A: Space Solid Background Color Customization
+1. Open Launcher Home or Configuration.
+2. Tap "Customize Space..." from the Space switcher dropdown or tap "Style" on the Space card in Configuration.
+3. Select "Solid Color" background preset (e.g. "Midnight Navy" or "Forest Pine").
+4. Tap "Apply Customization".
+5. **Verify:** Active Space Home background immediately updates to the selected solid color with high-contrast text and icons.
+
+##### Test B: Space Custom Wallpaper Image Customization
+1. Open Space Customization dialog.
+2. Tap "Custom Image / Photo" -> tap "Choose Wallpaper Image".
+3. Select an image from device gallery via the system Photo Picker.
+4. Tap "Apply Customization".
+5. **Verify:** Active Space displays the custom wallpaper photo with a subtle dimming scrim for optimal icon readability and white header/label text.
+
+##### Test C: Grid Columns Adjustment (3 to 6 columns)
+1. Open Customization dialog -> switch to "Grid & Icons" tab.
+2. Select 3 columns -> apply -> **Verify:** Home grid displays 3 spacious columns.
+3. Switch to 5 or 6 columns -> apply -> **Verify:** Home grid adapts dynamically to compact 5/6 column layout without clipping or horizontal scroll.
+
+##### Test D: Icon Sizing & Label Visibility
+1. Open Customization dialog -> switch to "Grid & Icons" tab.
+2. Select "Large (64dp)" icon size and toggle "Show Application Labels" to OFF.
+3. Tap "Apply Customization".
+4. **Verify:** Home grid displays enlarged icons without text labels beneath them for a clean, minimalist aesthetic.
+5. Toggle "Small (44dp)" icon size and enable labels -> **Verify:** Icons and labels adjust cleanly.
+
+##### Test E: In-Space App Reordering
+1. Open Customization dialog -> switch to "App Order" tab.
+2. Tap the Up/Down arrow buttons next to an app to move its relative sequence.
+3. Tap "Sort A-Z" button -> **Verify:** Apps list sorts alphabetically from A to Z.
+4. Tap "Apply Customization".
+5. **Verify:** Home grid immediately renders the applications in the updated custom sequence.
+
+##### Test F: Per-Space Isolation of Customizations
+1. Configure "Work" Space with "Deep Teal" background and 5 columns.
+2. Configure "Personal" Space with "Midnight Navy" background and 4 columns.
+3. Switch back and forth between "Work" and "Personal" on Home.
+4. **Verify:** Each Space preserves and instantly applies its independent visual theme and grid preferences without cross-space contamination.
+
+##### Test G: Persistence Across Reboots
+1. Force stop the launcher (`adb shell am force-stop com.aistudio.multispace.fndn`) or reboot the device.
+2. Reopen Multi-Space Launcher.
+3. **Verify:** All visual customization settings (background type/color/URI, grid columns, icon size, label visibility, and app order) persist perfectly from Room SQLite database.
+
+#### Expected Result
+* Every Space can be independently styled with solid colors, wallpaper photos, flexible grid columns (3-6), customizable icon sizes, toggleable labels, and custom app ordering, persisting cleanly in Room across app restarts and reboots.
+
+#### Actual Result
+* `NOT PERFORMED` (Awaiting human tester execution on physical test hardware).
+
+#### Result
+* **Status:** `NOT PERFORMED`
+* **Observations:** Space Customization & Theming fully implemented and verified via compile_applet; ready for human on-device verification.
+* **Tested By:** UNKNOWN
+
+---
+
+### TEST-009: Lifecycle, Package Changes, and Recovery Hardening Physical Verification
+* **Date:** 2026-08-29
+* **Build Version:** 1.0 (versionCode 1)
+* **Git Commit:** UNKNOWN
+* **Device:** UNKNOWN
+* **Android Version:** UNKNOWN (Targeting Android 9.0+ / API 28+)
+* **API Level:** UNKNOWN
+* **Feature:** Lifecycle, Package Changes, and Recovery Hardening
+* **Related Task:** Lifecycle, Package Changes, and Recovery Hardening
+
+#### Preconditions
+* Debug APK built successfully (`app-debug.apk`).
+* Physical Android device running Android 9.0+ (API 28+).
+* Multi-Space Launcher set as default Home launcher.
+* At least three distinct Spaces configured ("Personal", "Work", "Study") with different apps, PINs, and customizations.
+
+#### Physical Test Matrix (Tests A through O)
+
+##### Test A: Activity Recreation & Configuration Change
+1. Open Launcher Home on active Space "Work".
+2. Rotate device between Portrait and Landscape or trigger a dark/light mode toggle.
+3. **Verify:** Active Space "Work", application grid layout, wallpaper, and icon order reconstruct instantly without blank screens or resetting to Default Space.
+
+##### Test B: Process Recreation / Process Kill
+1. While on Launcher Home in Space "Work", invoke Home or background the launcher.
+2. Kill the launcher process via ADB (`adb shell am kill com.aistudio.multispace.fndn`) or trigger low-memory termination.
+3. Tap Home or reopen the launcher.
+4. **Verify:** Process restarts, loads SQLite database and DataStore, and reconstructs active Space "Work" and its applications cleanly.
+
+##### Test C: Launcher Restart
+1. Force stop the launcher (`adb shell am force-stop com.aistudio.multispace.fndn`).
+2. Relaunch Multi-Space Launcher.
+3. **Verify:** Active Space, membership projection, grid dimensions, and styling recover reliably from Room and DataStore.
+
+##### Test D: Complete Device Reboot
+1. Configure custom background and grid on "Personal" and "Work" Spaces.
+2. Reboot the Android device (`adb reboot` or physical power cycle).
+3. Unlock device to system Home.
+4. **Verify:** Multi-Space Launcher starts cleanly upon boot completion, reads persistent state, and renders the correct active Space without requiring manual setup or background services.
+
+##### Test E: New Application Installation
+1. Install a new APK or app from Play Store/ADB (`adb install test_app.apk`).
+2. **Verify:** Dynamic package listener (`LauncherApps.Callback` / `BroadcastReceiver`) refreshes catalog.
+3. Open Configuration -> "Manage Apps" -> verify the new app appears in the available catalog.
+4. Return to Launcher Home -> verify the new app is NOT automatically added to every Space (respecting explicit user membership).
+
+##### Test F: Application Uninstallation
+1. Assign an app (e.g. "Test App") to Space "Work".
+2. Uninstall the application from device (`adb uninstall test_package`).
+3. Return to Launcher Home on Space "Work".
+4. **Verify:** Uninstalled application is gracefully omitted from the Home grid without crash or layout corruption.
+5. Open Configuration -> Space "Work" -> verify membership entry is preserved in database for potential reinstall.
+
+##### Test G: Application Reinstallation Recovery
+1. Reinstall the previously uninstalled application (`adb install test_app.apk`).
+2. Return to Launcher Home on Space "Work".
+3. **Verify:** Application automatically reappears on the Home grid in its exact original custom `order_index` sequence.
+
+##### Test H: Application Disablement
+1. Disable a system or user app assigned to a Space (`adb shell pm disable-user <package>`).
+2. Return to Launcher Home.
+3. **Verify:** Disabled application is safely omitted from presentation without error. Re-enabling the app restores it immediately.
+
+##### Test I: Stale Membership / Changed Activity Component
+1. If an application updates its manifest and changes or removes its launcher Activity component name:
+2. Open Launcher Home.
+3. **Verify:** Component fallback resolves via package name or safely omits the stale item without crashing the launcher process.
+
+##### Test J: Invalid Active Space Reference Self-Healing
+1. Simulate corrupted DataStore active Space pointer pointing to a non-existent ID (`"deleted_space_xyz"`).
+2. Launch or resume Multi-Space Launcher.
+3. **Verify:** `RoomSpaceRepository.ensureDefaultSpaceInitialized()` detects missing Space, automatically heals pointer to the first valid Space in SQLite, and persists the corrected active pointer.
+
+##### Test K: Customization Recovery Across Lifecycle
+1. Configure "Personal" with 3 columns, small icons, and photo wallpaper; configure "Work" with 6 columns, large icons, hidden labels, and solid color.
+2. Force-kill and restart launcher.
+3. **Verify:** Both Spaces completely retain their independent visual styling and grid layout configurations without corruption.
+
+##### Test L: Protected Space PIN Security Recovery
+1. Enable PIN protection on "Work" Space and unlock it during active session.
+2. Kill the app process or reboot device.
+3. Reopen launcher and switch to "Work" Space.
+4. **Verify:** Transient unlock state has reset; "Work" Space is strictly locked and requires PIN entry before displaying application icons.
+
+##### Test M: Multi-Space Consistency Stress Test
+1. Set up three Spaces ("Personal", "Work", "Study").
+2. Switch rapidly between them: Personal -> Work (enter PIN) -> Study -> Personal.
+3. **Verify:** Zero cross-Space contamination; app membership, grid columns, wallpapers, and labels match each Space definition.
+
+##### Test N: Combined Stress Cycle
+1. Execute a comprehensive stress cycle: Create Space -> Add Apps -> Set Wallpaper -> Set PIN -> Launch App -> Return Home -> Uninstall App -> Reboot -> Authenticate -> Reinstall App -> Return Home.
+2. **Verify:** System remains responsive, stable, deterministic, and crash-free throughout.
+
+##### Test O: Full Subsystem Regression Verification
+1. Verify all previous capabilities remain functional:
+   - System Home role & Return interception
+   - App discovery & icon caching
+   - Safe app launching
+   - Space CRUD (Create, Rename, Delete)
+   - Space membership management
+   - Space switching popover & radio selection
+   - PIN setup, change, disable, and unlock
+   - Solid colors, custom photo wallpapers, grid sizing, label toggling, and app reordering
+   - Home vs Configuration surface separation
+2. **Verify:** All subsystems are 100% operational with zero regressions.
+
+#### Expected Result
+* Multi-Space Launcher reconstructs all active Space state, memberships, customization settings, and PIN protection after process recreation, configuration changes, reboots, and package lifecycle events without data corruption or crash.
+
+#### Actual Result
+* `NOT PERFORMED` (Awaiting human tester execution on physical test hardware).
+
+#### Result
+* **Status:** `NOT PERFORMED`
+* **Observations:** Lifecycle, Package Changes, and Recovery Hardening implemented and verified via compile_applet; ready for human on-device verification.
+* **Tested By:** UNKNOWN
+
+
 
 
 

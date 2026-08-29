@@ -54,6 +54,7 @@ fun LauncherConfigurationScreen(
   var renameTargetSpace by remember { mutableStateOf<Space?>(null) }
   var deleteTargetSpace by remember { mutableStateOf<Space?>(null) }
   var membershipTargetSpace by remember { mutableStateOf<Space?>(null) }
+  var customizeTargetSpace by remember { mutableStateOf<Space?>(null) }
   var setPinTargetSpace by remember { mutableStateOf<Space?>(null) }
   var changePinTargetSpace by remember { mutableStateOf<Space?>(null) }
   var disablePinTargetSpace by remember { mutableStateOf<Space?>(null) }
@@ -234,6 +235,7 @@ fun LauncherConfigurationScreen(
                       spaceViewModel.selectActiveSpace(space.id)
                     }
                   },
+                  onCustomize = { customizeTargetSpace = space },
                   onManageMemberships = { membershipTargetSpace = space },
                   onManagePin = {
                     if (space.isProtected) {
@@ -459,6 +461,49 @@ fun LauncherConfigurationScreen(
     )
   }
 
+  customizeTargetSpace?.let { space ->
+    val membershipsFlow = remember(space.id) {
+      spaceViewModel.getMembershipsFlowForSpace(space.id)
+    }
+    val memberships by membershipsFlow.collectAsState(initial = emptyList())
+    val spaceApps = remember(discoveryUiState.allApps, memberships) {
+      val appsByComponent = discoveryUiState.allApps.associateBy { "${it.packageName}/${it.activityName}" }
+      val appsByPackage = discoveryUiState.allApps.associateBy { it.packageName }
+      val result = mutableListOf<DiscoveredApp>()
+      val included = mutableSetOf<String>()
+      for (m in memberships) {
+        val app = appsByComponent["${m.packageName}/${m.componentName}"] ?: appsByPackage[m.packageName]
+        if (app != null && included.add("${app.packageName}/${app.activityName}/${app.userHandleId}")) {
+          result.add(app)
+        }
+      }
+      result
+    }
+
+    SpaceCustomizationDialog(
+      space = space,
+      spaceApps = spaceApps,
+      onDismiss = { customizeTargetSpace = null },
+      onSave = { bgType, bgColor, bgUri, cols, size, showLabels ->
+        spaceViewModel.updateSpaceCustomization(
+          spaceId = space.id,
+          backgroundType = bgType,
+          backgroundColor = bgColor,
+          backgroundImageUri = bgUri,
+          gridColumns = cols,
+          iconSize = size,
+          labelVisibility = showLabels
+        )
+      },
+      onReorderApp = { app, dir ->
+        spaceViewModel.reorderSpaceApp(space.id, app, dir)
+      },
+      onSortAlphabetically = {
+        spaceViewModel.sortSpaceAppsAlphabetically(space.id, spaceApps)
+      }
+    )
+  }
+
   spaceToUnlockForSwitch?.let { space ->
     SpaceUnlockDialog(
       space = space,
@@ -477,6 +522,7 @@ private fun SpaceRowItem(
   space: Space,
   isActive: Boolean,
   onSelectActive: () -> Unit,
+  onCustomize: () -> Unit,
   onManageMemberships: () -> Unit,
   onManagePin: () -> Unit,
   onDisablePin: () -> Unit,
@@ -598,6 +644,24 @@ private fun SpaceRowItem(
           )
           Spacer(modifier = Modifier.width(3.dp))
           Text("Apps", fontSize = 11.sp, color = PrimaryPurpleDark)
+        }
+
+        OutlinedButton(
+          onClick = onCustomize,
+          shape = RoundedCornerShape(8.dp),
+          contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+          modifier = Modifier
+            .weight(1f)
+            .testTag("config_space_customize_${space.id}")
+        ) {
+          Icon(
+            imageVector = Icons.Default.Palette,
+            contentDescription = "Customize Space",
+            tint = PrimaryPurpleDark,
+            modifier = Modifier.size(14.dp)
+          )
+          Spacer(modifier = Modifier.width(3.dp))
+          Text("Style", fontSize = 11.sp, color = PrimaryPurpleDark)
         }
 
         OutlinedButton(

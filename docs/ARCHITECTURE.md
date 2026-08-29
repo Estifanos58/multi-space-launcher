@@ -129,13 +129,42 @@ com.example/
 | **Space Domain** | Space entity, invariants, active state | Implemented via `Space`, `SpaceMembership`, `RoomSpaceRepository` |
 | **Persistence** | Room (Spaces/Membership) + DataStore | Implemented via `LauncherDatabase` (Room v1) and `LauncherPreferences` (DataStore) |
 | **Presentation** | Active Space projection & filtering | Implemented in `LauncherHomeScreen` with persisted ordering & unavailable handling |
-| **Authentication** | Local PIN with Android Keystore | Planned for Security milestone |
+| **Authentication** | Local PIN with PBKDF2WithHmacSHA256 | Implemented in `PinSecurityManager`, `SpacePinDialogs`, and `SpaceViewModel` |
+| **Customization** | Wallpapers, Grid, Icons, Ordering | Implemented in `SpaceCustomizationDialog` and `LauncherHomeScreen` |
+| **Lifecycle & Recovery** | Self-healing state & catalog reconciliation | Implemented in `MainActivity`, `AppDiscoveryManager`, `RoomSpaceRepository` |
 
 ---
 
-## 6. Technology Baseline
+## 6. Lifecycle & Recovery Architecture
+
+The integrated launcher is hardened against process recreation, activity destruction, device reboots, and package modifications:
+
+```text
+1. Persistent Storage (Authoritative Source)
+   - Room SQLite Database: 'spaces' and 'space_memberships' tables.
+   - Jetpack DataStore: 'active_space_id' string key.
+
+2. State Reconstruction on Startup / Resume
+   - MainActivity calls ensureDefaultSpaceInitialized() on onStart/onResume.
+   - If SQLite has zero spaces, creates 'default_space' ("Default").
+   - If active_space_id is missing or points to a deleted Space, heals to the first available Space.
+
+3. Package Change Reconciliation
+   - Dual listener: LauncherApps.Callback + BroadcastReceiver for package added/removed/replaced/changed.
+   - Automatic LRU icon cache eviction.
+   - Dynamic reconciliation: uninstalled apps disappear from Home view without deleting durable membership rows in Room; reinstalled apps automatically reappear with original order preserved.
+
+4. Transient Authentication Security
+   - Unlocked session state is in-memory only (unlockedSpaceIds).
+   - Process recreation / reboot guarantees protected Spaces immediately return to locked state requiring PIN.
+```
+
+---
+
+## 7. Technology Baseline
 * **Language:** Kotlin 2.2.10
 * **UI Toolkit:** Jetpack Compose with Material 3 (Compose BOM 2024.09.00)
+* **Image Loading:** Coil Compose 2.6.0
 * **Target SDK / Compile SDK:** 36 (Android 16 baseline)
 * **Minimum SDK:** 28 (Android 9.0 baseline)
 * **Build System:** Gradle with Kotlin DSL

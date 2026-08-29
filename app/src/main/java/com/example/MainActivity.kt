@@ -180,6 +180,8 @@ class MainActivity : ComponentActivity() {
   override fun onStart() {
     super.onStart()
     updateDefaultHomeStatus()
+    spaceViewModel.ensureDefaultSpaceInitialized()
+    discoveryViewModel.loadApps(isSilent = true)
     AppLogger.d(AppLogger.Category.LIFECYCLE, "MainActivity onStart")
     recordEvent("D/Lifecycle", "MainActivity onStart")
   }
@@ -187,6 +189,7 @@ class MainActivity : ComponentActivity() {
   override fun onResume() {
     super.onResume()
     updateDefaultHomeStatus()
+    discoveryViewModel.loadApps(isSilent = true)
     AppLogger.d(AppLogger.Category.LIFECYCLE, "MainActivity onResume (isDefault=${isDefaultHomeState.value})")
     recordEvent("D/Lifecycle", "MainActivity onResume (isDefault=${isDefaultHomeState.value})")
   }

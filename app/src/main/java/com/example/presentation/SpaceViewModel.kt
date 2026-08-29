@@ -67,6 +67,10 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
 
   init {
     AppLogger.i(AppLogger.Category.LAUNCHER, "SpaceViewModel initialized: ensuring default Space state")
+    ensureDefaultSpaceInitialized()
+  }
+
+  fun ensureDefaultSpaceInitialized() {
     viewModelScope.launch {
       spaceRepository.ensureDefaultSpaceInitialized()
     }

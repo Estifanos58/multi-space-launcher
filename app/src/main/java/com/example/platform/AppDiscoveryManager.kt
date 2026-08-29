@@ -52,6 +52,29 @@ class AppDiscoveryManager(private val context: Context) {
   val packageEvents: SharedFlow<PackageEvent> = _packageEvents.asSharedFlow()
 
   private var isCallbackRegistered = false
+  private var isReceiverRegistered = false
+
+  private val packageReceiver = object : BroadcastReceiver() {
+    override fun onReceive(context: Context?, intent: Intent?) {
+      val action = intent?.action ?: return
+      val data = intent.data
+      val packageName = data?.schemeSpecificPart ?: return
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Package BroadcastReceiver: $action for $packageName")
+      when (action) {
+        Intent.ACTION_PACKAGE_ADDED -> {
+          _packageEvents.tryEmit(PackageEvent.Added(packageName))
+        }
+        Intent.ACTION_PACKAGE_REMOVED -> {
+          iconCache.remove(packageName)
+          _packageEvents.tryEmit(PackageEvent.Removed(packageName))
+        }
+        Intent.ACTION_PACKAGE_REPLACED, Intent.ACTION_PACKAGE_CHANGED -> {
+          iconCache.remove(packageName)
+          _packageEvents.tryEmit(PackageEvent.Changed(packageName))
+        }
+      }
+    }
+  }
 
   private val launcherAppsCallback = object : LauncherApps.Callback() {
     override fun onPackageAdded(packageName: String, user: UserHandle) {
@@ -83,24 +106,51 @@ class AppDiscoveryManager(private val context: Context) {
   }
 
   fun startMonitoring() {
-    if (isCallbackRegistered) return
-    try {
-      launcherApps?.registerCallback(launcherAppsCallback, Handler(Looper.getMainLooper()))
-      isCallbackRegistered = true
-      AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback registered successfully")
-    } catch (e: Exception) {
-      AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to register LauncherApps.Callback", e)
+    if (!isCallbackRegistered) {
+      try {
+        launcherApps?.registerCallback(launcherAppsCallback, Handler(Looper.getMainLooper()))
+        isCallbackRegistered = true
+        AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback registered successfully")
+      } catch (e: Exception) {
+        AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to register LauncherApps.Callback", e)
+      }
+    }
+    if (!isReceiverRegistered) {
+      try {
+        val filter = IntentFilter().apply {
+          addAction(Intent.ACTION_PACKAGE_ADDED)
+          addAction(Intent.ACTION_PACKAGE_REMOVED)
+          addAction(Intent.ACTION_PACKAGE_REPLACED)
+          addAction(Intent.ACTION_PACKAGE_CHANGED)
+          addDataScheme("package")
+        }
+        context.registerReceiver(packageReceiver, filter)
+        isReceiverRegistered = true
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Package BroadcastReceiver registered successfully")
+      } catch (e: Exception) {
+        AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to register Package BroadcastReceiver", e)
+      }
     }
   }
 
   fun stopMonitoring() {
-    if (!isCallbackRegistered) return
-    try {
-      launcherApps?.unregisterCallback(launcherAppsCallback)
-      isCallbackRegistered = false
-      AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback unregistered")
-    } catch (e: Exception) {
-      AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to unregister LauncherApps.Callback", e)
+    if (isCallbackRegistered) {
+      try {
+        launcherApps?.unregisterCallback(launcherAppsCallback)
+        isCallbackRegistered = false
+        AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback unregistered")
+      } catch (e: Exception) {
+        AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to unregister LauncherApps.Callback", e)
+      }
+    }
+    if (isReceiverRegistered) {
+      try {
+        context.unregisterReceiver(packageReceiver)
+        isReceiverRegistered = false
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Package BroadcastReceiver unregistered")
+      } catch (e: Exception) {
+        AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to unregister Package BroadcastReceiver", e)
+      }
     }
   }
 

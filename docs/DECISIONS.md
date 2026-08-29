@@ -286,6 +286,35 @@
   - Unlocked states reset automatically upon process restart or explicit lock.
 * **Reason:** Prevents any transient exposure of protected applications in memory or UI without requiring complex background daemon persistence.
 
+---
+
+### DECISION-024: Space Customization, Wallpapers, and In-Space App Ordering
+* **Date:** 2026-08-29
+* **Type:** `DECISION`
+* **Status:** `ACTIVE`
+* **Problem:** Enabling user-defined aesthetics, wallpaper backgrounds, flexible grid layouts (3-6 columns), icon sizes, label visibility, and in-space app ordering without destabilizing performance or database integrity.
+* **Chosen Approach:**
+  - Persist visual customization fields (`background_type`, `background_color`, `background_image_uri`, `grid_columns`, `icon_size`, `label_visibility`) in Room `spaces` table with safe fallback bounds.
+  - Implement system Photo Picker integration with `takePersistableUriPermission` and Coil `AsyncImage` with a dynamic contrast scrim overlay.
+  - Support in-space reordering via interactive move controls and A-Z sorting, updating `order_index` in `space_memberships`.
+* **Reason:** Gives users full control over Space personality and visual density while ensuring fast, deterministic rendering directly from SQLite.
+
+---
+
+### DECISION-025: Lifecycle, Package Change, and Recovery Hardening
+* **Date:** 2026-08-29
+* **Type:** `DECISION`
+* **Status:** `ACTIVE`
+* **Problem:** Ensuring the launcher survives realistic Android lifecycle changes, process recreation, Activity recreation, device reboots, and dynamic app package modifications without state corruption or crash loops.
+* **Chosen Approach:**
+  - `RoomSpaceRepository` implements self-healing active Space resolution (`ensureDefaultSpaceInitialized` creates default Space if DB is empty; heals invalid active Space pointers to the first valid Space in SQLite).
+  - `MainActivity` invokes silent catalog and state refresh on `onStart` and `onResume`.
+  - Dual package monitoring via `LauncherApps.Callback` and `BroadcastReceiver` (`ACTION_PACKAGE_ADDED`, `ACTION_PACKAGE_REMOVED`, `ACTION_PACKAGE_REPLACED`, `ACTION_PACKAGE_CHANGED`).
+  - Stale/uninstalled memberships are gracefully filtered on the Home view without deleting durable database rows in Room, allowing apps to automatically restore in their exact custom sequence upon reinstallation.
+  - Transient PIN unlock state resets upon process recreation or reboot, ensuring protected Spaces remain locked.
+* **Reason:** Satisfies the core launcher mandate: deterministic state reconstruction and zero crash risk under any Android lifecycle or package modification scenario.
+
+
 
 
 

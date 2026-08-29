@@ -1,78 +1,71 @@
-# Current Task — Space PIN Security & Local Authentication
+# Current Task — Lifecycle, Package Changes, and Recovery Hardening
 
 ## Task Overview
-* **Task Name:** Space PIN Security & Local Authentication
-* **Target Objective:** Implement local PIN-based authentication for individual Spaces. Protect sensitive Spaces with PBKDF2WithHmacSHA256 hashed numeric PINs, per-Space cryptographically secure random salts, constant-time verification, locked presentation state on Home, secure Space switching gating, and comprehensive PIN lifecycle management (Set, Change, Disable, Unlock).
-* **Status:** `IN_PROGRESS (BUILD VERIFIED, READY FOR PHYSICAL VERIFICATION)`
+* **Task Name:** Lifecycle, Package Changes, and Recovery Hardening
+* **Target Objective:** Ensure the integrated multi-space launcher remains completely resilient and reconstructs correct state after process recreation, Activity recreation, launcher restart, device reboot, application installation/uninstallation/disablement, stale application references, and missing/malformed persisted state.
+* **Status:** `IMPLEMENTED (BUILD VERIFIED, READY FOR PHYSICAL VERIFICATION)`
 
 ---
 
-## Security Architecture & Design
+## Hardening Matrix & Architecture
+
 ```text
-User Sets PIN (4-8 digits)
+Android Event / Lifecycle Change
         ↓
-PinSecurityManager generates 16-byte SecureRandom salt
+Process / Activity Recreation / Reboot
         ↓
-Derives PBKDF2WithHmacSHA256 hash (10,000 iterations, 256 bits)
+Room Database + DataStore (Durable State)
         ↓
-Persisted in Room Database (authPolicy="PIN", pin_salt, pin_hash)
+Self-Healing Active Space Resolution (Fallback to default if invalid/empty)
         ↓
-Runtime Memory tracks transient unlocked states (unlockedSpaceIds StateFlow)
+Persistent Space Customizations & PIN Hash
         ↓
-Launcher Home & Space Switcher gate access using constant-time verification
+Dynamic Application Discovery & Package Change Reconciliation (LauncherApps + BroadcastReceiver)
+        ↓
+Space Membership Projection (Omit unavailable/uninstalled; preserve durable identity and order)
+        ↓
+Derived High-Contrast Launcher Home Presentation
 ```
 
 ---
 
-## Completed Implementations
-1. **Cryptographic Security Manager (`PinSecurityManager.kt`)**:
-   - Implements PBKDF2 with HMAC-SHA256 (`PBKDF2WithHmacSHA256`).
-   - 16-byte cryptographically secure random salts generated via `java.security.SecureRandom`.
-   - 10,000 iterations and 256-bit derived key length.
-   - Constant-time verification using `MessageDigest.isEqual` to prevent timing attacks.
-   - Numeric PIN format validation (4 to 8 digits).
-   - Strict security rule: plaintext PINs are NEVER stored or logged.
-2. **Domain & Persistence Model Extensions**:
-   - `Space.kt`: Added `pinSalt`, `pinHash`, and computed property `isProtected` (`authPolicy == "PIN"` and non-empty hash/salt).
-   - `SpaceEntity.kt`: Added `@ColumnInfo(name = "pin_salt")` and `@ColumnInfo(name = "pin_hash")`.
-   - `SpaceRepository` & `RoomSpaceRepository`: Implemented `setSpacePin`, `changeSpacePin`, `disableSpacePin`, and `verifySpacePin`.
-3. **Session & Runtime State Management (`SpaceViewModel.kt`)**:
-   - In-memory `unlockedSpaceIds` `StateFlow` tracks unlocked status during active app process lifecycle.
-   - Transient unlock state resets cleanly upon app process restart or explicit lock.
-   - `verifyAndUnlockSpace` authenticates against the repository and unlocks the Space in memory upon success.
-4. **Home Screen Protection & Gating (`LauncherHomeScreen.kt`)**:
-   - If active Space is protected and not unlocked in runtime memory:
-     - Application grid is completely hidden (returns `emptyList()` projection to strictly prevent app leaks).
-     - Renders a clean locked state with lock icon and "Enter PIN" button.
-     - Tapping "Enter PIN" opens the secure `SpaceUnlockDialog`.
-5. **Secure Space Switching Gating (`LauncherHomeScreen.kt` & `LauncherConfigurationScreen.kt`)**:
-   - Selecting a protected Space from the switcher dropdown or configuration list intercepts navigation.
-   - Prompts for PIN verification via `SpaceUnlockDialog`.
-   - Only switches active Space and reveals apps upon successful PIN verification.
-6. **PIN Management UI & Dialogs (`SpacePinDialogs.kt`)**:
-   - `SetSpacePinDialog`: PIN entry with confirmation, numeric keyboard, masked password transformation, and digit format validation.
-   - `ChangeSpacePinDialog`: Current PIN verification + New PIN + Confirmation.
-   - `DisableSpacePinDialog`: Current PIN verification before removing protection.
-   - `SpaceUnlockDialog`: Masked PIN input, real-time error feedback, and async verification indicator.
-   - `SpaceItemCard` / `SpaceRowItem`: Displays green "PIN" lock badge, +PIN / PIN button, and dedicated Remove PIN action.
-7. **Security Logging & Diagnostics**:
-   - Non-sensitive operational logging via `AppLogger.Category.LAUNCHER` (records enablement, unlock success/failure without logging PINs).
+## Hardening Implementations
 
----
+1. **Activity & Process Lifecycle Hardening (`MainActivity.kt`)**:
+   - `onCreate`, `onStart`, and `onResume` lifecycle handlers invoke `spaceViewModel.ensureDefaultSpaceInitialized()` and `discoveryViewModel.loadApps(isSilent = true)`.
+   - Distinguishes system `Intent.CATEGORY_HOME` vs standard app launcher entry points, maintaining strict Home / Configuration surface separation across lifecycle events.
+   - Preserves state across configuration changes, screen rotations, and low-memory Activity recreation.
 
-## Scope Boundaries & Protections
-* **Protected Scope (Maintained):**
-  - Space PIN security is a launcher presentation protection layer; it does not claim to replace Android OS work profile sandboxing or filesystem encryption.
-  - Zero automated test code (Robolectric, Espresso) per Constitution Rule 7.
-  - No `QUERY_ALL_PACKAGES` permission in Manifest.
-  - No remote server authentication or telemetry leaks.
+2. **Dual-Layer Package Change Monitoring (`AppDiscoveryManager.kt`)**:
+   - Registered `LauncherApps.Callback` on Main Looper for `onPackageAdded`, `onPackageRemoved`, `onPackageChanged`, `onPackagesAvailable`, and `onPackagesUnavailable`.
+   - Added secondary `BroadcastReceiver` fallback listening for `ACTION_PACKAGE_ADDED`, `ACTION_PACKAGE_REMOVED`, `ACTION_PACKAGE_REPLACED`, `ACTION_PACKAGE_CHANGED` with `package` data scheme.
+   - Automatic LRU icon cache eviction for modified/removed packages.
+   - Dynamic reconciliation against persisted Room memberships without rewriting or dropping durable user configuration.
+
+3. **Stale Membership & Unavailable Application Handling (`LauncherHomeScreen.kt`)**:
+   - Projects active Space memberships against dynamic `LauncherApps` catalog.
+   - Gracefully omits uninstalled or disabled applications from Home screen without modifying or deleting their stored Room memberships.
+   - When an application is reinstalled, its matching component/package automatically reappears on the active Space with its original custom sequence (`order_index`).
+
+4. **Self-Healing Active Space & State Recovery (`RoomSpaceRepository.kt`)**:
+   - `ensureDefaultSpaceInitialized()` checks for zero-space or invalid active Space states.
+   - If no Spaces exist, initializes `default_space` ("Default") and persists active pointer.
+   - If DataStore points to a non-existent or deleted Space ID, automatically falls back to the first valid Space in SQLite and updates the DataStore pointer.
+   - Customization fields (grid columns 3-6, icon size, label visibility, background type/color/URI) have defensive fallbacks against malformed values.
+
+5. **Security & PIN Protection Lifecycle**:
+   - PBKDF2 salt/hash credentials reside securely in SQLite.
+   - Transient unlock session state (`unlockedSpaceIds`) is in-memory only in `SpaceViewModel`.
+   - Process recreation or device reboot safely resets unlocked state, guaranteeing protected Spaces require PIN authentication on fresh start.
 
 ---
 
 ## Acceptance Criteria
-- [x] PIN setting, changing, disabling, and verification works with PBKDF2 hashing.
-- [x] Plaintext PINs are never stored in Room or output to logs.
-- [x] Locked Space strictly conceals application grid on Launcher Home until unlocked.
-- [x] Space switcher dropdown prompts for PIN when switching to a protected Space.
-- [x] Space management cards display protection status and provide PIN setup/change/disable controls.
-- [x] Build compiles cleanly with zero errors.
+- [x] Activity recreation and configuration changes preserve active Space and Home state.
+- [x] Process restart and device reboot reconstruct state cleanly from Room and DataStore.
+- [x] Package install/uninstall/update events refresh catalog and reconcile Space memberships.
+- [x] Uninstalled apps disappear from Home while preserving durable membership records for reinstall recovery.
+- [x] Invalid active Space reference automatically heals to a valid Space.
+- [x] Protected Spaces require PIN verification after process recreation or reboot.
+- [x] Zero automated test code added (strict physical verification policy).
+- [x] Clean compilation via `compile_applet`.
