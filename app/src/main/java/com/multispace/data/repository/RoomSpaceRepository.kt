@@ -548,6 +548,25 @@ class RoomSpaceRepository(
     }
   }
 
+  override suspend fun findSpaceMatchingCredential(credential: String): Space? {
+    return try {
+      val entities = spaceDao.getAllSpaces()
+      for (entity in entities) {
+        val domain = entity.toDomain()
+        if (domain.isProtected && !domain.pinHash.isNullOrEmpty() && !domain.pinSalt.isNullOrEmpty()) {
+          if (PinSecurityManager.verifyPin(credential, domain.pinSalt, domain.pinHash)) {
+            AppLogger.i(AppLogger.Category.LAUNCHER, "Credential matched Space '${domain.name}' (${domain.id})")
+            return domain
+          }
+        }
+      }
+      null
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Error matching credential across spaces", e)
+      null
+    }
+  }
+
   override suspend fun updateSpaceCustomization(
     spaceId: String,
     backgroundType: String,

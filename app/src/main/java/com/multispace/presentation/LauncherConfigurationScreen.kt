@@ -92,6 +92,17 @@ fun LauncherConfigurationScreen(
           }
         },
         actions = {
+          IconButton(
+            onClick = { spaceViewModel.lockPhone() },
+            modifier = Modifier.testTag("btn_config_lock_phone")
+          ) {
+            Icon(
+              imageVector = Icons.Default.Lock,
+              contentDescription = "Lock Device",
+              tint = TextSecondary,
+              modifier = Modifier.size(20.dp)
+            )
+          }
           FilledTonalButton(
             onClick = onOpenHomeSurface,
             shape = RoundedCornerShape(8.dp),
@@ -238,7 +249,7 @@ fun LauncherConfigurationScreen(
                   space = space,
                   isActive = space.id == activeSpace?.id,
                   onSelectActive = {
-                    if (space.isProtected && !spaceViewModel.isSpaceUnlocked(space)) {
+                    if (space.isProtected) {
                       spaceToUnlockForSwitch = space
                     } else {
                       spaceViewModel.selectActiveSpace(space.id)

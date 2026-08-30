@@ -156,7 +156,7 @@ fun SpaceManagementSection(
             space = space,
             isActive = isActive,
             onSelectActive = {
-              if (space.isProtected && !spaceViewModel.isSpaceUnlocked(space)) {
+              if (space.isProtected) {
                 spaceToUnlockForSwitch = space
               } else {
                 spaceViewModel.selectActiveSpace(space.id)

@@ -347,7 +347,7 @@ fun LauncherHomeScreen(
                   },
                   onClick = {
                     showSpaceSwitcherMenu = false
-                    if (space.isProtected && !spaceViewModel.isSpaceUnlocked(space)) {
+                    if (space.isProtected) {
                       spaceToUnlockForSwitch = space
                     } else {
                       spaceViewModel.selectActiveSpace(space.id)
@@ -401,19 +401,38 @@ fun LauncherHomeScreen(
             }
           }
 
-          // Discreet button to enter full Configuration & App Manager
-          IconButton(
-            onClick = onOpenConfiguration,
-            modifier = Modifier
-              .size(36.dp)
-              .testTag("btn_open_config")
+          // Quick lock button & Settings button
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
           ) {
-            Icon(
-              imageVector = Icons.Default.Settings,
-              contentDescription = "Launcher Settings",
-              tint = if (isDarkThemeBackground) Color.White.copy(alpha = 0.9f) else TextSecondary,
-              modifier = Modifier.size(20.dp)
-            )
+            IconButton(
+              onClick = { spaceViewModel.lockPhone() },
+              modifier = Modifier
+                .size(36.dp)
+                .testTag("btn_lock_phone")
+            ) {
+              Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = "Lock Multi-Space",
+                tint = if (isDarkThemeBackground) Color.White.copy(alpha = 0.9f) else TextSecondary,
+                modifier = Modifier.size(20.dp)
+              )
+            }
+
+            IconButton(
+              onClick = onOpenConfiguration,
+              modifier = Modifier
+                .size(36.dp)
+                .testTag("btn_open_config")
+            ) {
+              Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = "Launcher Settings",
+                tint = if (isDarkThemeBackground) Color.White.copy(alpha = 0.9f) else TextSecondary,
+                modifier = Modifier.size(20.dp)
+              )
+            }
           }
         }
       }

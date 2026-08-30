@@ -1,8 +1,8 @@
 package com.multispace.platform
 
-import android.util.Base64
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Base64
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 
@@ -27,7 +27,7 @@ object PinSecurityManager {
     val random = SecureRandom()
     val salt = ByteArray(SALT_LENGTH_BYTES)
     random.nextBytes(salt)
-    return Base64.encodeToString(salt, Base64.NO_WRAP)
+    return Base64.getEncoder().encodeToString(salt)
   }
 
   /**
@@ -41,11 +41,11 @@ object PinSecurityManager {
     require(pin.isNotBlank()) { "PIN cannot be blank" }
     require(saltBase64.isNotBlank()) { "Salt cannot be blank" }
 
-    val salt = Base64.decode(saltBase64, Base64.NO_WRAP)
+    val salt = Base64.getDecoder().decode(saltBase64)
     val spec = PBEKeySpec(pin.toCharArray(), salt, ITERATION_COUNT, KEY_LENGTH_BITS)
     val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
     val hash = factory.generateSecret(spec).encoded
-    return Base64.encodeToString(hash, Base64.NO_WRAP)
+    return Base64.getEncoder().encodeToString(hash)
   }
 
   /**
@@ -57,8 +57,8 @@ object PinSecurityManager {
     }
     return try {
       val computedHash = hashPin(enteredPin, saltBase64)
-      val computedBytes = Base64.decode(computedHash, Base64.NO_WRAP)
-      val expectedBytes = Base64.decode(expectedHashBase64, Base64.NO_WRAP)
+      val computedBytes = Base64.getDecoder().decode(computedHash)
+      val expectedBytes = Base64.getDecoder().decode(expectedHashBase64)
       MessageDigest.isEqual(computedBytes, expectedBytes)
     } catch (e: Exception) {
       false

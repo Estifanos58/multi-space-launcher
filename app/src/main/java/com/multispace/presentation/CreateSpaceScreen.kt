@@ -832,8 +832,8 @@ fun CreateSpaceScreen(
                           initialApps = selectedAppObjects,
                           onResult = { success, newId ->
                             isCreating = false
-                            if (success && newId != null) {
-                              onSpaceCreated(newId)
+                            if (success) {
+                              onSpaceCreated(newId ?: "")
                               onNavigateBack()
                             }
                           }

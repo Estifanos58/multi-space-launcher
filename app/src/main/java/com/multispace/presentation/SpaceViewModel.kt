@@ -153,7 +153,7 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
             unlockSpace(created.id)
           }
           _userFeedback.tryEmit("Space '${created.name}' created successfully.")
-          onResult?.invoke(true, null)
+          onResult?.invoke(true, created.id)
         },
         onFailure = { error ->
           val msg = error.message ?: "Failed to create Space."
@@ -313,6 +313,9 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
   private val _unlockedSpaceIds = MutableStateFlow<Set<String>>(emptySet())
   val unlockedSpaceIds: StateFlow<Set<String>> = _unlockedSpaceIds.asStateFlow()
 
+  private val _isPhoneLocked = MutableStateFlow(false)
+  val isPhoneLocked: StateFlow<Boolean> = _isPhoneLocked.asStateFlow()
+
   fun isSpaceUnlocked(space: Space?): Boolean {
     if (space == null) return true
     if (!space.isProtected) return true
@@ -329,6 +332,28 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
 
   fun lockAllProtectedSpaces() {
     _unlockedSpaceIds.value = emptySet()
+  }
+
+  fun lockPhone() {
+    lockAllProtectedSpaces()
+    _isPhoneLocked.value = true
+    _userFeedback.tryEmit("Multi-Space secured. Enter credential to unlock.")
+  }
+
+  fun unlockPhone() {
+    _isPhoneLocked.value = false
+  }
+
+  suspend fun authenticateAndUnlockSpaceByCredential(credential: String): Space? {
+    val matchedSpace = spaceRepository.findSpaceMatchingCredential(credential)
+    if (matchedSpace != null) {
+      unlockSpace(matchedSpace.id)
+      selectActiveSpace(matchedSpace.id)
+      _isPhoneLocked.value = false
+      _userFeedback.tryEmit("Unlocked into '${matchedSpace.name}'")
+      return matchedSpace
+    }
+    return null
   }
 
   suspend fun verifyAndUnlockSpace(spaceId: String, pin: String): Boolean {

@@ -83,6 +83,7 @@ interface SpaceRepository {
   suspend fun changeSpacePin(spaceId: String, currentPin: String, newPin: String): Result<Unit>
   suspend fun disableSpacePin(spaceId: String, currentPin: String): Result<Unit>
   suspend fun verifySpacePin(spaceId: String, pin: String): Boolean
+  suspend fun findSpaceMatchingCredential(credential: String): Space?
 
   suspend fun updateSpaceCustomization(
     spaceId: String,
