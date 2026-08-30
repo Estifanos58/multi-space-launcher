@@ -45,7 +45,8 @@ fun LauncherConfigurationScreen(
   onRequestSetDefaultHome: () -> Unit,
   onOpenDiagnostics: () -> Unit,
   onOpenHomeSurface: () -> Unit,
-  onOpenCreateSpace: (() -> Unit)? = null
+  onOpenCreateSpace: (() -> Unit)? = null,
+  onOpenEditSpace: ((Space) -> Unit)? = null
 ) {
   val spaces by spaceViewModel.allSpaces.collectAsStateWithLifecycle()
   val activeSpace by spaceViewModel.activeSpace.collectAsStateWithLifecycle()
@@ -60,6 +61,7 @@ fun LauncherConfigurationScreen(
   var changePinTargetSpace by remember { mutableStateOf<Space?>(null) }
   var disablePinTargetSpace by remember { mutableStateOf<Space?>(null) }
   var spaceToUnlockForSwitch by remember { mutableStateOf<Space?>(null) }
+  var spaceToAuthForEdit by remember { mutableStateOf<Space?>(null) }
 
   val snackbarHostState = remember { SnackbarHostState() }
 
@@ -242,17 +244,17 @@ fun LauncherConfigurationScreen(
                       spaceViewModel.selectActiveSpace(space.id)
                     }
                   },
-                  onCustomize = { customizeTargetSpace = space },
-                  onManageMemberships = { membershipTargetSpace = space },
-                  onManagePin = {
-                    if (space.isProtected) {
-                      changePinTargetSpace = space
+                  onEdit = {
+                    if (space.isProtected && !spaceViewModel.isSpaceUnlocked(space)) {
+                      spaceToAuthForEdit = space
                     } else {
-                      setPinTargetSpace = space
+                      if (onOpenEditSpace != null) {
+                        onOpenEditSpace(space)
+                      } else {
+                        renameTargetSpace = space
+                      }
                     }
                   },
-                  onDisablePin = { disablePinTargetSpace = space },
-                  onRename = { renameTargetSpace = space },
                   onDelete = { deleteTargetSpace = space }
                 )
               }
@@ -415,15 +417,34 @@ fun LauncherConfigurationScreen(
   }
 
   deleteTargetSpace?.let { space ->
-    DeleteSpaceDialog(
-      spaceName = space.name,
-      isOnlySpace = spaces.size <= 1,
-      onDismiss = { deleteTargetSpace = null },
-      onConfirm = {
-        spaceViewModel.deleteSpace(space.id)
-        deleteTargetSpace = null
-      }
-    )
+    if (spaces.size <= 1) {
+      DeleteSpaceDialog(
+        spaceName = space.name,
+        isOnlySpace = true,
+        onDismiss = { deleteTargetSpace = null },
+        onConfirm = { deleteTargetSpace = null }
+      )
+    } else if (space.isProtected) {
+      DeleteSpaceCredentialDialog(
+        space = space,
+        onDismiss = { deleteTargetSpace = null },
+        onConfirmDelete = {
+          spaceViewModel.deleteSpace(space.id)
+          deleteTargetSpace = null
+        },
+        spaceViewModel = spaceViewModel
+      )
+    } else {
+      DeleteSpaceDialog(
+        spaceName = space.name,
+        isOnlySpace = false,
+        onDismiss = { deleteTargetSpace = null },
+        onConfirm = {
+          spaceViewModel.deleteSpace(space.id)
+          deleteTargetSpace = null
+        }
+      )
+    }
   }
 
   membershipTargetSpace?.let { space ->
@@ -522,6 +543,23 @@ fun LauncherConfigurationScreen(
       spaceViewModel = spaceViewModel
     )
   }
+
+  spaceToAuthForEdit?.let { space ->
+    EditSpaceCredentialDialog(
+      space = space,
+      onDismiss = { spaceToAuthForEdit = null },
+      onAuthSuccess = {
+        val target = space
+        spaceToAuthForEdit = null
+        if (onOpenEditSpace != null) {
+          onOpenEditSpace(target)
+        } else {
+          renameTargetSpace = target
+        }
+      },
+      spaceViewModel = spaceViewModel
+    )
+  }
 }
 
 @Composable
@@ -529,11 +567,7 @@ private fun SpaceRowItem(
   space: Space,
   isActive: Boolean,
   onSelectActive: () -> Unit,
-  onCustomize: () -> Unit,
-  onManageMemberships: () -> Unit,
-  onManagePin: () -> Unit,
-  onDisablePin: () -> Unit,
-  onRename: () -> Unit,
+  onEdit: () -> Unit,
   onDelete: () -> Unit
 ) {
   val formattedDate = remember(space.createdAt) {
@@ -592,6 +626,7 @@ private fun SpaceRowItem(
               }
             }
             if (space.isProtected) {
+              val isPattern = space.isPatternProtected || space.authPolicy == Space.AUTH_PATTERN
               Surface(
                 shape = RoundedCornerShape(6.dp),
                 color = Color(0xFF2E7D32)
@@ -602,13 +637,13 @@ private fun SpaceRowItem(
                   horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                   Icon(
-                    imageVector = Icons.Default.Lock,
+                    imageVector = if (isPattern) Icons.Default.Gesture else Icons.Default.Lock,
                     contentDescription = "Protected",
                     tint = Color.White,
                     modifier = Modifier.size(10.dp)
                   )
                   Text(
-                    text = "PIN",
+                    text = if (isPattern) "PATTERN" else "PIN",
                     color = Color.White,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
@@ -629,111 +664,34 @@ private fun SpaceRowItem(
 
       HorizontalDivider(color = LightSurfaceContainerHigh)
 
-      // Dedicated Action Buttons for Apps Membership, PIN Security, Rename, and Delete
+      // Exactly two action buttons: Edit Space and Delete Space
       Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
       ) {
         OutlinedButton(
-          onClick = onManageMemberships,
-          shape = RoundedCornerShape(8.dp),
-          contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+          onClick = onEdit,
+          shape = RoundedCornerShape(10.dp),
+          contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
           modifier = Modifier
             .weight(1f)
-            .testTag("config_space_memberships_${space.id}")
-        ) {
-          Icon(
-            imageVector = Icons.Default.List,
-            contentDescription = "Manage Memberships",
-            tint = PrimaryPurpleDark,
-            modifier = Modifier.size(14.dp)
-          )
-          Spacer(modifier = Modifier.width(3.dp))
-          Text("Apps", fontSize = 11.sp, color = PrimaryPurpleDark)
-        }
-
-        OutlinedButton(
-          onClick = onCustomize,
-          shape = RoundedCornerShape(8.dp),
-          contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-          modifier = Modifier
-            .weight(1f)
-            .testTag("config_space_customize_${space.id}")
-        ) {
-          Icon(
-            imageVector = Icons.Default.Palette,
-            contentDescription = "Customize Space",
-            tint = PrimaryPurpleDark,
-            modifier = Modifier.size(14.dp)
-          )
-          Spacer(modifier = Modifier.width(3.dp))
-          Text("Style", fontSize = 11.sp, color = PrimaryPurpleDark)
-        }
-
-        OutlinedButton(
-          onClick = onManagePin,
-          shape = RoundedCornerShape(8.dp),
-          contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-          modifier = Modifier
-            .weight(1f)
-            .testTag("config_space_pin_${space.id}")
-        ) {
-          Icon(
-            imageVector = if (space.isProtected) Icons.Default.LockReset else Icons.Default.Lock,
-            contentDescription = "PIN Security",
-            tint = if (space.isProtected) Color(0xFF2E7D32) else TextSecondary,
-            modifier = Modifier.size(14.dp)
-          )
-          Spacer(modifier = Modifier.width(3.dp))
-          Text(
-            if (space.isProtected) "PIN" else "+PIN",
-            fontSize = 11.sp,
-            color = if (space.isProtected) Color(0xFF2E7D32) else TextPrimary
-          )
-        }
-
-        if (space.isProtected) {
-          OutlinedButton(
-            onClick = onDisablePin,
-            shape = RoundedCornerShape(8.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
-            colors = ButtonDefaults.outlinedButtonColors(
-              contentColor = Color(0xFFE65100)
-            ),
-            modifier = Modifier.testTag("config_space_disable_pin_${space.id}")
-          ) {
-            Icon(
-              imageVector = Icons.Default.LockOpen,
-              contentDescription = "Remove PIN",
-              tint = Color(0xFFE65100),
-              modifier = Modifier.size(14.dp)
-            )
-          }
-        }
-
-        OutlinedButton(
-          onClick = onRename,
-          shape = RoundedCornerShape(8.dp),
-          contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-          modifier = Modifier
-            .weight(1f)
-            .testTag("config_space_rename_${space.id}")
+            .testTag("config_space_edit_${space.id}")
         ) {
           Icon(
             imageVector = Icons.Default.Edit,
-            contentDescription = "Rename Space",
-            tint = TextSecondary,
-            modifier = Modifier.size(14.dp)
+            contentDescription = "Edit Space",
+            tint = PrimaryPurpleDark,
+            modifier = Modifier.size(16.dp)
           )
-          Spacer(modifier = Modifier.width(3.dp))
-          Text("Rename", fontSize = 11.sp, color = TextPrimary)
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Edit", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = PrimaryPurpleDark)
         }
 
         OutlinedButton(
           onClick = onDelete,
-          shape = RoundedCornerShape(8.dp),
-          contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+          shape = RoundedCornerShape(10.dp),
+          contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
           colors = ButtonDefaults.outlinedButtonColors(
             contentColor = Color(0xFFC62828)
           ),
@@ -745,10 +703,10 @@ private fun SpaceRowItem(
             imageVector = Icons.Default.Delete,
             contentDescription = "Delete Space",
             tint = Color(0xFFC62828),
-            modifier = Modifier.size(14.dp)
+            modifier = Modifier.size(16.dp)
           )
-          Spacer(modifier = Modifier.width(3.dp))
-          Text("Delete", fontSize = 11.sp, color = Color(0xFFC62828))
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Delete", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFC62828))
         }
       }
     }

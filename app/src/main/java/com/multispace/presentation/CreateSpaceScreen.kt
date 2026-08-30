@@ -213,18 +213,27 @@ fun CreateSpaceScreen(
   getBitmap: (DiscoveredApp) -> android.graphics.Bitmap?,
   onNavigateBack: () -> Unit,
   onSpaceCreated: (spaceId: String) -> Unit,
+  editingSpace: Space? = null,
   modifier: Modifier = Modifier
 ) {
   val context = LocalContext.current
+  val isEditMode = editingSpace != null
 
   // Top-level Navigation Sub-Page State
   var currentSubPage by rememberSaveable { mutableStateOf(CreateSpaceSubPage.MAIN_TABS) }
   var currentTab by rememberSaveable { mutableIntStateOf(0) } // 0: Basics, 1: Wallpaper & Theme, 2: Apps & Layout
 
   // Tab 1: Basics & Credentials State
-  var spaceName by rememberSaveable { mutableStateOf("") }
+  var spaceName by rememberSaveable { mutableStateOf(editingSpace?.name ?: "") }
   var spaceNameError by rememberSaveable { mutableStateOf<String?>(null) }
-  var credentialOption by rememberSaveable { mutableStateOf(CredentialOption.NONE) }
+  val initialCredentialOption = remember(editingSpace) {
+    when {
+      editingSpace?.isPatternProtected == true || editingSpace?.authPolicy == Space.AUTH_PATTERN -> CredentialOption.PATTERN
+      editingSpace?.isPinProtected == true || editingSpace?.authPolicy == Space.AUTH_PIN -> CredentialOption.PIN
+      else -> CredentialOption.NONE
+    }
+  }
+  var credentialOption by rememberSaveable { mutableStateOf(initialCredentialOption) }
 
   // PIN state
   var pinValue by rememberSaveable { mutableStateOf("") }
@@ -233,9 +242,17 @@ fun CreateSpaceScreen(
   var showPinText by rememberSaveable { mutableStateOf(false) }
 
   // Pattern state
-  var patternRows by rememberSaveable { mutableIntStateOf(3) }
-  var patternCols by rememberSaveable { mutableIntStateOf(3) }
-  var patternCustomOption by rememberSaveable { mutableStateOf("9dots") } // "6dots", "9dots", "custom"
+  var patternRows by rememberSaveable { mutableIntStateOf(editingSpace?.patternRows ?: 3) }
+  var patternCols by rememberSaveable { mutableIntStateOf(editingSpace?.patternCols ?: 3) }
+  val initialPatternOption = remember(editingSpace) {
+    if (editingSpace != null) {
+      val dots = editingSpace.patternRows * editingSpace.patternCols
+      if (dots == 6) "6dots" else if (dots == 9) "9dots" else "custom"
+    } else {
+      "9dots"
+    }
+  }
+  var patternCustomOption by rememberSaveable { mutableStateOf(initialPatternOption) }
   var drawnFirstPattern by remember { mutableStateOf<String?>(null) }
   var confirmedPatternString by rememberSaveable { mutableStateOf<String?>(null) }
   var patternDrawingStep by rememberSaveable { mutableIntStateOf(1) } // 1: Record, 2: Confirm
@@ -245,34 +262,72 @@ fun CreateSpaceScreen(
 
   // Tab 2: Wallpaper & Theme State
   // Home Wallpaper
-  var homeWallpaperCategory by rememberSaveable { mutableStateOf("gradients") } // "gradients", "colors", "photo"
-  var homeSelectedBgColor by rememberSaveable { mutableStateOf(PRESET_BACKGROUND_COLORS.first().first) }
-  var homeSelectedGradientId by rememberSaveable { mutableStateOf(PRESET_GRADIENTS.first().id) }
-  var homeCustomImageUri by rememberSaveable { mutableStateOf<String?>(null) }
+  val initialHomeCat = remember(editingSpace) {
+    when (editingSpace?.homeWallpaperType ?: editingSpace?.backgroundType) {
+      Space.BACKGROUND_IMAGE -> "photo"
+      Space.BACKGROUND_COLOR -> if (PRESET_GRADIENTS.any { it.representativeColor == (editingSpace?.homeWallpaperColor ?: editingSpace?.backgroundColor) }) "gradients" else "colors"
+      else -> "gradients"
+    }
+  }
+  var homeWallpaperCategory by rememberSaveable { mutableStateOf(initialHomeCat) }
+  var homeSelectedBgColor by rememberSaveable { mutableStateOf(editingSpace?.homeWallpaperColor ?: editingSpace?.backgroundColor ?: PRESET_BACKGROUND_COLORS.first().first) }
+  var homeSelectedGradientId by rememberSaveable { mutableStateOf(PRESET_GRADIENTS.firstOrNull { it.representativeColor == (editingSpace?.homeWallpaperColor ?: editingSpace?.backgroundColor) }?.id ?: PRESET_GRADIENTS.first().id) }
+  var homeCustomImageUri by rememberSaveable { mutableStateOf(editingSpace?.homeWallpaperImageUri ?: editingSpace?.backgroundImageUri) }
 
   // Phone Lock Screen Wallpaper
-  var phoneLockWallpaperCategory by rememberSaveable { mutableStateOf("gradients") }
-  var phoneLockSelectedBgColor by rememberSaveable { mutableStateOf(PRESET_BACKGROUND_COLORS[1].first) }
-  var phoneLockSelectedGradientId by rememberSaveable { mutableStateOf(PRESET_GRADIENTS[1].id) }
-  var phoneLockCustomImageUri by rememberSaveable { mutableStateOf<String?>(null) }
+  val initialPhoneLockCat = remember(editingSpace) {
+    when (editingSpace?.phoneLockWallpaperType) {
+      Space.BACKGROUND_IMAGE -> "photo"
+      Space.BACKGROUND_COLOR -> if (PRESET_GRADIENTS.any { it.representativeColor == editingSpace.phoneLockWallpaperColor }) "gradients" else "colors"
+      else -> "gradients"
+    }
+  }
+  var phoneLockWallpaperCategory by rememberSaveable { mutableStateOf(initialPhoneLockCat) }
+  var phoneLockSelectedBgColor by rememberSaveable { mutableStateOf(editingSpace?.phoneLockWallpaperColor ?: PRESET_BACKGROUND_COLORS[1].first) }
+  var phoneLockSelectedGradientId by rememberSaveable { mutableStateOf(PRESET_GRADIENTS.firstOrNull { it.representativeColor == editingSpace?.phoneLockWallpaperColor }?.id ?: PRESET_GRADIENTS[1].id) }
+  var phoneLockCustomImageUri by rememberSaveable { mutableStateOf(editingSpace?.phoneLockWallpaperImageUri) }
 
   // Space Lock Screen Wallpaper
-  var spaceLockWallpaperCategory by rememberSaveable { mutableStateOf("gradients") }
-  var spaceLockSelectedBgColor by rememberSaveable { mutableStateOf(PRESET_BACKGROUND_COLORS[4].first) }
-  var spaceLockSelectedGradientId by rememberSaveable { mutableStateOf(PRESET_GRADIENTS[4].id) }
-  var spaceLockCustomImageUri by rememberSaveable { mutableStateOf<String?>(null) }
+  val initialSpaceLockCat = remember(editingSpace) {
+    when (editingSpace?.spaceLockWallpaperType) {
+      Space.BACKGROUND_IMAGE -> "photo"
+      Space.BACKGROUND_COLOR -> if (PRESET_GRADIENTS.any { it.representativeColor == editingSpace.spaceLockWallpaperColor }) "gradients" else "colors"
+      else -> "gradients"
+    }
+  }
+  var spaceLockWallpaperCategory by rememberSaveable { mutableStateOf(initialSpaceLockCat) }
+  var spaceLockSelectedBgColor by rememberSaveable { mutableStateOf(editingSpace?.spaceLockWallpaperColor ?: PRESET_BACKGROUND_COLORS[4].first) }
+  var spaceLockSelectedGradientId by rememberSaveable { mutableStateOf(PRESET_GRADIENTS.firstOrNull { it.representativeColor == editingSpace?.spaceLockWallpaperColor }?.id ?: PRESET_GRADIENTS[4].id) }
+  var spaceLockCustomImageUri by rememberSaveable { mutableStateOf(editingSpace?.spaceLockWallpaperImageUri) }
 
   // Theme for Apps
-  var selectedAppTheme by rememberSaveable { mutableStateOf(Space.THEME_DEFAULT) }
+  var selectedAppTheme by rememberSaveable { mutableStateOf(editingSpace?.appTheme ?: Space.THEME_DEFAULT) }
 
   // Tab 3: Apps & Layout State
   var appSearchQuery by rememberSaveable { mutableStateOf("") }
   var selectedAppsSet by remember { mutableStateOf(setOf<String>()) }
-  var gridColumns by rememberSaveable { mutableIntStateOf(Space.DEFAULT_GRID_COLUMNS) }
-  var iconSize by rememberSaveable { mutableStateOf(Space.ICON_SIZE_MEDIUM) }
-  var showLabels by rememberSaveable { mutableStateOf(true) }
+  var gridColumns by rememberSaveable { mutableIntStateOf(editingSpace?.gridColumns ?: Space.DEFAULT_GRID_COLUMNS) }
+  var iconSize by rememberSaveable { mutableStateOf(editingSpace?.iconSize ?: Space.ICON_SIZE_MEDIUM) }
+  var showLabels by rememberSaveable { mutableStateOf(editingSpace?.labelVisibility ?: true) }
 
   var isCreating by remember { mutableStateOf(false) }
+
+  // Pre-load apps for editing space
+  LaunchedEffect(editingSpace?.id, allApps) {
+    if (editingSpace != null) {
+      val memberships = spaceViewModel.spaceRepository.getMembershipsForSpace(editingSpace.id)
+      val memberIds = mutableSetOf<String>()
+      for (m in memberships) {
+        val matched = allApps.firstOrNull { it.packageName == m.packageName && (m.componentName.isBlank() || it.activityName == m.componentName) }
+        if (matched != null) {
+          memberIds.add(matched.id)
+        } else {
+          memberIds.add("${m.packageName}/${m.componentName}/0")
+        }
+      }
+      selectedAppsSet = memberIds
+    }
+  }
 
   // Photo Wallpaper Picker Launchers
   val homePhotoPickerLauncher = rememberLauncherForActivityResult(
@@ -439,7 +494,7 @@ fun CreateSpaceScreen(
               title = {
                 Column {
                   Text(
-                    text = "Create New Space",
+                    text = if (isEditMode) "Edit Space" else "Create New Space",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
@@ -500,7 +555,7 @@ fun CreateSpaceScreen(
               Tab(
                 selected = currentTab == 1,
                 onClick = {
-                  if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, { spaceNameError = it }, { pinError = it })) {
+                  if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, editingSpace, { spaceNameError = it }, { pinError = it })) {
                     currentTab = 1
                   }
                 },
@@ -522,7 +577,7 @@ fun CreateSpaceScreen(
               Tab(
                 selected = currentTab == 2,
                 onClick = {
-                  if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, { spaceNameError = it }, { pinError = it })) {
+                  if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, editingSpace, { spaceNameError = it }, { pinError = it })) {
                     currentTab = 2
                   }
                 },
@@ -567,7 +622,7 @@ fun CreateSpaceScreen(
                 }
                 Button(
                   onClick = {
-                    if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, { spaceNameError = it }, { pinError = it })) {
+                    if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, editingSpace, { spaceNameError = it }, { pinError = it })) {
                       currentTab = 1
                     }
                   },
@@ -631,7 +686,7 @@ fun CreateSpaceScreen(
                 }
                 Button(
                   onClick = {
-                    if (!isCreating && validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, { spaceNameError = it }, { pinError = it })) {
+                    if (!isCreating && validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, editingSpace, { spaceNameError = it }, { pinError = it })) {
                       isCreating = true
 
                       // Process credential hashing
@@ -639,14 +694,40 @@ fun CreateSpaceScreen(
                       var salt: String? = null
                       var hash: String? = null
 
-                      if (credentialOption == CredentialOption.PIN && pinValue.isNotBlank()) {
-                        authPolicy = Space.AUTH_PIN
-                        salt = PinSecurityManager.generateSalt()
-                        hash = PinSecurityManager.hashPin(pinValue, salt)
-                      } else if (credentialOption == CredentialOption.PATTERN && !confirmedPatternString.isNullOrEmpty()) {
-                        authPolicy = Space.AUTH_PATTERN
-                        salt = PinSecurityManager.generateSalt()
-                        hash = PinSecurityManager.hashPin(confirmedPatternString!!, salt)
+                      if (isEditMode) {
+                        authPolicy = when (credentialOption) {
+                          CredentialOption.NONE -> Space.AUTH_NONE
+                          CredentialOption.PIN -> Space.AUTH_PIN
+                          CredentialOption.PATTERN -> Space.AUTH_PATTERN
+                        }
+
+                        if (credentialOption == CredentialOption.PIN) {
+                          if (pinValue.isNotBlank()) {
+                            salt = PinSecurityManager.generateSalt()
+                            hash = PinSecurityManager.hashPin(pinValue, salt)
+                          } else {
+                            salt = editingSpace?.pinSalt
+                            hash = editingSpace?.pinHash
+                          }
+                        } else if (credentialOption == CredentialOption.PATTERN) {
+                          if (!confirmedPatternString.isNullOrEmpty()) {
+                            salt = PinSecurityManager.generateSalt()
+                            hash = PinSecurityManager.hashPin(confirmedPatternString!!, salt)
+                          } else {
+                            salt = editingSpace?.pinSalt
+                            hash = editingSpace?.pinHash
+                          }
+                        }
+                      } else {
+                        if (credentialOption == CredentialOption.PIN && pinValue.isNotBlank()) {
+                          authPolicy = Space.AUTH_PIN
+                          salt = PinSecurityManager.generateSalt()
+                          hash = PinSecurityManager.hashPin(pinValue, salt)
+                        } else if (credentialOption == CredentialOption.PATTERN && !confirmedPatternString.isNullOrEmpty()) {
+                          authPolicy = Space.AUTH_PATTERN
+                          salt = PinSecurityManager.generateSalt()
+                          hash = PinSecurityManager.hashPin(confirmedPatternString!!, salt)
+                        }
                       }
 
                       // Resolve Home Wallpaper
@@ -690,37 +771,74 @@ fun CreateSpaceScreen(
 
                       val selectedAppObjects = allApps.filter { selectedAppsSet.contains(it.id) }
 
-                      spaceViewModel.createFullSpace(
-                        name = spaceName.trim(),
-                        authPolicy = authPolicy,
-                        pinSalt = salt,
-                        pinHash = hash,
-                        patternRows = patternRows,
-                        patternCols = patternCols,
-                        backgroundType = homeBgType,
-                        backgroundColor = homeBgColor,
-                        backgroundImageUri = homeBgImageUri,
-                        homeWallpaperType = homeBgType,
-                        homeWallpaperColor = homeBgColor,
-                        homeWallpaperImageUri = homeBgImageUri,
-                        phoneLockWallpaperType = phoneLockBgType,
-                        phoneLockWallpaperColor = phoneLockBgColor,
-                        phoneLockWallpaperImageUri = phoneLockBgImageUri,
-                        spaceLockWallpaperType = spaceLockBgType,
-                        spaceLockWallpaperColor = spaceLockBgColor,
-                        spaceLockWallpaperImageUri = spaceLockBgImageUri,
-                        appTheme = selectedAppTheme,
-                        gridColumns = gridColumns,
-                        iconSize = iconSize,
-                        labelVisibility = showLabels,
-                        initialApps = selectedAppObjects,
-                        onResult = { success, _ ->
-                          isCreating = false
-                          if (success) {
-                            onNavigateBack()
+                      if (editingSpace != null) {
+                        spaceViewModel.updateFullSpace(
+                          spaceId = editingSpace.id,
+                          name = spaceName.trim(),
+                          authPolicy = authPolicy,
+                          pinSalt = salt,
+                          pinHash = hash,
+                          patternRows = patternRows,
+                          patternCols = patternCols,
+                          backgroundType = homeBgType,
+                          backgroundColor = homeBgColor,
+                          backgroundImageUri = homeBgImageUri,
+                          homeWallpaperType = homeBgType,
+                          homeWallpaperColor = homeBgColor,
+                          homeWallpaperImageUri = homeBgImageUri,
+                          phoneLockWallpaperType = phoneLockBgType,
+                          phoneLockWallpaperColor = phoneLockBgColor,
+                          phoneLockWallpaperImageUri = phoneLockBgImageUri,
+                          spaceLockWallpaperType = spaceLockBgType,
+                          spaceLockWallpaperColor = spaceLockBgColor,
+                          spaceLockWallpaperImageUri = spaceLockBgImageUri,
+                          appTheme = selectedAppTheme,
+                          gridColumns = gridColumns,
+                          iconSize = iconSize,
+                          labelVisibility = showLabels,
+                          updatedApps = selectedAppObjects,
+                          onResult = { success, _ ->
+                            isCreating = false
+                            if (success) {
+                              onSpaceCreated(editingSpace.id)
+                              onNavigateBack()
+                            }
                           }
-                        }
-                      )
+                        )
+                      } else {
+                        spaceViewModel.createFullSpace(
+                          name = spaceName.trim(),
+                          authPolicy = authPolicy,
+                          pinSalt = salt,
+                          pinHash = hash,
+                          patternRows = patternRows,
+                          patternCols = patternCols,
+                          backgroundType = homeBgType,
+                          backgroundColor = homeBgColor,
+                          backgroundImageUri = homeBgImageUri,
+                          homeWallpaperType = homeBgType,
+                          homeWallpaperColor = homeBgColor,
+                          homeWallpaperImageUri = homeBgImageUri,
+                          phoneLockWallpaperType = phoneLockBgType,
+                          phoneLockWallpaperColor = phoneLockBgColor,
+                          phoneLockWallpaperImageUri = phoneLockBgImageUri,
+                          spaceLockWallpaperType = spaceLockBgType,
+                          spaceLockWallpaperColor = spaceLockBgColor,
+                          spaceLockWallpaperImageUri = spaceLockBgImageUri,
+                          appTheme = selectedAppTheme,
+                          gridColumns = gridColumns,
+                          iconSize = iconSize,
+                          labelVisibility = showLabels,
+                          initialApps = selectedAppObjects,
+                          onResult = { success, newId ->
+                            isCreating = false
+                            if (success && newId != null) {
+                              onSpaceCreated(newId)
+                              onNavigateBack()
+                            }
+                          }
+                        )
+                      }
                     }
                   },
                   enabled = !isCreating,
@@ -743,7 +861,7 @@ fun CreateSpaceScreen(
                       modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Create Space", fontWeight = FontWeight.Bold)
+                    Text(if (isEditMode) "Save Changes" else "Create Space", fontWeight = FontWeight.Bold)
                   }
                 }
               }
@@ -791,6 +909,7 @@ fun CreateSpaceScreen(
                 confirmedPatternString = confirmedPatternString,
                 patternRows = patternRows,
                 patternCols = patternCols,
+                editingSpace = editingSpace,
                 onOpenPatternConfig = {
                   currentSubPage = CreateSpaceSubPage.PATTERN_GRID_CHOICE
                 }
@@ -882,6 +1001,7 @@ private fun validateTab1(
   pin: String,
   confirmPin: String,
   pattern: String?,
+  editingSpace: Space?,
   onErrorName: (String) -> Unit,
   onErrorPin: (String) -> Unit
 ): Boolean {
@@ -890,19 +1010,25 @@ private fun validateTab1(
     return false
   }
   if (credential == CredentialOption.PIN) {
-    if (pin.length < 4) {
-      onErrorPin("PIN must be at least 4 numeric digits.")
-      return false
-    }
-    if (pin != confirmPin) {
-      onErrorPin("PINs do not match. Please re-enter.")
-      return false
+    val keepExistingPin = editingSpace != null && editingSpace.isPinProtected && pin.isEmpty() && confirmPin.isEmpty()
+    if (!keepExistingPin) {
+      if (pin.length < 4) {
+        onErrorPin("PIN must be at least 4 numeric digits.")
+        return false
+      }
+      if (pin != confirmPin) {
+        onErrorPin("PINs do not match. Please re-enter.")
+        return false
+      }
     }
   }
   if (credential == CredentialOption.PATTERN) {
-    if (pattern.isNullOrEmpty()) {
-      onErrorPin("Please draw and confirm a pattern gesture.")
-      return false
+    val keepExistingPattern = editingSpace != null && editingSpace.isPatternProtected && pattern.isNullOrEmpty()
+    if (!keepExistingPattern) {
+      if (pattern.isNullOrEmpty()) {
+        onErrorPin("Please draw and confirm a pattern gesture.")
+        return false
+      }
     }
   }
   return true
@@ -928,6 +1054,7 @@ private fun Tab1BasicsAndSecurity(
   confirmedPatternString: String?,
   patternRows: Int,
   patternCols: Int,
+  editingSpace: Space? = null,
   onOpenPatternConfig: () -> Unit
 ) {
   val presetNames = listOf("Personal", "Work", "Focus & Study", "Social", "Kids Zone", "Vault & Private", "Gaming")
@@ -966,6 +1093,21 @@ private fun Tab1BasicsAndSecurity(
             placeholder = { Text("e.g. Work, Personal, Games") },
             singleLine = true,
             isError = spaceNameError != null,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedTextColor = TextPrimary,
+              unfocusedTextColor = TextPrimary,
+              focusedContainerColor = LightSurfaceContainerLowest,
+              unfocusedContainerColor = LightSurfaceContainerLowest,
+              focusedBorderColor = PrimaryPurple,
+              unfocusedBorderColor = Color(0xFFCAC4D0),
+              focusedLabelColor = PrimaryPurple,
+              unfocusedLabelColor = TextSecondary,
+              focusedPlaceholderColor = TextMuted,
+              unfocusedPlaceholderColor = TextMuted,
+              cursorColor = PrimaryPurple
+            ),
             modifier = Modifier
               .fillMaxWidth()
               .testTag("input_space_name"),
@@ -1101,13 +1243,41 @@ private fun Tab1BasicsAndSecurity(
 
             CredentialOption.PIN -> {
               Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (editingSpace != null && editingSpace.isPinProtected) {
+                  Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFE8F5E9),
+                    modifier = Modifier.fillMaxWidth()
+                  ) {
+                    Text(
+                      text = "🔒 Currently protected by PIN. Enter new digits below to change, or leave blank to keep your current PIN.",
+                      fontSize = 12.sp,
+                      color = Color(0xFF2E7D32),
+                      modifier = Modifier.padding(10.dp)
+                    )
+                  }
+                }
+
                 OutlinedTextField(
                   value = pinValue,
                   onValueChange = onPinValueChange,
-                  label = { Text("PIN (4-8 digits)") },
+                  label = { Text(if (editingSpace != null && editingSpace.isPinProtected) "New PIN (leave blank to keep)" else "PIN (4-8 digits)") },
                   visualTransformation = if (showPinText) VisualTransformation.None else PasswordVisualTransformation(),
                   keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                   singleLine = true,
+                  textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
+                  shape = RoundedCornerShape(12.dp),
+                  colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    focusedContainerColor = LightSurfaceContainerLowest,
+                    unfocusedContainerColor = LightSurfaceContainerLowest,
+                    focusedBorderColor = PrimaryPurple,
+                    unfocusedBorderColor = Color(0xFFCAC4D0),
+                    focusedLabelColor = PrimaryPurple,
+                    unfocusedLabelColor = TextSecondary,
+                    cursorColor = PrimaryPurple
+                  ),
                   modifier = Modifier
                     .fillMaxWidth()
                     .testTag("input_space_pin"),
@@ -1124,10 +1294,23 @@ private fun Tab1BasicsAndSecurity(
                 OutlinedTextField(
                   value = confirmPinValue,
                   onValueChange = onConfirmPinValueChange,
-                  label = { Text("Confirm PIN") },
+                  label = { Text(if (editingSpace != null && editingSpace.isPinProtected) "Confirm New PIN" else "Confirm PIN") },
                   visualTransformation = if (showPinText) VisualTransformation.None else PasswordVisualTransformation(),
                   keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                   singleLine = true,
+                  textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
+                  shape = RoundedCornerShape(12.dp),
+                  colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    focusedContainerColor = LightSurfaceContainerLowest,
+                    unfocusedContainerColor = LightSurfaceContainerLowest,
+                    focusedBorderColor = PrimaryPurple,
+                    unfocusedBorderColor = Color(0xFFCAC4D0),
+                    focusedLabelColor = PrimaryPurple,
+                    unfocusedLabelColor = TextSecondary,
+                    cursorColor = PrimaryPurple
+                  ),
                   modifier = Modifier
                     .fillMaxWidth()
                     .testTag("input_space_confirm_pin")
@@ -1171,13 +1354,55 @@ private fun Tab1BasicsAndSecurity(
                         )
                         Column {
                           Text(
-                            text = "Pattern Lock Configured",
+                            text = "New Pattern Configured",
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF2E7D32),
                             fontSize = 13.sp
                           )
                           Text(
                             text = "${patternRows}×${patternCols} grid (${patternRows * patternCols} dots) verified",
+                            color = Color(0xFF2E7D32).copy(alpha = 0.8f),
+                            fontSize = 11.sp
+                          )
+                        }
+                      }
+                      TextButton(onClick = onOpenPatternConfig) {
+                        Text("Change", fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                      }
+                    }
+                  }
+                } else if (editingSpace != null && editingSpace.isPatternProtected) {
+                  Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFE8F5E9),
+                    modifier = Modifier.fillMaxWidth()
+                  ) {
+                    Row(
+                      modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                      Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                      ) {
+                        Icon(
+                          imageVector = Icons.Default.CheckCircle,
+                          contentDescription = null,
+                          tint = Color(0xFF2E7D32),
+                          modifier = Modifier.size(24.dp)
+                        )
+                        Column {
+                          Text(
+                            text = "Existing Pattern Lock Active",
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF2E7D32),
+                            fontSize = 13.sp
+                          )
+                          Text(
+                            text = "${patternRows}×${patternCols} grid pattern active. Tap 'Change' to record a new pattern.",
                             color = Color(0xFF2E7D32).copy(alpha = 0.8f),
                             fontSize = 11.sp
                           )
@@ -1941,6 +2166,19 @@ private fun Tab3AppsAndLayout(
             onValueChange = onSearchQueryChange,
             placeholder = { Text("Search installed applications...") },
             singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary),
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedTextColor = TextPrimary,
+              unfocusedTextColor = TextPrimary,
+              focusedContainerColor = LightSurfaceContainerLowest,
+              unfocusedContainerColor = LightSurfaceContainerLowest,
+              focusedBorderColor = PrimaryPurple,
+              unfocusedBorderColor = Color(0xFFCAC4D0),
+              focusedPlaceholderColor = TextMuted,
+              unfocusedPlaceholderColor = TextMuted,
+              cursorColor = PrimaryPurple
+            ),
             leadingIcon = {
               Icon(
                 imageVector = Icons.Default.Search,
@@ -1951,7 +2189,7 @@ private fun Tab3AppsAndLayout(
             trailingIcon = {
               if (searchQuery.isNotEmpty()) {
                 IconButton(onClick = { onSearchQueryChange("") }) {
-                  Icon(imageVector = Icons.Default.Close, contentDescription = "Clear search")
+                  Icon(imageVector = Icons.Default.Close, contentDescription = "Clear search", tint = TextSecondary)
                 }
               }
             },

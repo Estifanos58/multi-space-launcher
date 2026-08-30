@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -13,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -23,15 +23,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.multispace.domain.model.Space
 import com.multispace.platform.PinSecurityManager
-import com.multispace.ui.theme.LightSurfaceContainerHigh
-import com.multispace.ui.theme.LightSurfaceContainerLowest
-import com.multispace.ui.theme.PrimaryContainerLight
-import com.multispace.ui.theme.PrimaryPurple
-import com.multispace.ui.theme.PrimaryPurpleDark
-import com.multispace.ui.theme.TextMuted
-import com.multispace.ui.theme.TextPrimary
-import com.multispace.ui.theme.TextSecondary
+import com.multispace.ui.theme.*
 import kotlinx.coroutines.launch
+
+private val dialogTextFieldColors
+  @Composable get() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = TextPrimary,
+    unfocusedTextColor = TextPrimary,
+    focusedContainerColor = LightSurfaceContainerLowest,
+    unfocusedContainerColor = LightSurfaceContainerLowest,
+    focusedBorderColor = PrimaryPurple,
+    unfocusedBorderColor = Color(0xFFCAC4D0),
+    focusedLabelColor = PrimaryPurple,
+    unfocusedLabelColor = TextSecondary,
+    focusedPlaceholderColor = TextMuted,
+    unfocusedPlaceholderColor = TextMuted,
+    cursorColor = PrimaryPurple
+  )
 
 @Composable
 fun SetSpacePinDialog(
@@ -90,6 +98,9 @@ fun SetSpacePinDialog(
             }
           },
           label = { Text("Enter PIN (4-8 digits)") },
+          textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
+          shape = RoundedCornerShape(12.dp),
+          colors = dialogTextFieldColors,
           visualTransformation = if (showPin) VisualTransformation.None else PasswordVisualTransformation(),
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
           singleLine = true,
@@ -116,6 +127,9 @@ fun SetSpacePinDialog(
             }
           },
           label = { Text("Confirm PIN") },
+          textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
+          shape = RoundedCornerShape(12.dp),
+          colors = dialogTextFieldColors,
           visualTransformation = if (showPin) VisualTransformation.None else PasswordVisualTransformation(),
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
           singleLine = true,
@@ -203,6 +217,9 @@ fun ChangeSpacePinDialog(
             }
           },
           label = { Text("Current PIN") },
+          textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
+          shape = RoundedCornerShape(12.dp),
+          colors = dialogTextFieldColors,
           visualTransformation = if (showPin) VisualTransformation.None else PasswordVisualTransformation(),
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
           singleLine = true,
@@ -220,6 +237,9 @@ fun ChangeSpacePinDialog(
             }
           },
           label = { Text("New PIN (4-8 digits)") },
+          textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
+          shape = RoundedCornerShape(12.dp),
+          colors = dialogTextFieldColors,
           visualTransformation = if (showPin) VisualTransformation.None else PasswordVisualTransformation(),
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
           singleLine = true,
@@ -237,6 +257,9 @@ fun ChangeSpacePinDialog(
             }
           },
           label = { Text("Confirm New PIN") },
+          textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
+          shape = RoundedCornerShape(12.dp),
+          colors = dialogTextFieldColors,
           visualTransformation = if (showPin) VisualTransformation.None else PasswordVisualTransformation(),
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
           singleLine = true,
@@ -329,6 +352,9 @@ fun DisableSpacePinDialog(
             }
           },
           label = { Text("Current PIN") },
+          textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
+          shape = RoundedCornerShape(12.dp),
+          colors = dialogTextFieldColors,
           visualTransformation = PasswordVisualTransformation(),
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
           singleLine = true,
@@ -370,19 +396,65 @@ fun DisableSpacePinDialog(
   )
 }
 
+enum class AuthDialogMode {
+  UNLOCK,
+  EDIT,
+  DELETE
+}
+
 @Composable
-fun SpaceUnlockDialog(
+fun SpaceCredentialVerificationDialog(
   space: Space,
+  mode: AuthDialogMode,
   onDismiss: () -> Unit,
-  onUnlockSuccess: () -> Unit,
+  onSuccess: () -> Unit,
   spaceViewModel: SpaceViewModel
 ) {
   val isPatternAuth = space.isPatternProtected || space.authPolicy == Space.AUTH_PATTERN
   var enteredPin by remember { mutableStateOf("") }
+  var showPinText by remember { mutableStateOf(false) }
   var isError by remember { mutableStateOf(false) }
   var isVerifying by remember { mutableStateOf(false) }
   var clearTrigger by remember { mutableIntStateOf(0) }
   val coroutineScope = rememberCoroutineScope()
+
+  val iconContainerBg: Color
+  val iconTint: Color
+  val primaryButtonColor: Color
+  val dialogTitle: String
+  val dialogSubtitle: String
+  val confirmButtonText: String
+  val headerIcon: ImageVector
+
+  when (mode) {
+    AuthDialogMode.UNLOCK -> {
+      iconContainerBg = PrimaryContainerLight
+      iconTint = PrimaryPurpleDark
+      primaryButtonColor = PrimaryPurple
+      headerIcon = if (isPatternAuth) Icons.Default.Gesture else Icons.Default.Lock
+      dialogTitle = "Unlock '${space.name}'"
+      dialogSubtitle = if (isPatternAuth) "Draw your pattern gesture to access '${space.name}'." else "Enter your numeric PIN to access '${space.name}'."
+      confirmButtonText = "Unlock Space"
+    }
+    AuthDialogMode.EDIT -> {
+      iconContainerBg = Color(0xFFE3F2FD)
+      iconTint = Color(0xFF1565C0)
+      primaryButtonColor = Color(0xFF1565C0)
+      headerIcon = if (isPatternAuth) Icons.Default.Gesture else Icons.Default.Lock
+      dialogTitle = "Unlock to Edit '${space.name}'"
+      dialogSubtitle = if (isPatternAuth) "Draw your pattern gesture to edit settings and apps for '${space.name}'." else "Enter your PIN to edit settings and apps for '${space.name}'."
+      confirmButtonText = "Verify & Edit"
+    }
+    AuthDialogMode.DELETE -> {
+      iconContainerBg = Color(0xFFFFEBEE)
+      iconTint = Color(0xFFC62828)
+      primaryButtonColor = Color(0xFFC62828)
+      headerIcon = if (isPatternAuth) Icons.Default.Gesture else Icons.Default.DeleteOutline
+      dialogTitle = "Authorize Deletion of '${space.name}'"
+      dialogSubtitle = if (isPatternAuth) "Space '${space.name}' is secured with a pattern. Draw pattern to confirm deletion." else "Space '${space.name}' is secured with a PIN. Enter PIN to confirm deletion."
+      confirmButtonText = "Delete Space"
+    }
+  }
 
   AlertDialog(
     onDismissRequest = {
@@ -391,14 +463,14 @@ fun SpaceUnlockDialog(
     icon = {
       Surface(
         shape = CircleShape,
-        color = PrimaryContainerLight,
-        modifier = Modifier.size(54.dp)
+        color = iconContainerBg,
+        modifier = Modifier.size(56.dp)
       ) {
         Box(contentAlignment = Alignment.Center) {
           Icon(
-            imageVector = if (isPatternAuth) Icons.Default.Gesture else Icons.Default.Lock,
+            imageVector = headerIcon,
             contentDescription = null,
-            tint = PrimaryPurpleDark,
+            tint = iconTint,
             modifier = Modifier.size(28.dp)
           )
         }
@@ -406,20 +478,21 @@ fun SpaceUnlockDialog(
     },
     title = {
       Text(
-        text = "Unlock '${space.name}'",
+        text = dialogTitle,
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Bold,
-        textAlign = TextAlign.Center
+        textAlign = TextAlign.Center,
+        color = TextPrimary
       )
     },
     text = {
       Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
       ) {
         Text(
-          text = if (isPatternAuth) "Draw gesture pattern to access this Space." else "Enter numeric PIN to access this Space.",
+          text = dialogSubtitle,
           style = MaterialTheme.typography.bodySmall,
           color = TextSecondary,
           textAlign = TextAlign.Center
@@ -427,9 +500,12 @@ fun SpaceUnlockDialog(
 
         if (isPatternAuth) {
           Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(20.dp),
             color = LightSurfaceContainerLowest,
-            border = androidx.compose.foundation.BorderStroke(1.dp, LightSurfaceContainerHigh),
+            border = androidx.compose.foundation.BorderStroke(
+              width = if (isError) 1.5.dp else 1.dp,
+              color = if (isError) Color(0xFFC62828) else LightSurfaceContainerHigh
+            ),
             modifier = Modifier
               .fillMaxWidth()
               .padding(vertical = 4.dp)
@@ -437,7 +513,7 @@ fun SpaceUnlockDialog(
             Box(
               modifier = Modifier
                 .fillMaxWidth()
-                .padding(8.dp),
+                .padding(12.dp),
               contentAlignment = Alignment.Center
             ) {
               PatternLockCanvas(
@@ -450,10 +526,14 @@ fun SpaceUnlockDialog(
                 onPatternComplete = { _, patternStr ->
                   isVerifying = true
                   coroutineScope.launch {
-                    val success = spaceViewModel.verifyAndUnlockSpace(space.id, patternStr)
+                    val isValid = if (mode == AuthDialogMode.DELETE) {
+                      spaceViewModel.spaceRepository.verifySpacePin(space.id, patternStr)
+                    } else {
+                      spaceViewModel.verifyAndUnlockSpace(space.id, patternStr)
+                    }
                     isVerifying = false
-                    if (success) {
-                      onUnlockSuccess()
+                    if (isValid) {
+                      onSuccess()
                     } else {
                       isError = true
                       clearTrigger++
@@ -472,32 +552,73 @@ fun SpaceUnlockDialog(
                 isError = false
               }
             },
-            label = { Text("PIN") },
-            visualTransformation = PasswordVisualTransformation(),
+            label = { Text("PIN (4-8 digits)") },
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
+            shape = RoundedCornerShape(12.dp),
+            colors = dialogTextFieldColors,
+            visualTransformation = if (showPinText) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             singleLine = true,
             isError = isError,
+            trailingIcon = {
+              IconButton(onClick = { showPinText = !showPinText }) {
+                Icon(
+                  imageVector = if (showPinText) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                  contentDescription = "Toggle PIN visibility",
+                  tint = TextSecondary
+                )
+              }
+            },
             modifier = Modifier
               .fillMaxWidth()
-              .testTag("input_unlock_pin")
+              .testTag(if (mode == AuthDialogMode.DELETE) "input_delete_confirm_pin" else "input_unlock_pin")
           )
         }
 
         if (isError) {
-          Text(
-            text = if (isPatternAuth) "Incorrect pattern. Please try again." else "Incorrect PIN. Please try again.",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFFC62828),
-            fontWeight = FontWeight.Medium
-          )
+          Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = Color(0xFFFFEBEE),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Row(
+              modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+              Icon(
+                imageVector = Icons.Default.ErrorOutline,
+                contentDescription = null,
+                tint = Color(0xFFC62828),
+                modifier = Modifier.size(16.dp)
+              )
+              Text(
+                text = if (isPatternAuth) "Incorrect pattern. Please try again." else "Incorrect PIN. Please try again.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFFC62828),
+                fontWeight = FontWeight.Medium
+              )
+            }
+          }
         }
 
         if (isVerifying) {
-          CircularProgressIndicator(
-            modifier = Modifier.size(24.dp),
-            color = PrimaryPurpleDark,
-            strokeWidth = 2.dp
-          )
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(top = 4.dp)
+          ) {
+            CircularProgressIndicator(
+              modifier = Modifier.size(18.dp),
+              color = primaryButtonColor,
+              strokeWidth = 2.dp
+            )
+            Text(
+              text = "Verifying security credential...",
+              fontSize = 12.sp,
+              color = TextSecondary
+            )
+          }
         }
       }
     },
@@ -511,10 +632,14 @@ fun SpaceUnlockDialog(
             }
             isVerifying = true
             coroutineScope.launch {
-              val success = spaceViewModel.verifyAndUnlockSpace(space.id, enteredPin)
+              val isValid = if (mode == AuthDialogMode.DELETE) {
+                spaceViewModel.spaceRepository.verifySpacePin(space.id, enteredPin)
+              } else {
+                spaceViewModel.verifyAndUnlockSpace(space.id, enteredPin)
+              }
               isVerifying = false
-              if (success) {
-                onUnlockSuccess()
+              if (isValid) {
+                onSuccess()
               } else {
                 isError = true
                 enteredPin = ""
@@ -522,10 +647,11 @@ fun SpaceUnlockDialog(
             }
           },
           enabled = !isVerifying && enteredPin.length >= 4,
-          colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
-          modifier = Modifier.testTag("btn_submit_unlock_pin")
+          shape = RoundedCornerShape(10.dp),
+          colors = ButtonDefaults.buttonColors(containerColor = primaryButtonColor),
+          modifier = Modifier.testTag(if (mode == AuthDialogMode.DELETE) "btn_confirm_delete_protected" else "btn_submit_unlock_pin")
         ) {
-          Text("Unlock")
+          Text(confirmButtonText, fontWeight = FontWeight.Bold)
         }
       }
     },
@@ -537,5 +663,53 @@ fun SpaceUnlockDialog(
         Text("Cancel")
       }
     }
+  )
+}
+
+@Composable
+fun SpaceUnlockDialog(
+  space: Space,
+  onDismiss: () -> Unit,
+  onUnlockSuccess: () -> Unit,
+  spaceViewModel: SpaceViewModel
+) {
+  SpaceCredentialVerificationDialog(
+    space = space,
+    mode = AuthDialogMode.UNLOCK,
+    onDismiss = onDismiss,
+    onSuccess = onUnlockSuccess,
+    spaceViewModel = spaceViewModel
+  )
+}
+
+@Composable
+fun EditSpaceCredentialDialog(
+  space: Space,
+  onDismiss: () -> Unit,
+  onAuthSuccess: () -> Unit,
+  spaceViewModel: SpaceViewModel
+) {
+  SpaceCredentialVerificationDialog(
+    space = space,
+    mode = AuthDialogMode.EDIT,
+    onDismiss = onDismiss,
+    onSuccess = onAuthSuccess,
+    spaceViewModel = spaceViewModel
+  )
+}
+
+@Composable
+fun DeleteSpaceCredentialDialog(
+  space: Space,
+  onDismiss: () -> Unit,
+  onConfirmDelete: () -> Unit,
+  spaceViewModel: SpaceViewModel
+) {
+  SpaceCredentialVerificationDialog(
+    space = space,
+    mode = AuthDialogMode.DELETE,
+    onDismiss = onDismiss,
+    onSuccess = onConfirmDelete,
+    spaceViewModel = spaceViewModel
   )
 }

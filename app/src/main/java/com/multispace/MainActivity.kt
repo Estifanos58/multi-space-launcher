@@ -95,9 +95,11 @@ class MainActivity : ComponentActivity() {
         ) {
           val currentScreen by activeScreenState
           val isDefaultHome by isDefaultHomeState
+          var editingSpace by remember { mutableStateOf<com.multispace.domain.model.Space?>(null) }
 
           if (currentScreen == "diagnostics" || currentScreen == "create_space") {
             androidx.activity.compose.BackHandler {
+              editingSpace = null
               activeScreenState.value = "config"
             }
           }
@@ -109,10 +111,13 @@ class MainActivity : ComponentActivity() {
                 allApps = discoveryUiState.allApps,
                 spaceViewModel = spaceViewModel,
                 getBitmap = { app -> discoveryViewModel.getAppIconBitmap(app) },
+                editingSpace = editingSpace,
                 onNavigateBack = {
+                  editingSpace = null
                   activeScreenState.value = "config"
                 },
                 onSpaceCreated = { newSpaceId ->
+                  editingSpace = null
                   activeScreenState.value = "config"
                 },
                 modifier = Modifier.fillMaxSize()
@@ -144,6 +149,11 @@ class MainActivity : ComponentActivity() {
                   activeScreenState.value = "home"
                 },
                 onOpenCreateSpace = {
+                  editingSpace = null
+                  activeScreenState.value = "create_space"
+                },
+                onOpenEditSpace = { spaceToEdit ->
+                  editingSpace = spaceToEdit
                   activeScreenState.value = "create_space"
                 },
                 modifier = Modifier.fillMaxSize()

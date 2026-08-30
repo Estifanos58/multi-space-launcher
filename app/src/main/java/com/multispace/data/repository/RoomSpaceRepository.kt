@@ -205,6 +205,118 @@ class RoomSpaceRepository(
     }
   }
 
+  override suspend fun updateFullSpace(
+    spaceId: String,
+    name: String,
+    authPolicy: String,
+    pinSalt: String?,
+    pinHash: String?,
+    keepExistingCredentials: Boolean,
+    patternRows: Int,
+    patternCols: Int,
+    backgroundType: String,
+    backgroundColor: Long?,
+    backgroundImageUri: String?,
+    homeWallpaperType: String,
+    homeWallpaperColor: Long?,
+    homeWallpaperImageUri: String?,
+    phoneLockWallpaperType: String,
+    phoneLockWallpaperColor: Long?,
+    phoneLockWallpaperImageUri: String?,
+    spaceLockWallpaperType: String,
+    spaceLockWallpaperColor: Long?,
+    spaceLockWallpaperImageUri: String?,
+    appTheme: String,
+    gridColumns: Int,
+    iconSize: String,
+    labelVisibility: Boolean,
+    updatedApps: List<DiscoveredApp>
+  ): Result<Space> {
+    val trimmed = name.trim()
+    if (trimmed.isEmpty()) {
+      return Result.failure(IllegalArgumentException("Space name cannot be empty"))
+    }
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      val resolvedAuthPolicy: String
+      val resolvedSalt: String?
+      val resolvedHash: String?
+      val resolvedPatternRows: Int
+      val resolvedPatternCols: Int
+
+      if (keepExistingCredentials) {
+        resolvedAuthPolicy = existing.authPolicy
+        resolvedSalt = existing.pinSalt
+        resolvedHash = existing.pinHash
+        resolvedPatternRows = if (patternRows != Space.DEFAULT_PATTERN_ROWS) patternRows else existing.patternRows
+        resolvedPatternCols = if (patternCols != Space.DEFAULT_PATTERN_COLS) patternCols else existing.patternCols
+      } else if (authPolicy == Space.AUTH_NONE) {
+        resolvedAuthPolicy = Space.AUTH_NONE
+        resolvedSalt = null
+        resolvedHash = null
+        resolvedPatternRows = patternRows
+        resolvedPatternCols = patternCols
+      } else {
+        resolvedAuthPolicy = authPolicy
+        resolvedSalt = pinSalt
+        resolvedHash = pinHash
+        resolvedPatternRows = patternRows
+        resolvedPatternCols = patternCols
+      }
+
+      val updated = existing.copy(
+        name = trimmed,
+        updatedAt = System.currentTimeMillis(),
+        authPolicy = resolvedAuthPolicy,
+        pinSalt = resolvedSalt,
+        pinHash = resolvedHash,
+        patternRows = resolvedPatternRows,
+        patternCols = resolvedPatternCols,
+        layoutType = "GRID_$gridColumns",
+        backgroundType = backgroundType,
+        backgroundColor = backgroundColor,
+        backgroundImageUri = backgroundImageUri,
+        homeWallpaperType = homeWallpaperType,
+        homeWallpaperColor = homeWallpaperColor,
+        homeWallpaperImageUri = homeWallpaperImageUri,
+        phoneLockWallpaperType = phoneLockWallpaperType,
+        phoneLockWallpaperColor = phoneLockWallpaperColor,
+        phoneLockWallpaperImageUri = phoneLockWallpaperImageUri,
+        spaceLockWallpaperType = spaceLockWallpaperType,
+        spaceLockWallpaperColor = spaceLockWallpaperColor,
+        spaceLockWallpaperImageUri = spaceLockWallpaperImageUri,
+        appTheme = appTheme,
+        gridColumns = gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS),
+        iconSize = iconSize,
+        labelVisibility = labelVisibility
+      )
+      spaceDao.updateSpace(updated)
+
+      membershipDao.deleteMembershipsForSpace(spaceId)
+      if (updatedApps.isNotEmpty()) {
+        val memberships = updatedApps.mapIndexed { idx, app ->
+          SpaceMembershipEntity(
+            spaceId = spaceId,
+            packageName = app.packageName,
+            componentName = app.activityName,
+            userHandleId = app.userHandleId,
+            orderIndex = idx,
+            addedAt = System.currentTimeMillis()
+          )
+        }
+        membershipDao.insertMemberships(memberships)
+      }
+
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Updated configured Space: '$trimmed' ($spaceId) with ${updatedApps.size} apps")
+      Result.success(updated.toDomain())
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update Space: '$name' ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
   override suspend fun renameSpace(spaceId: String, newName: String): Result<Unit> {
     val trimmed = newName.trim()
     if (trimmed.isEmpty()) {
@@ -416,7 +528,7 @@ class RoomSpaceRepository(
   override suspend fun verifySpacePin(spaceId: String, pin: String): Boolean {
     return try {
       val existing = spaceDao.getSpaceById(spaceId) ?: return false
-      if (existing.authPolicy != "PIN" || existing.pinHash.isNullOrEmpty()) {
+      if ((existing.authPolicy != Space.AUTH_PIN && existing.authPolicy != Space.AUTH_PATTERN) || existing.pinHash.isNullOrEmpty()) {
         return true
       }
       val isValid = PinSecurityManager.verifyPin(
@@ -425,13 +537,13 @@ class RoomSpaceRepository(
         existing.pinHash
       )
       if (isValid) {
-        AppLogger.i(AppLogger.Category.LAUNCHER, "Space PIN authentication succeeded for Space ($spaceId)")
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Space authentication succeeded for Space ($spaceId)")
       } else {
-        AppLogger.w(AppLogger.Category.LAUNCHER, "Space PIN authentication failed for Space ($spaceId)")
+        AppLogger.w(AppLogger.Category.LAUNCHER, "Space authentication failed for Space ($spaceId)")
       }
       isValid
     } catch (e: Exception) {
-      AppLogger.e(AppLogger.Category.LAUNCHER, "Error during PIN verification for Space ($spaceId)", e)
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Error during authentication verification for Space ($spaceId)", e)
       false
     }
   }
