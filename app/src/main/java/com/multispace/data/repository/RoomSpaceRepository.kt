@@ -219,7 +219,6 @@ class RoomSpaceRepository(
         membershipDao.insertMemberships(memberships)
 
         // Also populate default dock items & initial home placements for this preset
-        val dockCount = initialApps.take(dockCapacity).size
         val dockEntities = initialApps.take(dockCapacity).mapIndexed { idx, app ->
           SpaceDockItemEntity(
             id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
@@ -232,14 +231,14 @@ class RoomSpaceRepository(
         }
         layoutDao.insertDockItems(dockEntities)
 
-        val homeApps = initialApps.drop(dockCount)
-        val homeEntities = homeApps.mapIndexed { idx, app ->
+        val pageSize = (gridColumns * 5).coerceAtLeast(1)
+        val homeEntities = initialApps.mapIndexed { idx, app ->
           SpaceItemPlacementEntity(
             id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
             spaceId = newId,
             layer = SpaceItemPlacement.LAYER_HOME,
-            pageIndex = idx / (gridColumns * 5),
-            positionIndex = idx % (gridColumns * 5),
+            pageIndex = idx / pageSize,
+            positionIndex = idx % pageSize,
             itemType = SpaceItemPlacement.ITEM_TYPE_APP,
             packageName = app.packageName,
             componentName = app.activityName,
@@ -369,6 +368,37 @@ class RoomSpaceRepository(
           )
         }
         membershipDao.insertMemberships(memberships)
+
+        // Ensure home placements and dock items are populated for updated apps
+        val pageSize = (gridColumns * 5).coerceAtLeast(1)
+        val homeEntities = updatedApps.mapIndexed { idx, app ->
+          SpaceItemPlacementEntity(
+            id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+            spaceId = spaceId,
+            layer = SpaceItemPlacement.LAYER_HOME,
+            pageIndex = idx / pageSize,
+            positionIndex = idx % pageSize,
+            itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+            packageName = app.packageName,
+            componentName = app.activityName,
+            userHandleId = app.userHandleId
+          )
+        }
+        layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+        layoutDao.insertPlacements(homeEntities)
+
+        val dockEntities = updatedApps.take(dockCapacity).mapIndexed { idx, app ->
+          SpaceDockItemEntity(
+            id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
+            spaceId = spaceId,
+            orderIndex = idx,
+            packageName = app.packageName,
+            componentName = app.activityName,
+            userHandleId = app.userHandleId
+          )
+        }
+        layoutDao.deleteAllDockItemsForSpace(spaceId)
+        layoutDao.insertDockItems(dockEntities)
       }
 
       AppLogger.i(AppLogger.Category.LAUNCHER, "Updated configured Space: '$trimmed' ($spaceId) with ${updatedApps.size} apps")
@@ -1172,38 +1202,40 @@ class RoomSpaceRepository(
         }
       }
 
-      layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
-      layoutDao.deleteAllDockItemsForSpace(spaceId)
+      if (activeApps.isNotEmpty()) {
+        layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+        layoutDao.deleteAllDockItemsForSpace(spaceId)
 
-      val pageSize = preset.gridColumns * 5
-      val placements = activeApps.mapIndexed { idx, app ->
-        val page = idx / pageSize
-        val pos = idx % pageSize
-        SpaceItemPlacementEntity(
-          id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
-          spaceId = spaceId,
-          layer = SpaceItemPlacement.LAYER_HOME,
-          pageIndex = page,
-          positionIndex = pos,
-          itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-          packageName = app.packageName,
-          componentName = app.activityName,
-          userHandleId = app.userHandleId
-        )
-      }
-      layoutDao.insertPlacements(placements)
+        val pageSize = (preset.gridColumns * 5).coerceAtLeast(1)
+        val placements = activeApps.mapIndexed { idx, app ->
+          val page = idx / pageSize
+          val pos = idx % pageSize
+          SpaceItemPlacementEntity(
+            id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+            spaceId = spaceId,
+            layer = SpaceItemPlacement.LAYER_HOME,
+            pageIndex = page,
+            positionIndex = pos,
+            itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+            packageName = app.packageName,
+            componentName = app.activityName,
+            userHandleId = app.userHandleId
+          )
+        }
+        layoutDao.insertPlacements(placements)
 
-      val dockItems = activeApps.take(preset.dockCapacity).mapIndexed { idx, app ->
-        SpaceDockItemEntity(
-          id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
-          spaceId = spaceId,
-          orderIndex = idx,
-          packageName = app.packageName,
-          componentName = app.activityName,
-          userHandleId = app.userHandleId
-        )
+        val dockItems = activeApps.take(preset.dockCapacity).mapIndexed { idx, app ->
+          SpaceDockItemEntity(
+            id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
+            spaceId = spaceId,
+            orderIndex = idx,
+            packageName = app.packageName,
+            componentName = app.activityName,
+            userHandleId = app.userHandleId
+          )
+        }
+        layoutDao.insertDockItems(dockItems)
       }
-      layoutDao.insertDockItems(dockItems)
 
       AppLogger.i(AppLogger.Category.LAUNCHER, "Applied layout preset '${preset.name}' to Space '${existing.name}' ($spaceId)")
       Result.success(Unit)
