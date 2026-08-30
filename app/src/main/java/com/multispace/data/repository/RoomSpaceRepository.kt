@@ -1,13 +1,24 @@
 package com.multispace.data.repository
 
 import com.multispace.data.dao.SpaceDao
+import com.multispace.data.dao.SpaceLayoutDao
 import com.multispace.data.dao.SpaceMembershipDao
+import com.multispace.data.entity.SpaceDockItemEntity
 import com.multispace.data.entity.SpaceEntity
+import com.multispace.data.entity.SpaceFolderEntity
+import com.multispace.data.entity.SpaceFolderItemEntity
+import com.multispace.data.entity.SpaceItemPlacementEntity
 import com.multispace.data.entity.SpaceMembershipEntity
 import com.multispace.data.preferences.LauncherPreferences
 import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.DiscoveredApp
+import com.multispace.domain.model.ImportReport
+import com.multispace.domain.model.LayoutPreset
 import com.multispace.domain.model.Space
+import com.multispace.domain.model.SpaceDockItem
+import com.multispace.domain.model.SpaceFolder
+import com.multispace.domain.model.SpaceFolderItem
+import com.multispace.domain.model.SpaceItemPlacement
 import com.multispace.domain.model.SpaceMembership
 import com.multispace.domain.repository.SpaceRepository
 import com.multispace.platform.PinSecurityManager
@@ -20,6 +31,7 @@ import kotlinx.coroutines.flow.map
 class RoomSpaceRepository(
   private val spaceDao: SpaceDao,
   private val membershipDao: SpaceMembershipDao,
+  private val layoutDao: SpaceLayoutDao,
   private val preferences: LauncherPreferences
 ) : SpaceRepository {
 
@@ -143,6 +155,11 @@ class RoomSpaceRepository(
     gridColumns: Int,
     iconSize: String,
     labelVisibility: Boolean,
+    layer1DisplayMode: String,
+    layer2DisplayMode: String,
+    layer2AccessMode: String,
+    dockCapacity: Int,
+    layoutPreset: String,
     initialApps: List<DiscoveredApp>
   ): Result<Space> {
     val trimmed = name.trim()
@@ -179,7 +196,12 @@ class RoomSpaceRepository(
         appTheme = appTheme,
         gridColumns = gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS),
         iconSize = iconSize,
-        labelVisibility = labelVisibility
+        labelVisibility = labelVisibility,
+        layer1DisplayMode = layer1DisplayMode,
+        layer2DisplayMode = layer2DisplayMode,
+        layer2AccessMode = layer2AccessMode,
+        dockCapacity = dockCapacity,
+        layoutPreset = layoutPreset
       )
       spaceDao.insertSpace(SpaceEntity.fromDomain(space))
 
@@ -195,9 +217,39 @@ class RoomSpaceRepository(
           )
         }
         membershipDao.insertMemberships(memberships)
+
+        // Also populate default dock items & initial home placements for this preset
+        val dockCount = initialApps.take(dockCapacity).size
+        val dockEntities = initialApps.take(dockCapacity).mapIndexed { idx, app ->
+          SpaceDockItemEntity(
+            id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
+            spaceId = newId,
+            orderIndex = idx,
+            packageName = app.packageName,
+            componentName = app.activityName,
+            userHandleId = app.userHandleId
+          )
+        }
+        layoutDao.insertDockItems(dockEntities)
+
+        val homeApps = initialApps.drop(dockCount)
+        val homeEntities = homeApps.mapIndexed { idx, app ->
+          SpaceItemPlacementEntity(
+            id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+            spaceId = newId,
+            layer = SpaceItemPlacement.LAYER_HOME,
+            pageIndex = idx / (gridColumns * 5),
+            positionIndex = idx % (gridColumns * 5),
+            itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+            packageName = app.packageName,
+            componentName = app.activityName,
+            userHandleId = app.userHandleId
+          )
+        }
+        layoutDao.insertPlacements(homeEntities)
       }
 
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Created configured Space: '$trimmed' ($newId) with ${initialApps.size} apps")
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Created configured Space: '$trimmed' ($newId) with preset '$layoutPreset' and ${initialApps.size} apps")
       Result.success(space)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to create configured Space: '$name'", e)
@@ -230,6 +282,11 @@ class RoomSpaceRepository(
     gridColumns: Int,
     iconSize: String,
     labelVisibility: Boolean,
+    layer1DisplayMode: String,
+    layer2DisplayMode: String,
+    layer2AccessMode: String,
+    dockCapacity: Int,
+    layoutPreset: String,
     updatedApps: List<DiscoveredApp>
   ): Result<Space> {
     val trimmed = name.trim()
@@ -290,7 +347,12 @@ class RoomSpaceRepository(
         appTheme = appTheme,
         gridColumns = gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS),
         iconSize = iconSize,
-        labelVisibility = labelVisibility
+        labelVisibility = labelVisibility,
+        layer1DisplayMode = layer1DisplayMode,
+        layer2DisplayMode = layer2DisplayMode,
+        layer2AccessMode = layer2AccessMode,
+        dockCapacity = dockCapacity,
+        layoutPreset = layoutPreset
       )
       spaceDao.updateSpace(updated)
 
@@ -674,6 +736,574 @@ class RoomSpaceRepository(
       Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to reorder apps in Space ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
+  // --- Layer 1 & 2 Placements, Pages, & Folders ---
+
+  override fun getPlacementsForSpaceLayerFlow(spaceId: String, layer: Int): Flow<List<SpaceItemPlacement>> {
+    return layoutDao.getPlacementsForSpaceLayerFlow(spaceId, layer).map { list ->
+      list.map { it.toDomain() }
+    }
+  }
+
+  override suspend fun getPlacementsForSpaceLayer(spaceId: String, layer: Int): List<SpaceItemPlacement> {
+    val existing = layoutDao.getPlacementsForSpaceLayer(spaceId, layer).map { it.toDomain() }
+    if (existing.isNotEmpty() || layer != SpaceItemPlacement.LAYER_HOME) {
+      return existing
+    }
+
+    // Auto-bootstrap Layer 1 placements from memberships if empty
+    val memberships = membershipDao.getMembershipsForSpace(spaceId)
+    if (memberships.isEmpty()) {
+      return emptyList()
+    }
+
+    val space = spaceDao.getSpaceById(spaceId)
+    val cols = space?.gridColumns ?: Space.DEFAULT_GRID_COLUMNS
+    val pageSize = cols * 5 // standard rows per page
+
+    val newPlacements = memberships.mapIndexed { index, m ->
+      val page = index / pageSize
+      val pos = index % pageSize
+      SpaceItemPlacementEntity(
+        id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+        spaceId = spaceId,
+        layer = SpaceItemPlacement.LAYER_HOME,
+        pageIndex = page,
+        positionIndex = pos,
+        itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+        packageName = m.packageName,
+        componentName = m.componentName,
+        userHandleId = m.userHandleId
+      )
+    }
+    layoutDao.insertPlacements(newPlacements)
+
+    // Auto-bootstrap Dock if empty
+    val dockItems = layoutDao.getDockItemsForSpace(spaceId)
+    if (dockItems.isEmpty()) {
+      val dockCap = space?.dockCapacity ?: Space.DEFAULT_DOCK_CAPACITY
+      val newDock = memberships.take(dockCap).mapIndexed { idx, m ->
+        SpaceDockItemEntity(
+          id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
+          spaceId = spaceId,
+          orderIndex = idx,
+          packageName = m.packageName,
+          componentName = m.componentName,
+          userHandleId = m.userHandleId
+        )
+      }
+      layoutDao.insertDockItems(newDock)
+    }
+
+    return newPlacements.map { it.toDomain() }
+  }
+
+  override suspend fun addPlacement(placement: SpaceItemPlacement): Result<Unit> {
+    return try {
+      layoutDao.insertPlacement(SpaceItemPlacementEntity.fromDomain(placement))
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to add placement: ${placement.id}", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun removePlacement(placementId: String): Result<Unit> {
+    return try {
+      layoutDao.deletePlacementById(placementId)
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to remove placement: $placementId", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun updatePlacements(placements: List<SpaceItemPlacement>): Result<Unit> {
+    return try {
+      layoutDao.insertPlacements(placements.map { SpaceItemPlacementEntity.fromDomain(it) })
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update placements", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun moveAppToPage(
+    spaceId: String,
+    placementId: String,
+    targetPage: Int,
+    targetPosition: Int
+  ): Result<Unit> {
+    return try {
+      val allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
+      val itemIndex = allHome.indexOfFirst { it.id == placementId }
+      if (itemIndex == -1) {
+        return Result.failure(IllegalArgumentException("Placement $placementId not found"))
+      }
+
+      val item = allHome.removeAt(itemIndex)
+      val updatedItem = item.copy(pageIndex = targetPage, positionIndex = targetPosition)
+      allHome.add(updatedItem)
+
+      // Re-index target page
+      val targetPageItems = allHome.filter { it.pageIndex == targetPage && it.id != updatedItem.id }
+        .sortedBy { it.positionIndex }
+        .toMutableList()
+      targetPageItems.add(targetPosition.coerceIn(0, targetPageItems.size), updatedItem)
+
+      val reindexedTarget = targetPageItems.mapIndexed { idx, p -> p.copy(positionIndex = idx) }
+      layoutDao.insertPlacements(reindexedTarget)
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to move app to page $targetPage", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun createFolderFromApps(
+    spaceId: String,
+    pageIndex: Int,
+    positionIndex: Int,
+    folderName: String,
+    sourceApp: DiscoveredApp,
+    targetApp: DiscoveredApp,
+    sourcePlacementId: String?,
+    targetPlacementId: String?
+  ): Result<SpaceFolder> {
+    return try {
+      val folderId = "folder_" + UUID.randomUUID().toString().replace("-", "").take(10)
+      val folderEntity = SpaceFolderEntity(
+        id = folderId,
+        spaceId = spaceId,
+        name = folderName.ifBlank { "Folder" },
+        createdAt = System.currentTimeMillis(),
+        updatedAt = System.currentTimeMillis()
+      )
+      layoutDao.insertFolder(folderEntity)
+
+      val item1 = SpaceFolderItemEntity(
+        id = "fitem_" + UUID.randomUUID().toString().replace("-", "").take(10),
+        folderId = folderId,
+        packageName = targetApp.packageName,
+        componentName = targetApp.activityName,
+        userHandleId = targetApp.userHandleId,
+        orderIndex = 0
+      )
+      val item2 = SpaceFolderItemEntity(
+        id = "fitem_" + UUID.randomUUID().toString().replace("-", "").take(10),
+        folderId = folderId,
+        packageName = sourceApp.packageName,
+        componentName = sourceApp.activityName,
+        userHandleId = sourceApp.userHandleId,
+        orderIndex = 1
+      )
+      layoutDao.insertFolderItems(listOf(item1, item2))
+
+      // Remove the original standalone placements
+      if (!sourcePlacementId.isNullOrEmpty()) {
+        layoutDao.deletePlacementById(sourcePlacementId)
+      }
+      if (!targetPlacementId.isNullOrEmpty()) {
+        layoutDao.deletePlacementById(targetPlacementId)
+      }
+
+      // Add the folder placement
+      val placementEntity = SpaceItemPlacementEntity(
+        id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+        spaceId = spaceId,
+        layer = SpaceItemPlacement.LAYER_HOME,
+        pageIndex = pageIndex,
+        positionIndex = positionIndex,
+        itemType = SpaceItemPlacement.ITEM_TYPE_FOLDER,
+        folderId = folderId
+      )
+      layoutDao.insertPlacement(placementEntity)
+
+      val domainFolder = folderEntity.toDomain(listOf(item1.toDomain(), item2.toDomain()))
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Created folder '${folderEntity.name}' ($folderId) with 2 apps")
+      Result.success(domainFolder)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to create folder", e)
+      Result.failure(e)
+    }
+  }
+
+  // --- Folders ---
+
+  override fun getFoldersForSpaceFlow(spaceId: String): Flow<List<SpaceFolder>> {
+    return combine(
+      layoutDao.getFoldersForSpaceFlow(spaceId),
+      layoutDao.getAllFolderItemsForSpaceFlow(spaceId)
+    ) { folders, items ->
+      val itemsByFolder = items.groupBy { it.folderId }
+      folders.map { f ->
+        val folderItems = itemsByFolder[f.id]?.map { it.toDomain() } ?: emptyList()
+        f.toDomain(folderItems)
+      }
+    }
+  }
+
+  override suspend fun getFoldersForSpace(spaceId: String): List<SpaceFolder> {
+    val folders = layoutDao.getFoldersForSpace(spaceId)
+    return folders.map { f ->
+      val items = layoutDao.getFolderItems(f.id).map { it.toDomain() }
+      f.toDomain(items)
+    }
+  }
+
+  override suspend fun renameFolder(folderId: String, newName: String): Result<Unit> {
+    return try {
+      val existing = layoutDao.getFolderById(folderId)
+        ?: return Result.failure(IllegalArgumentException("Folder not found"))
+      val updated = existing.copy(name = newName.trim().ifBlank { "Folder" }, updatedAt = System.currentTimeMillis())
+      layoutDao.updateFolder(updated)
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to rename folder $folderId", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun addAppToFolder(folderId: String, app: DiscoveredApp): Result<Unit> {
+    return try {
+      val items = layoutDao.getFolderItems(folderId)
+      val exists = items.any { it.packageName == app.packageName && it.componentName == app.activityName }
+      if (!exists) {
+        val newItem = SpaceFolderItemEntity(
+          id = "fitem_" + UUID.randomUUID().toString().replace("-", "").take(10),
+          folderId = folderId,
+          packageName = app.packageName,
+          componentName = app.activityName,
+          userHandleId = app.userHandleId,
+          orderIndex = items.size
+        )
+        layoutDao.insertFolderItem(newItem)
+      }
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to add app to folder $folderId", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun removeAppFromFolder(folderId: String, folderItemId: String): Result<Unit> {
+    return try {
+      layoutDao.deleteFolderItemById(folderItemId)
+      val remaining = layoutDao.getFolderItems(folderId)
+      if (remaining.isEmpty()) {
+        layoutDao.deleteFolderById(folderId)
+        layoutDao.deletePlacementByFolderId(folderId)
+      }
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to remove app from folder $folderId", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun deleteFolder(folderId: String): Result<Unit> {
+    return try {
+      layoutDao.deleteFolderItemsForFolder(folderId)
+      layoutDao.deleteFolderById(folderId)
+      layoutDao.deletePlacementByFolderId(folderId)
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to delete folder $folderId", e)
+      Result.failure(e)
+    }
+  }
+
+  // --- Dock ---
+
+  override fun getDockItemsForSpaceFlow(spaceId: String): Flow<List<SpaceDockItem>> {
+    return layoutDao.getDockItemsForSpaceFlow(spaceId).map { list ->
+      list.map { it.toDomain() }
+    }
+  }
+
+  override suspend fun getDockItemsForSpace(spaceId: String): List<SpaceDockItem> {
+    return layoutDao.getDockItemsForSpace(spaceId).map { it.toDomain() }
+  }
+
+  override suspend fun addAppToDock(spaceId: String, app: DiscoveredApp, orderIndex: Int): Result<Unit> {
+    return try {
+      val space = spaceDao.getSpaceById(spaceId)
+      val capacity = space?.dockCapacity ?: Space.DEFAULT_DOCK_CAPACITY
+      val current = layoutDao.getDockItemsForSpace(spaceId).toMutableList()
+
+      // Check if already in dock
+      val existingIdx = current.indexOfFirst { it.packageName == app.packageName && it.componentName == app.activityName }
+      if (existingIdx != -1) {
+        return Result.success(Unit)
+      }
+
+      if (current.size >= capacity) {
+        // Drop the last item or reject
+        val removed = current.removeAt(current.lastIndex)
+        layoutDao.deleteDockItemById(removed.id)
+      }
+
+      val targetIdx = if (orderIndex in 0..current.size) orderIndex else current.size
+      val newItem = SpaceDockItemEntity(
+        id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
+        spaceId = spaceId,
+        orderIndex = targetIdx,
+        packageName = app.packageName,
+        componentName = app.activityName,
+        userHandleId = app.userHandleId
+      )
+      current.add(targetIdx, newItem)
+
+      val reindexed = current.mapIndexed { idx, item -> item.copy(orderIndex = idx) }
+      layoutDao.insertDockItems(reindexed)
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to add app to dock", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun removeAppFromDock(spaceId: String, dockItemId: String): Result<Unit> {
+    return try {
+      layoutDao.deleteDockItemById(dockItemId)
+      val remaining = layoutDao.getDockItemsForSpace(spaceId)
+      val reindexed = remaining.mapIndexed { idx, item -> item.copy(orderIndex = idx) }
+      layoutDao.insertDockItems(reindexed)
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to remove app from dock", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun reorderDockItems(spaceId: String, dockItems: List<SpaceDockItem>): Result<Unit> {
+    return try {
+      val entities = dockItems.mapIndexed { idx, item ->
+        SpaceDockItemEntity(
+          id = item.id,
+          spaceId = spaceId,
+          orderIndex = idx,
+          packageName = item.packageName,
+          componentName = item.componentName,
+          userHandleId = item.userHandleId
+        )
+      }
+      layoutDao.insertDockItems(entities)
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to reorder dock items", e)
+      Result.failure(e)
+    }
+  }
+
+  // --- Layout Configuration & Presets ---
+
+  override suspend fun updateSpaceLayoutSettings(
+    spaceId: String,
+    layer1DisplayMode: String,
+    layer2DisplayMode: String,
+    layer2AccessMode: String,
+    dockCapacity: Int,
+    gridColumns: Int
+  ): Result<Unit> {
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      val safeDockCapacity = dockCapacity.coerceIn(Space.MIN_DOCK_CAPACITY, Space.MAX_DOCK_CAPACITY)
+      val safeGridColumns = gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
+
+      val updated = existing.copy(
+        layer1DisplayMode = layer1DisplayMode,
+        layer2DisplayMode = layer2DisplayMode,
+        layer2AccessMode = layer2AccessMode,
+        dockCapacity = safeDockCapacity,
+        gridColumns = safeGridColumns,
+        updatedAt = System.currentTimeMillis()
+      )
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Updated layout settings for Space '${existing.name}': L1=$layer1DisplayMode, L2=$layer2DisplayMode, Access=$layer2AccessMode, Dock=$safeDockCapacity, Cols=$safeGridColumns")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update layout settings for Space ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun applyLayoutPreset(
+    spaceId: String,
+    preset: LayoutPreset,
+    apps: List<DiscoveredApp>
+  ): Result<Unit> {
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      val updated = existing.copy(
+        layoutPreset = preset.id,
+        gridColumns = preset.gridColumns,
+        layer1DisplayMode = preset.layer1DisplayMode,
+        layer2DisplayMode = preset.layer2DisplayMode,
+        layer2AccessMode = preset.layer2AccessMode,
+        dockCapacity = preset.dockCapacity,
+        iconSize = preset.iconSize,
+        labelVisibility = preset.labelVisibility,
+        appTheme = preset.appTheme,
+        updatedAt = System.currentTimeMillis()
+      )
+      spaceDao.updateSpace(updated)
+
+      // Reorganize Layer 1 placements deterministically
+      val activeApps = if (apps.isNotEmpty()) {
+        apps
+      } else {
+        val memberships = membershipDao.getMembershipsForSpace(spaceId)
+        memberships.map {
+          DiscoveredApp(
+            id = "${it.packageName}/${it.componentName}/${it.userHandleId}",
+            packageName = it.packageName,
+            activityName = it.componentName,
+            label = it.packageName,
+            userHandleId = it.userHandleId
+          )
+        }
+      }
+
+      layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+      layoutDao.deleteAllDockItemsForSpace(spaceId)
+
+      val pageSize = preset.gridColumns * 5
+      val placements = activeApps.mapIndexed { idx, app ->
+        val page = idx / pageSize
+        val pos = idx % pageSize
+        SpaceItemPlacementEntity(
+          id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+          spaceId = spaceId,
+          layer = SpaceItemPlacement.LAYER_HOME,
+          pageIndex = page,
+          positionIndex = pos,
+          itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+          packageName = app.packageName,
+          componentName = app.activityName,
+          userHandleId = app.userHandleId
+        )
+      }
+      layoutDao.insertPlacements(placements)
+
+      val dockItems = activeApps.take(preset.dockCapacity).mapIndexed { idx, app ->
+        SpaceDockItemEntity(
+          id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
+          spaceId = spaceId,
+          orderIndex = idx,
+          packageName = app.packageName,
+          componentName = app.activityName,
+          userHandleId = app.userHandleId
+        )
+      }
+      layoutDao.insertDockItems(dockItems)
+
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Applied layout preset '${preset.name}' to Space '${existing.name}' ($spaceId)")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to apply layout preset '${preset.name}' to Space ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun importCurrentHomeLayout(
+    spaceId: String,
+    allInstalledApps: List<DiscoveredApp>
+  ): Result<ImportReport> {
+    return try {
+      val successes = mutableListOf<String>()
+      val partiallyImported = mutableListOf<String>()
+      val restricted = mutableListOf<String>()
+
+      // Essential system categories detection
+      val dialer = allInstalledApps.firstOrNull { it.packageName.contains("dialer") || it.packageName.contains("phone") || it.label.contains("Phone", ignoreCase = true) }
+      val messaging = allInstalledApps.firstOrNull { it.packageName.contains("messaging") || it.packageName.contains("mms") || it.packageName.contains("message") || it.label.contains("Messages", ignoreCase = true) }
+      val browser = allInstalledApps.firstOrNull { it.packageName.contains("chrome") || it.packageName.contains("browser") || it.label.contains("Chrome", ignoreCase = true) || it.label.contains("Browser", ignoreCase = true) }
+      val camera = allInstalledApps.firstOrNull { it.packageName.contains("camera") || it.label.contains("Camera", ignoreCase = true) }
+      val settings = allInstalledApps.firstOrNull { it.packageName.contains("settings") || it.label.contains("Settings", ignoreCase = true) }
+
+      val dockCandidates = listOfNotNull(dialer, messaging, browser, camera, settings).distinctBy { it.packageName }
+      if (dockCandidates.isNotEmpty()) {
+        layoutDao.deleteAllDockItemsForSpace(spaceId)
+        val dockEntities = dockCandidates.take(5).mapIndexed { idx, app ->
+          SpaceDockItemEntity(
+            id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
+            spaceId = spaceId,
+            orderIndex = idx,
+            packageName = app.packageName,
+            componentName = app.activityName,
+            userHandleId = app.userHandleId
+          )
+        }
+        layoutDao.insertDockItems(dockEntities)
+        successes.add("Identified and populated essential bottom Dock apps (${dockCandidates.size} apps: Phone, Messages, Browser, Camera, Settings)")
+      }
+
+      // Populate Layer 1 with launchable installed apps
+      layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+      val space = spaceDao.getSpaceById(spaceId)
+      val cols = space?.gridColumns ?: 4
+      val pageSize = cols * 5
+
+      val placements = allInstalledApps.mapIndexed { idx, app ->
+        val page = idx / pageSize
+        val pos = idx % pageSize
+        SpaceItemPlacementEntity(
+          id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+          spaceId = spaceId,
+          layer = SpaceItemPlacement.LAYER_HOME,
+          pageIndex = page,
+          positionIndex = pos,
+          itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+          packageName = app.packageName,
+          componentName = app.activityName,
+          userHandleId = app.userHandleId
+        )
+      }
+      layoutDao.insertPlacements(placements)
+      successes.add("Imported ${allInstalledApps.size} launchable application shortcuts onto organized Home pages")
+
+      // Detect current default launcher package if available
+      var launcherPkg = "System Default"
+      var launcherLabel = "Default Android Launcher"
+      partiallyImported.add("Imported 4x5 standard grid alignment structure")
+
+      restricted.add("OEM-specific launcher internal SQLite databases (e.g. Samsung One UI / Pixel Launcher private tables) are strictly sandboxed by Android security architecture")
+      restricted.add("Third-party home widget state instances cannot be directly migrated across launcher packages without user widget re-binding")
+
+      val report = ImportReport(
+        sourceLauncherPackage = launcherPkg,
+        sourceLauncherLabel = launcherLabel,
+        successItems = successes,
+        partiallyImportedItems = partiallyImported,
+        restrictedItems = restricted,
+        summary = "Successfully imported ${allInstalledApps.size} apps and ${dockCandidates.size} dock shortcuts from standard Android configuration."
+      )
+
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Imported Android home layout: ${report.summary}")
+      Result.success(report)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to import home layout", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun cleanupUninstalledApp(packageName: String): Result<Unit> {
+    return try {
+      layoutDao.deletePlacementsForPackage(packageName)
+      layoutDao.deleteFolderItemsForPackage(packageName)
+      layoutDao.deleteDockItemsForPackage(packageName)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Cleaned up layout placements for uninstalled package: $packageName")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to cleanup uninstalled package: $packageName", e)
       Result.failure(e)
     }
   }

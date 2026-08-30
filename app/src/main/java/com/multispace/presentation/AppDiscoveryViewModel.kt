@@ -202,6 +202,18 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
     }
   }
 
+  fun openAppInfo(app: DiscoveredApp) {
+    try {
+      val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = android.net.Uri.fromParts("package", app.packageName, null)
+        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      getApplication<Application>().startActivity(intent)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to open App Info for ${app.packageName}", e)
+    }
+  }
+
   private fun applyFiltersAndSort(
     apps: List<DiscoveredApp>,
     query: String,

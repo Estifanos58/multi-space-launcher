@@ -40,6 +40,11 @@ interface SpaceRepository {
     gridColumns: Int = Space.DEFAULT_GRID_COLUMNS,
     iconSize: String = Space.ICON_SIZE_MEDIUM,
     labelVisibility: Boolean = true,
+    layer1DisplayMode: String = Space.DISPLAY_MODE_PAGE,
+    layer2DisplayMode: String = Space.DISPLAY_MODE_SCROLL,
+    layer2AccessMode: String = Space.ACCESS_MODE_DOCK_BUTTON,
+    dockCapacity: Int = Space.DEFAULT_DOCK_CAPACITY,
+    layoutPreset: String = Space.PRESET_DEFAULT,
     initialApps: List<DiscoveredApp> = emptyList()
   ): Result<Space>
 
@@ -68,6 +73,11 @@ interface SpaceRepository {
     gridColumns: Int = Space.DEFAULT_GRID_COLUMNS,
     iconSize: String = Space.ICON_SIZE_MEDIUM,
     labelVisibility: Boolean = true,
+    layer1DisplayMode: String = Space.DISPLAY_MODE_PAGE,
+    layer2DisplayMode: String = Space.DISPLAY_MODE_SCROLL,
+    layer2AccessMode: String = Space.ACCESS_MODE_DOCK_BUTTON,
+    dockCapacity: Int = Space.DEFAULT_DOCK_CAPACITY,
+    layoutPreset: String = Space.PRESET_DEFAULT,
     updatedApps: List<DiscoveredApp> = emptyList()
   ): Result<Space>
   suspend fun renameSpace(spaceId: String, newName: String): Result<Unit>
@@ -105,4 +115,51 @@ interface SpaceRepository {
     spaceId: String,
     orderedApps: List<DiscoveredApp>
   ): Result<Unit>
+
+  // --- Layer 1 & 2 Placements, Pages, & Folders ---
+  fun getPlacementsForSpaceLayerFlow(spaceId: String, layer: Int): Flow<List<com.multispace.domain.model.SpaceItemPlacement>>
+  suspend fun getPlacementsForSpaceLayer(spaceId: String, layer: Int): List<com.multispace.domain.model.SpaceItemPlacement>
+  suspend fun addPlacement(placement: com.multispace.domain.model.SpaceItemPlacement): Result<Unit>
+  suspend fun removePlacement(placementId: String): Result<Unit>
+  suspend fun updatePlacements(placements: List<com.multispace.domain.model.SpaceItemPlacement>): Result<Unit>
+  suspend fun moveAppToPage(spaceId: String, placementId: String, targetPage: Int, targetPosition: Int): Result<Unit>
+  suspend fun createFolderFromApps(
+    spaceId: String,
+    pageIndex: Int,
+    positionIndex: Int,
+    folderName: String,
+    sourceApp: DiscoveredApp,
+    targetApp: DiscoveredApp,
+    sourcePlacementId: String?,
+    targetPlacementId: String?
+  ): Result<com.multispace.domain.model.SpaceFolder>
+
+  // --- Folders ---
+  fun getFoldersForSpaceFlow(spaceId: String): Flow<List<com.multispace.domain.model.SpaceFolder>>
+  suspend fun getFoldersForSpace(spaceId: String): List<com.multispace.domain.model.SpaceFolder>
+  suspend fun renameFolder(folderId: String, newName: String): Result<Unit>
+  suspend fun addAppToFolder(folderId: String, app: DiscoveredApp): Result<Unit>
+  suspend fun removeAppFromFolder(folderId: String, folderItemId: String): Result<Unit>
+  suspend fun deleteFolder(folderId: String): Result<Unit>
+
+  // --- Dock ---
+  fun getDockItemsForSpaceFlow(spaceId: String): Flow<List<com.multispace.domain.model.SpaceDockItem>>
+  suspend fun getDockItemsForSpace(spaceId: String): List<com.multispace.domain.model.SpaceDockItem>
+  suspend fun addAppToDock(spaceId: String, app: DiscoveredApp, orderIndex: Int = -1): Result<Unit>
+  suspend fun removeAppFromDock(spaceId: String, dockItemId: String): Result<Unit>
+  suspend fun reorderDockItems(spaceId: String, dockItems: List<com.multispace.domain.model.SpaceDockItem>): Result<Unit>
+
+  // --- Layout Configuration & Presets ---
+  suspend fun updateSpaceLayoutSettings(
+    spaceId: String,
+    layer1DisplayMode: String,
+    layer2DisplayMode: String,
+    layer2AccessMode: String,
+    dockCapacity: Int,
+    gridColumns: Int
+  ): Result<Unit>
+
+  suspend fun applyLayoutPreset(spaceId: String, preset: com.multispace.domain.model.LayoutPreset, apps: List<DiscoveredApp>): Result<Unit>
+  suspend fun importCurrentHomeLayout(spaceId: String, allInstalledApps: List<DiscoveredApp>): Result<com.multispace.domain.model.ImportReport>
+  suspend fun cleanupUninstalledApp(packageName: String): Result<Unit>
 }

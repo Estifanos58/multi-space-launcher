@@ -87,7 +87,22 @@ data class SpaceEntity(
   val iconSize: String = "MEDIUM",
 
   @ColumnInfo(name = "label_visibility")
-  val labelVisibility: Boolean = true
+  val labelVisibility: Boolean = true,
+
+  @ColumnInfo(name = "layer1_display_mode")
+  val layer1DisplayMode: String = "PAGE",
+
+  @ColumnInfo(name = "layer2_display_mode")
+  val layer2DisplayMode: String = "SCROLL",
+
+  @ColumnInfo(name = "layer2_access_mode")
+  val layer2AccessMode: String = "DOCK_BUTTON",
+
+  @ColumnInfo(name = "dock_capacity")
+  val dockCapacity: Int = 5,
+
+  @ColumnInfo(name = "layout_preset")
+  val layoutPreset: String = "DEFAULT"
 ) {
   fun toDomain(): Space = Space(
     id = id,
@@ -116,7 +131,12 @@ data class SpaceEntity(
     appTheme = appTheme,
     gridColumns = gridColumns,
     iconSize = iconSize,
-    labelVisibility = labelVisibility
+    labelVisibility = labelVisibility,
+    layer1DisplayMode = layer1DisplayMode,
+    layer2DisplayMode = layer2DisplayMode,
+    layer2AccessMode = layer2AccessMode,
+    dockCapacity = dockCapacity,
+    layoutPreset = layoutPreset
   )
 
   companion object {
@@ -147,7 +167,12 @@ data class SpaceEntity(
       appTheme = domain.appTheme,
       gridColumns = domain.gridColumns,
       iconSize = domain.iconSize,
-      labelVisibility = domain.labelVisibility
+      labelVisibility = domain.labelVisibility,
+      layer1DisplayMode = domain.layer1DisplayMode,
+      layer2DisplayMode = domain.layer2DisplayMode,
+      layer2AccessMode = domain.layer2AccessMode,
+      dockCapacity = domain.dockCapacity,
+      layoutPreset = domain.layoutPreset
     )
   }
 }

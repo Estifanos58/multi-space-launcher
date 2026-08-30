@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.multispace.domain.model.DiscoveredApp
+import com.multispace.domain.model.LayoutPreset
 import com.multispace.domain.model.Space
 import com.multispace.platform.PinSecurityManager
 import com.multispace.ui.theme.*
@@ -221,7 +222,7 @@ fun CreateSpaceScreen(
 
   // Top-level Navigation Sub-Page State
   var currentSubPage by rememberSaveable { mutableStateOf(CreateSpaceSubPage.MAIN_TABS) }
-  var currentTab by rememberSaveable { mutableIntStateOf(0) } // 0: Basics, 1: Wallpaper & Theme, 2: Apps & Layout
+  var currentTab by rememberSaveable { mutableIntStateOf(0) } // 0: Basics, 1: Presets, 2: Wallpaper & Theme, 3: Apps & Layout
 
   // Tab 1: Basics & Credentials State
   var spaceName by rememberSaveable { mutableStateOf(editingSpace?.name ?: "") }
@@ -259,6 +260,23 @@ fun CreateSpaceScreen(
   var patternCanvasError by remember { mutableStateOf(false) }
   var patternCanvasFeedback by remember { mutableStateOf<String?>(null) }
   var patternClearTrigger by remember { mutableIntStateOf(0) }
+
+  // Tab 2: Layout Preset State
+  var selectedLayoutPreset by rememberSaveable {
+    mutableStateOf(editingSpace?.layoutPreset ?: Space.PRESET_DEFAULT)
+  }
+  var layer1DisplayMode by rememberSaveable {
+    mutableStateOf(editingSpace?.layer1DisplayMode ?: Space.DISPLAY_MODE_PAGE)
+  }
+  var layer2DisplayMode by rememberSaveable {
+    mutableStateOf(editingSpace?.layer2DisplayMode ?: Space.DISPLAY_MODE_SCROLL)
+  }
+  var layer2AccessMode by rememberSaveable {
+    mutableStateOf(editingSpace?.layer2AccessMode ?: Space.ACCESS_MODE_DOCK_BUTTON)
+  }
+  var dockCapacity by rememberSaveable {
+    mutableIntStateOf(editingSpace?.dockCapacity ?: Space.DEFAULT_DOCK_CAPACITY)
+  }
 
   // Tab 2: Wallpaper & Theme State
   // Home Wallpaper
@@ -501,9 +519,10 @@ fun CreateSpaceScreen(
                   )
                   Text(
                     text = when (currentTab) {
-                      0 -> "Step 1 of 3: Space Identity & Security"
-                      1 -> "Step 2 of 3: Wallpaper & App Theme"
-                      else -> "Step 3 of 3: Apps & Grid Layout"
+                      0 -> "Step 1 of 4: Space Identity & Security"
+                      1 -> "Step 2 of 4: Layout Preset & Paradigm"
+                      2 -> "Step 3 of 4: Wallpaper & App Theme"
+                      else -> "Step 4 of 4: Apps & Grid Layout"
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = TextSecondary
@@ -527,7 +546,7 @@ fun CreateSpaceScreen(
               colors = TopAppBarDefaults.topAppBarColors(containerColor = LightBackground)
             )
 
-            // Primary Three-Tab Switcher
+            // Primary Four-Tab Switcher
             TabRow(
               selectedTabIndex = currentTab,
               containerColor = LightSurfaceContainerLow,
@@ -546,9 +565,9 @@ fun CreateSpaceScreen(
                     Icon(
                       imageVector = Icons.Default.Shield,
                       contentDescription = null,
-                      modifier = Modifier.size(15.dp)
+                      modifier = Modifier.size(14.dp)
                     )
-                    Text("1. Basics", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("1. Basics", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                   }
                 }
               )
@@ -557,6 +576,28 @@ fun CreateSpaceScreen(
                 onClick = {
                   if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, editingSpace, { spaceNameError = it }, { pinError = it })) {
                     currentTab = 1
+                  }
+                },
+                modifier = Modifier.testTag("tab_presets"),
+                text = {
+                  Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                  ) {
+                    Icon(
+                      imageVector = Icons.Default.DashboardCustomize,
+                      contentDescription = null,
+                      modifier = Modifier.size(14.dp)
+                    )
+                    Text("2. Presets", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                  }
+                }
+              )
+              Tab(
+                selected = currentTab == 2,
+                onClick = {
+                  if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, editingSpace, { spaceNameError = it }, { pinError = it })) {
+                    currentTab = 2
                   }
                 },
                 modifier = Modifier.testTag("tab_wallpaper_theme"),
@@ -568,17 +609,17 @@ fun CreateSpaceScreen(
                     Icon(
                       imageVector = Icons.Default.Wallpaper,
                       contentDescription = null,
-                      modifier = Modifier.size(15.dp)
+                      modifier = Modifier.size(14.dp)
                     )
-                    Text("2. Wallpaper", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("3. Wallpaper", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                   }
                 }
               )
               Tab(
-                selected = currentTab == 2,
+                selected = currentTab == 3,
                 onClick = {
                   if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, editingSpace, { spaceNameError = it }, { pinError = it })) {
-                    currentTab = 2
+                    currentTab = 3
                   }
                 },
                 modifier = Modifier.testTag("tab_apps_layout"),
@@ -590,9 +631,9 @@ fun CreateSpaceScreen(
                     Icon(
                       imageVector = Icons.Default.GridView,
                       contentDescription = null,
-                      modifier = Modifier.size(15.dp)
+                      modifier = Modifier.size(14.dp)
                     )
-                    Text("3. Apps", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("4. Apps", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                   }
                 }
               )
@@ -630,9 +671,9 @@ fun CreateSpaceScreen(
                   colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
                   modifier = Modifier
                     .weight(1.5f)
-                    .testTag("btn_next_to_wallpaper")
+                    .testTag("btn_next_to_presets")
                 ) {
-                  Text("Next: Wallpaper", fontWeight = FontWeight.Bold)
+                  Text("Next: Presets", fontWeight = FontWeight.Bold)
                   Spacer(modifier = Modifier.width(6.dp))
                   Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
@@ -660,6 +701,36 @@ fun CreateSpaceScreen(
                   colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
                   modifier = Modifier
                     .weight(1.5f)
+                    .testTag("btn_next_to_wallpaper")
+                ) {
+                  Text("Next: Wallpaper", fontWeight = FontWeight.Bold)
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                  )
+                }
+              } else if (currentTab == 2) {
+                OutlinedButton(
+                  onClick = { currentTab = 1 },
+                  shape = RoundedCornerShape(12.dp),
+                  modifier = Modifier.weight(1f)
+                ) {
+                  Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                  )
+                  Spacer(modifier = Modifier.width(4.dp))
+                  Text("Presets")
+                }
+                Button(
+                  onClick = { currentTab = 3 },
+                  shape = RoundedCornerShape(12.dp),
+                  colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                  modifier = Modifier
+                    .weight(1.5f)
                     .testTag("btn_next_to_apps")
                 ) {
                   Text("Next: Apps & Grid", fontWeight = FontWeight.Bold)
@@ -672,7 +743,7 @@ fun CreateSpaceScreen(
                 }
               } else {
                 OutlinedButton(
-                  onClick = { currentTab = 1 },
+                  onClick = { currentTab = 2 },
                   shape = RoundedCornerShape(12.dp),
                   modifier = Modifier.weight(1f)
                 ) {
@@ -796,6 +867,11 @@ fun CreateSpaceScreen(
                           gridColumns = gridColumns,
                           iconSize = iconSize,
                           labelVisibility = showLabels,
+                          layer1DisplayMode = layer1DisplayMode,
+                          layer2DisplayMode = layer2DisplayMode,
+                          layer2AccessMode = layer2AccessMode,
+                          dockCapacity = dockCapacity,
+                          layoutPreset = selectedLayoutPreset,
                           updatedApps = selectedAppObjects,
                           onResult = { success, _ ->
                             isCreating = false
@@ -829,6 +905,11 @@ fun CreateSpaceScreen(
                           gridColumns = gridColumns,
                           iconSize = iconSize,
                           labelVisibility = showLabels,
+                          layer1DisplayMode = layer1DisplayMode,
+                          layer2DisplayMode = layer2DisplayMode,
+                          layer2AccessMode = layer2AccessMode,
+                          dockCapacity = dockCapacity,
+                          layoutPreset = selectedLayoutPreset,
                           initialApps = selectedAppObjects,
                           onResult = { success, newId ->
                             isCreating = false
@@ -916,7 +997,21 @@ fun CreateSpaceScreen(
               )
             }
             1 -> {
-              // TAB 2: Wallpaper & Theme (Home, Phone Lock Screen, Space Lock Screen, App Theme)
+              // TAB 2: Layout Presets with Graphical Smartphone Picture Previews
+              Tab2LayoutPresets(
+                selectedPresetId = selectedLayoutPreset,
+                onSelectPreset = { preset ->
+                  selectedLayoutPreset = preset.id
+                  gridColumns = preset.gridColumns
+                  layer1DisplayMode = preset.layer1DisplayMode
+                  layer2DisplayMode = preset.layer2DisplayMode
+                  layer2AccessMode = preset.layer2AccessMode
+                  dockCapacity = preset.dockCapacity
+                }
+              )
+            }
+            2 -> {
+              // TAB 3: Wallpaper & Theme (Home, Phone Lock Screen, Space Lock Screen, App Theme)
               Tab2WallpaperAndTheme(
                 homeWallpaperCategory = homeWallpaperCategory,
                 onHomeWallpaperCategoryChange = { homeWallpaperCategory = it },
@@ -1450,7 +1545,90 @@ private fun Tab1BasicsAndSecurity(
 }
 
 // ---------------------------------------------------------------------------
-// TAB 2: Wallpaper & Theme Content (4 Sections)
+// TAB 2: Layout Presets Page (Visual Picture Previews of Screen Paradigms)
+// ---------------------------------------------------------------------------
+@Composable
+private fun Tab2LayoutPresets(
+  selectedPresetId: String,
+  onSelectPreset: (LayoutPreset) -> Unit
+) {
+  val presets = remember { LayoutPreset.ALL_PRESETS }
+
+  LazyColumn(
+    modifier = Modifier
+      .fillMaxSize()
+      .background(LightBackground)
+      .padding(horizontal = 16.dp),
+    verticalArrangement = Arrangement.spacedBy(16.dp),
+    contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp)
+  ) {
+    item {
+      // Explanatory Header Card
+      Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = LightSurfaceContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Row(
+          modifier = Modifier.padding(16.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+          Box(
+            modifier = Modifier
+              .size(48.dp)
+              .clip(RoundedCornerShape(12.dp))
+              .background(PrimaryPurple.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+          ) {
+            Icon(
+              imageVector = Icons.Default.DashboardCustomize,
+              contentDescription = null,
+              tint = PrimaryPurple,
+              modifier = Modifier.size(28.dp)
+            )
+          }
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = "Space Layout Paradigm",
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Bold,
+              color = TextPrimary
+            )
+            Text(
+              text = "Select how apps and drawers are organized in this space. Picture previews show the real layout behavior.",
+              style = MaterialTheme.typography.bodySmall,
+              color = TextSecondary
+            )
+          }
+        }
+      }
+    }
+
+    item {
+      Text(
+        text = "Available Layout Paradigms (${presets.size})",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = TextPrimary,
+        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+      )
+    }
+
+    items(presets, key = { it.id }) { preset ->
+      LayoutPresetVisualCard(
+        preset = preset,
+        isSelected = preset.id == selectedPresetId,
+        onSelect = { onSelectPreset(preset) },
+        modifier = Modifier.fillMaxWidth()
+      )
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TAB 3: Wallpaper & Theme Content (4 Sections)
 // ---------------------------------------------------------------------------
 @Composable
 private fun Tab2WallpaperAndTheme(

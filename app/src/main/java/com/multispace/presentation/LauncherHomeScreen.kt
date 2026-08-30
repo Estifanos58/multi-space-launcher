@@ -2,13 +2,16 @@ package com.multispace.presentation
 
 import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -32,67 +35,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.multispace.domain.model.DiscoveredApp
-import com.multispace.domain.model.Space
+import com.multispace.domain.model.*
 import com.multispace.ui.theme.*
-
-/**
- * Android Home / Launcher Surface (Phase 6 & 7 Clean Home with Customizations).
- * Displays:
- * 1. Current Space Name (with quick Space Switcher & Live Customization dialog)
- * 2. Space-specific custom background (solid color, wallpaper image, or default)
- * 3. Applications belonging strictly to the active Space with custom columns (3-6),
- *    custom icon sizes (SMALL/MEDIUM/LARGE), and toggleable app labels.
- */
-@Composable
-private fun HomeAppGridItem(
-  app: DiscoveredApp,
-  getBitmap: (DiscoveredApp) -> Bitmap?,
-  containerSize: Dp,
-  iconSize: Dp,
-  showLabel: Boolean,
-  labelColor: Color,
-  onLaunch: () -> Unit
-) {
-  Column(
-    horizontalAlignment = Alignment.CenterHorizontally,
-    modifier = Modifier
-      .fillMaxWidth()
-      .clip(RoundedCornerShape(14.dp))
-      .clickable { onLaunch() }
-      .padding(vertical = 4.dp, horizontal = 2.dp)
-      .testTag("home_app_item_${app.packageName}")
-  ) {
-    Box(
-      modifier = Modifier
-        .size(containerSize)
-        .clip(RoundedCornerShape(14.dp)),
-      contentAlignment = Alignment.Center
-    ) {
-      AsyncAppIcon(
-        app = app,
-        getBitmap = getBitmap,
-        contentDescription = app.label,
-        modifier = Modifier.size(iconSize)
-      )
-    }
-
-    if (showLabel) {
-      Spacer(modifier = Modifier.height(4.dp))
-
-      Text(
-        text = app.label,
-        style = MaterialTheme.typography.bodySmall,
-        fontWeight = FontWeight.Medium,
-        color = labelColor,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        textAlign = TextAlign.Center,
-        fontSize = if (containerSize < 48.dp) 10.sp else 11.sp
-      )
-    }
-  }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,13 +53,28 @@ fun LauncherHomeScreen(
   val allSpaces by spaceViewModel.allSpaces.collectAsStateWithLifecycle()
   val unlockedSpaceIds by spaceViewModel.unlockedSpaceIds.collectAsStateWithLifecycle()
 
+  val activeLayerIndex by spaceViewModel.activeLayerIndex.collectAsStateWithLifecycle()
+  val activePlacements by spaceViewModel.activePlacements.collectAsStateWithLifecycle()
+  val activeFolders by spaceViewModel.activeFolders.collectAsStateWithLifecycle()
+  val activeDockItems by spaceViewModel.activeDockItems.collectAsStateWithLifecycle()
+
   var showSpaceSwitcherMenu by remember { mutableStateOf(false) }
   var spaceToUnlockForSwitch by remember { mutableStateOf<Space?>(null) }
   var showUnlockForActiveSpace by remember { mutableStateOf(false) }
   var showCustomizationDialogForActiveSpace by remember { mutableStateOf(false) }
+  var showImportDialog by remember { mutableStateOf(false) }
+  var importReport by remember { mutableStateOf<ImportReport?>(null) }
+  var isImporting by remember { mutableStateOf(false) }
+
+  var activeFolderInDialog by remember { mutableStateOf<SpaceFolder?>(null) }
 
   val isCurrentSpaceUnlocked = remember(activeSpace, unlockedSpaceIds) {
     spaceViewModel.isSpaceUnlocked(activeSpace)
+  }
+
+  // Handle Android back button: close Layer 2 if open
+  BackHandler(enabled = activeLayerIndex == 2) {
+    spaceViewModel.setLayer(1)
   }
 
   // Determine dynamic background styling and contrast
@@ -138,27 +97,11 @@ fun LauncherHomeScreen(
   }
 
   val headerContentColor = if (isDarkThemeBackground) Color.White else TextPrimary
-  val appLabelColor = if (isDarkThemeBackground) Color.White else TextPrimary
   val chipBackgroundColor = if (isDarkThemeBackground) {
     Color.Black.copy(alpha = 0.5f)
   } else {
     PrimaryContainerLight
   }
-
-  // Resolve layout customization parameters
-  val gridColumns = remember(activeSpace?.gridColumns) {
-    (activeSpace?.gridColumns ?: 4).coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
-  }
-
-  val (iconContainerDp, iconDrawableDp) = remember(activeSpace?.iconSize) {
-    when (activeSpace?.iconSize) {
-      Space.ICON_SIZE_SMALL -> 44.dp to 38.dp
-      Space.ICON_SIZE_LARGE -> 64.dp to 56.dp
-      else -> 52.dp to 48.dp
-    }
-  }
-
-  val labelVisibility = activeSpace?.labelVisibility ?: true
 
   // Resolve Space presentation: Project active Space's persisted memberships against current Android LauncherApps catalog
   val spaceScopedApps = remember(discoveryUiState.allApps, activeMemberships, isCurrentSpaceUnlocked, activeSpace) {
@@ -190,7 +133,28 @@ fun LauncherHomeScreen(
     }
   }
 
-  Box(modifier = modifier.fillMaxSize()) {
+  // Draggable gesture state for swipe-up into Layer 2
+  var swipeOffsetY by remember { mutableStateOf(0f) }
+  val draggableState = rememberDraggableState { delta ->
+    swipeOffsetY += delta
+    if (swipeOffsetY < -100f && activeLayerIndex == 1) {
+      spaceViewModel.setLayer(2)
+      swipeOffsetY = 0f
+    } else if (swipeOffsetY > 100f && activeLayerIndex == 2) {
+      spaceViewModel.setLayer(1)
+      swipeOffsetY = 0f
+    }
+  }
+
+  Box(
+    modifier = modifier
+      .fillMaxSize()
+      .draggable(
+        state = draggableState,
+        orientation = Orientation.Vertical,
+        onDragStopped = { swipeOffsetY = 0f }
+      )
+  ) {
     // 1. Wallpaper / Background Layer
     when (currentBgType) {
       Space.BACKGROUND_COLOR -> {
@@ -243,7 +207,7 @@ fun LauncherHomeScreen(
       }
     }
 
-    // 2. Foreground UI & Applications
+    // 2. Foreground UI
     Scaffold(
       modifier = Modifier.fillMaxSize(),
       containerColor = Color.Transparent,
@@ -253,7 +217,7 @@ fun LauncherHomeScreen(
           modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
           horizontalArrangement = Arrangement.SpaceBetween,
           verticalAlignment = Alignment.CenterVertically
         ) {
@@ -269,7 +233,7 @@ fun LauncherHomeScreen(
               Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
               ) {
                 if (activeSpace?.isProtected == true) {
                   Icon(
@@ -357,6 +321,29 @@ fun LauncherHomeScreen(
                 )
               }
               HorizontalDivider(color = LightSurfaceContainerHigh)
+
+              DropdownMenuItem(
+                text = {
+                  Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                  ) {
+                    Icon(
+                      imageVector = Icons.Default.FileDownload,
+                      contentDescription = null,
+                      tint = PrimaryPurpleDark,
+                      modifier = Modifier.size(18.dp)
+                    )
+                    Text("Import Android Layout...", color = PrimaryPurpleDark, fontWeight = FontWeight.Medium)
+                  }
+                },
+                onClick = {
+                  showSpaceSwitcherMenu = false
+                  showImportDialog = true
+                },
+                modifier = Modifier.testTag("menu_import_layout")
+              )
+
               DropdownMenuItem(
                 text = {
                   Row(
@@ -378,6 +365,7 @@ fun LauncherHomeScreen(
                 },
                 modifier = Modifier.testTag("menu_customize_active_space")
               )
+
               DropdownMenuItem(
                 text = {
                   Row(
@@ -401,10 +389,10 @@ fun LauncherHomeScreen(
             }
           }
 
-          // Quick lock button & Settings button
+          // Top Right Action Buttons: Lock, Settings
           Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
           ) {
             IconButton(
               onClick = { spaceViewModel.lockPhone() },
@@ -434,6 +422,24 @@ fun LauncherHomeScreen(
               )
             }
           }
+        }
+      },
+      bottomBar = {
+        // Space Dock Bar (Persistent on Home / Layer 1)
+        if (isCurrentSpaceUnlocked && activeSpace != null && activeLayerIndex == 1) {
+          SpaceDockBar(
+            dockItems = activeDockItems,
+            allApps = discoveryUiState.allApps,
+            capacity = activeSpace?.dockCapacity ?: 5,
+            accessMode = activeSpace?.layer2AccessMode ?: Space.ACCESS_MODE_DOCK_BUTTON,
+            getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
+            onLaunchApp = onLaunchApp,
+            onOpenLayer2 = { spaceViewModel.setLayer(2) },
+            onRemoveFromDock = { item ->
+              activeSpace?.let { spaceViewModel.removeAppFromDock(it.id, item.id) }
+            },
+            modifier = Modifier.navigationBarsPadding()
+          )
         }
       }
     ) { paddingValues ->
@@ -574,52 +580,108 @@ fun LauncherHomeScreen(
               )
               Spacer(modifier = Modifier.height(6.dp))
               Text(
-                text = "Assign apps to this Space to display them on your Home screen.",
+                text = "Assign apps to this Space or import your existing layout.",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (isDarkThemeBackground) Color.White.copy(alpha = 0.8f) else TextSecondary,
                 textAlign = TextAlign.Center
               )
               Spacer(modifier = Modifier.height(20.dp))
-              Button(
-                onClick = onOpenConfiguration,
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.testTag("btn_empty_space_configure")
-              ) {
-                Icon(
-                  imageVector = Icons.Default.Add,
-                  contentDescription = null,
-                  modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Add Apps to Space")
+              Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                  onClick = onOpenConfiguration,
+                  shape = RoundedCornerShape(8.dp),
+                  modifier = Modifier.testTag("btn_empty_space_configure")
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                  )
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text("Add Apps")
+                }
+
+                OutlinedButton(
+                  onClick = { showImportDialog = true },
+                  shape = RoundedCornerShape(8.dp),
+                  modifier = Modifier.testTag("btn_empty_space_import")
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.FileDownload,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                  )
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text("Import Layout")
+                }
               }
             }
           }
           else -> {
-            // Custom Column Configurable Grid
-            LazyVerticalGrid(
-              columns = GridCells.Fixed(gridColumns),
-              modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 8.dp)
-                .testTag("home_apps_grid"),
-              contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp, start = 4.dp, end = 4.dp),
-              verticalArrangement = Arrangement.spacedBy(16.dp),
-              horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-              items(
-                items = spaceScopedApps,
-                key = { it.id },
-                contentType = { "home_app_item" }
-              ) { app ->
-                HomeAppGridItem(
-                  app = app,
+            // Main 2-Layer Workspace with animated transition
+            val currentSpace = activeSpace ?: Space.createDefault()
+
+            AnimatedContent(
+              targetState = activeLayerIndex,
+              transitionSpec = {
+                if (targetState == 2) {
+                  (slideInVertically(animationSpec = tween(300)) { it } + fadeIn()).togetherWith(
+                    slideOutVertically(animationSpec = tween(300)) { -it / 3 } + fadeOut()
+                  )
+                } else {
+                  (slideInVertically(animationSpec = tween(300)) { -it / 3 } + fadeIn()).togetherWith(
+                    slideOutVertically(animationSpec = tween(300)) { it } + fadeOut()
+                  )
+                }
+              },
+              label = "layer_transition"
+            ) { layer ->
+              if (layer == 2) {
+                // Layer 2: Space App Library (All Space Apps with Search)
+                Layer2LibraryScreen(
+                  space = currentSpace,
+                  spaceApps = spaceScopedApps,
                   getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
-                  containerSize = iconContainerDp,
-                  iconSize = iconDrawableDp,
-                  showLabel = labelVisibility,
-                  labelColor = appLabelColor,
-                  onLaunch = { onLaunchApp(app) }
+                  onLaunchApp = onLaunchApp,
+                  onAddToHome = { app ->
+                    spaceViewModel.addAppToHome(currentSpace.id, app)
+                  },
+                  onAddToDock = { app ->
+                    spaceViewModel.addAppToDock(currentSpace.id, app)
+                  },
+                  onAppInfo = { app ->
+                    discoveryViewModel.openAppInfo(app)
+                  },
+                  onCloseLayer2 = { spaceViewModel.setLayer(1) }
+                )
+              } else {
+                // Layer 1: Curated Workspace (Pages / Scrolling Grid & Folders)
+                Layer1HomeScreen(
+                  space = currentSpace,
+                  placements = activePlacements,
+                  folders = activeFolders,
+                  allApps = discoveryUiState.allApps,
+                  getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
+                  onLaunchApp = onLaunchApp,
+                  onOpenFolder = { folder -> activeFolderInDialog = folder },
+                  onRemovePlacement = { placementId ->
+                    spaceViewModel.removePlacement(placementId)
+                  },
+                  onCreateFolderFromApps = { src, tgt, srcId, tgtId ->
+                    spaceViewModel.createFolderFromApps(
+                      spaceId = currentSpace.id,
+                      pageIndex = 0,
+                      positionIndex = 0,
+                      folderName = "New Folder",
+                      sourceApp = src,
+                      targetApp = tgt,
+                      sourcePlacementId = srcId,
+                      targetPlacementId = tgtId
+                    )
+                  },
+                  onAddAppToHome = { app, page ->
+                    spaceViewModel.addAppToHome(currentSpace.id, app, page)
+                  }
                 )
               }
             }
@@ -679,5 +741,52 @@ fun LauncherHomeScreen(
       }
     )
   }
+
+  // Folder Dialog
+  if (activeFolderInDialog != null) {
+    val folder = activeFolderInDialog!!
+    FolderDialog(
+      folder = folder,
+      allApps = discoveryUiState.allApps,
+      getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
+      onLaunchApp = onLaunchApp,
+      onRenameFolder = { newName ->
+        spaceViewModel.renameFolder(folder.id, newName)
+        activeFolderInDialog = folder.copy(name = newName)
+      },
+      onRemoveItem = { item ->
+        spaceViewModel.removeAppFromFolder(folder.id, item.id)
+        activeFolderInDialog = folder.copy(items = folder.items.filter { it.id != item.id })
+      },
+      onDeleteFolder = {
+        spaceViewModel.deleteFolder(folder.id)
+        activeFolderInDialog = null
+      },
+      onDismiss = { activeFolderInDialog = null }
+    )
+  }
+
+  // Import Layout Dialog
+  if (showImportDialog && activeSpace != null) {
+    ImportLayoutDialog(
+      report = importReport,
+      isImporting = isImporting,
+      onStartImport = {
+        isImporting = true
+        activeSpace?.let { space ->
+          spaceViewModel.importCurrentHomeLayout(space.id, discoveryUiState.allApps) { report ->
+            importReport = report
+            isImporting = false
+          }
+        }
+      },
+      onDismiss = {
+        showImportDialog = false
+        importReport = null
+        isImporting = false
+      }
+    )
+  }
 }
+
 

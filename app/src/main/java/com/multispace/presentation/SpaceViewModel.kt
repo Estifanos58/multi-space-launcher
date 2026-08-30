@@ -31,11 +31,24 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
   val spaceRepository: SpaceRepository = RoomSpaceRepository(
     spaceDao = database.spaceDao(),
     membershipDao = database.spaceMembershipDao(),
+    layoutDao = database.spaceLayoutDao(),
     preferences = preferences
   )
 
   private val _userFeedback = MutableSharedFlow<String>(extraBufferCapacity = 8)
   val userFeedback: SharedFlow<String> = _userFeedback.asSharedFlow()
+
+  // Layer State (1 = Layer 1 Curated Home, 2 = Layer 2 Space App Library)
+  private val _activeLayerIndex = MutableStateFlow(1)
+  val activeLayerIndex: StateFlow<Int> = _activeLayerIndex.asStateFlow()
+
+  fun setLayer(layer: Int) {
+    _activeLayerIndex.value = if (layer == 2) 2 else 1
+  }
+
+  fun toggleLayer() {
+    _activeLayerIndex.value = if (_activeLayerIndex.value == 1) 2 else 1
+  }
 
   val allSpaces: StateFlow<List<Space>> = spaceRepository.allSpacesFlow
     .stateIn(
@@ -55,6 +68,48 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     .flatMapLatest { space ->
       if (space != null) {
         spaceRepository.getMembershipsForSpaceFlow(space.id)
+      } else {
+        flowOf(emptyList())
+      }
+    }
+    .stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.Eagerly,
+      initialValue = emptyList()
+    )
+
+  val activePlacements: StateFlow<List<com.multispace.domain.model.SpaceItemPlacement>> = spaceRepository.activeSpaceFlow
+    .flatMapLatest { space ->
+      if (space != null) {
+        spaceRepository.getPlacementsForSpaceLayerFlow(space.id, com.multispace.domain.model.SpaceItemPlacement.LAYER_HOME)
+      } else {
+        flowOf(emptyList())
+      }
+    }
+    .stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.Eagerly,
+      initialValue = emptyList()
+    )
+
+  val activeFolders: StateFlow<List<com.multispace.domain.model.SpaceFolder>> = spaceRepository.activeSpaceFlow
+    .flatMapLatest { space ->
+      if (space != null) {
+        spaceRepository.getFoldersForSpaceFlow(space.id)
+      } else {
+        flowOf(emptyList())
+      }
+    }
+    .stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.Eagerly,
+      initialValue = emptyList()
+    )
+
+  val activeDockItems: StateFlow<List<com.multispace.domain.model.SpaceDockItem>> = spaceRepository.activeSpaceFlow
+    .flatMapLatest { space ->
+      if (space != null) {
+        spaceRepository.getDockItemsForSpaceFlow(space.id)
       } else {
         flowOf(emptyList())
       }
@@ -118,6 +173,11 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     gridColumns: Int = Space.DEFAULT_GRID_COLUMNS,
     iconSize: String = Space.ICON_SIZE_MEDIUM,
     labelVisibility: Boolean = true,
+    layer1DisplayMode: String = Space.DISPLAY_MODE_PAGE,
+    layer2DisplayMode: String = Space.DISPLAY_MODE_SCROLL,
+    layer2AccessMode: String = Space.ACCESS_MODE_DOCK_BUTTON,
+    dockCapacity: Int = Space.DEFAULT_DOCK_CAPACITY,
+    layoutPreset: String = Space.PRESET_DEFAULT,
     initialApps: List<DiscoveredApp> = emptyList(),
     onResult: ((Boolean, String?) -> Unit)? = null
   ) {
@@ -145,6 +205,11 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
         gridColumns = gridColumns,
         iconSize = iconSize,
         labelVisibility = labelVisibility,
+        layer1DisplayMode = layer1DisplayMode,
+        layer2DisplayMode = layer2DisplayMode,
+        layer2AccessMode = layer2AccessMode,
+        dockCapacity = dockCapacity,
+        layoutPreset = layoutPreset,
         initialApps = initialApps
       )
       result.fold(
@@ -189,6 +254,11 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     gridColumns: Int = Space.DEFAULT_GRID_COLUMNS,
     iconSize: String = Space.ICON_SIZE_MEDIUM,
     labelVisibility: Boolean = true,
+    layer1DisplayMode: String = Space.DISPLAY_MODE_PAGE,
+    layer2DisplayMode: String = Space.DISPLAY_MODE_SCROLL,
+    layer2AccessMode: String = Space.ACCESS_MODE_DOCK_BUTTON,
+    dockCapacity: Int = Space.DEFAULT_DOCK_CAPACITY,
+    layoutPreset: String = Space.PRESET_DEFAULT,
     updatedApps: List<DiscoveredApp> = emptyList(),
     onResult: ((Boolean, String?) -> Unit)? = null
   ) {
@@ -218,6 +288,11 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
         gridColumns = gridColumns,
         iconSize = iconSize,
         labelVisibility = labelVisibility,
+        layer1DisplayMode = layer1DisplayMode,
+        layer2DisplayMode = layer2DisplayMode,
+        layer2AccessMode = layer2AccessMode,
+        dockCapacity = dockCapacity,
+        layoutPreset = layoutPreset,
         updatedApps = updatedApps
       )
       result.fold(
@@ -502,6 +577,209 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
         },
         onFailure = { error ->
           _userFeedback.tryEmit("Error sorting apps: ${error.message}")
+        }
+      )
+    }
+  }
+
+  // --- Layer 1 Placements & Pages ---
+
+  fun loadLayer1Placements(spaceId: String) {
+    viewModelScope.launch {
+      spaceRepository.getPlacementsForSpaceLayer(spaceId, com.multispace.domain.model.SpaceItemPlacement.LAYER_HOME)
+    }
+  }
+
+  fun removePlacement(placementId: String) {
+    viewModelScope.launch {
+      spaceRepository.removePlacement(placementId)
+      _userFeedback.tryEmit("Item removed from Home.")
+    }
+  }
+
+  fun moveAppToPage(spaceId: String, placementId: String, targetPage: Int, targetPosition: Int) {
+    viewModelScope.launch {
+      spaceRepository.moveAppToPage(spaceId, placementId, targetPage, targetPosition)
+    }
+  }
+
+  fun addAppToHome(spaceId: String, app: DiscoveredApp, pageIndex: Int = 0) {
+    viewModelScope.launch {
+      val current = spaceRepository.getPlacementsForSpaceLayer(spaceId, com.multispace.domain.model.SpaceItemPlacement.LAYER_HOME)
+      val pageItems = current.filter { it.pageIndex == pageIndex }
+      val placement = com.multispace.domain.model.SpaceItemPlacement(
+        id = "place_" + java.util.UUID.randomUUID().toString().replace("-", "").take(10),
+        spaceId = spaceId,
+        layer = com.multispace.domain.model.SpaceItemPlacement.LAYER_HOME,
+        pageIndex = pageIndex,
+        positionIndex = pageItems.size,
+        itemType = com.multispace.domain.model.SpaceItemPlacement.ITEM_TYPE_APP,
+        packageName = app.packageName,
+        componentName = app.activityName,
+        userHandleId = app.userHandleId
+      )
+      spaceRepository.addPlacement(placement)
+      _userFeedback.tryEmit("Added '${app.label}' to Home page ${pageIndex + 1}.")
+    }
+  }
+
+  // --- Folder Management ---
+
+  fun createFolderFromApps(
+    spaceId: String,
+    pageIndex: Int,
+    positionIndex: Int,
+    folderName: String,
+    sourceApp: DiscoveredApp,
+    targetApp: DiscoveredApp,
+    sourcePlacementId: String?,
+    targetPlacementId: String?
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.createFolderFromApps(
+        spaceId = spaceId,
+        pageIndex = pageIndex,
+        positionIndex = positionIndex,
+        folderName = folderName,
+        sourceApp = sourceApp,
+        targetApp = targetApp,
+        sourcePlacementId = sourcePlacementId,
+        targetPlacementId = targetPlacementId
+      )
+      result.fold(
+        onSuccess = { folder ->
+          _userFeedback.tryEmit("Created folder '${folder.name}'.")
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Error creating folder: ${error.message}")
+        }
+      )
+    }
+  }
+
+  fun renameFolder(folderId: String, newName: String) {
+    viewModelScope.launch {
+      spaceRepository.renameFolder(folderId, newName)
+      _userFeedback.tryEmit("Folder renamed.")
+    }
+  }
+
+  fun addAppToFolder(folderId: String, app: DiscoveredApp) {
+    viewModelScope.launch {
+      spaceRepository.addAppToFolder(folderId, app)
+      _userFeedback.tryEmit("Added '${app.label}' to folder.")
+    }
+  }
+
+  fun removeAppFromFolder(folderId: String, folderItemId: String) {
+    viewModelScope.launch {
+      spaceRepository.removeAppFromFolder(folderId, folderItemId)
+      _userFeedback.tryEmit("Item removed from folder.")
+    }
+  }
+
+  fun deleteFolder(folderId: String) {
+    viewModelScope.launch {
+      spaceRepository.deleteFolder(folderId)
+      _userFeedback.tryEmit("Folder deleted.")
+    }
+  }
+
+  // --- Dock Management ---
+
+  fun addAppToDock(spaceId: String, app: DiscoveredApp) {
+    viewModelScope.launch {
+      val result = spaceRepository.addAppToDock(spaceId, app)
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("Added '${app.label}' to Dock.")
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Failed to add to Dock: ${error.message}")
+        }
+      )
+    }
+  }
+
+  fun removeAppFromDock(spaceId: String, dockItemId: String) {
+    viewModelScope.launch {
+      spaceRepository.removeAppFromDock(spaceId, dockItemId)
+      _userFeedback.tryEmit("App removed from Dock.")
+    }
+  }
+
+  fun reorderDockItems(spaceId: String, items: List<com.multispace.domain.model.SpaceDockItem>) {
+    viewModelScope.launch {
+      spaceRepository.reorderDockItems(spaceId, items)
+    }
+  }
+
+  // --- Layout Configuration & Presets ---
+
+  fun updateSpaceLayoutSettings(
+    spaceId: String,
+    layer1DisplayMode: String,
+    layer2DisplayMode: String,
+    layer2AccessMode: String,
+    dockCapacity: Int,
+    gridColumns: Int,
+    onSuccess: (() -> Unit)? = null
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.updateSpaceLayoutSettings(
+        spaceId = spaceId,
+        layer1DisplayMode = layer1DisplayMode,
+        layer2DisplayMode = layer2DisplayMode,
+        layer2AccessMode = layer2AccessMode,
+        dockCapacity = dockCapacity,
+        gridColumns = gridColumns
+      )
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("Layout settings saved.")
+          onSuccess?.invoke()
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Error saving layout settings: ${error.message}")
+        }
+      )
+    }
+  }
+
+  fun applyLayoutPreset(
+    spaceId: String,
+    preset: com.multispace.domain.model.LayoutPreset,
+    apps: List<DiscoveredApp>,
+    onComplete: (() -> Unit)? = null
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.applyLayoutPreset(spaceId, preset, apps)
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("Applied layout preset '${preset.name}'.")
+          onComplete?.invoke()
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Error applying preset: ${error.message}")
+        }
+      )
+    }
+  }
+
+  fun importCurrentHomeLayout(
+    spaceId: String,
+    allInstalledApps: List<DiscoveredApp>,
+    onReport: ((com.multispace.domain.model.ImportReport) -> Unit)? = null
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.importCurrentHomeLayout(spaceId, allInstalledApps)
+      result.fold(
+        onSuccess = { report ->
+          _userFeedback.tryEmit("Layout import finished: ${report.summary}")
+          onReport?.invoke(report)
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Layout import failed: ${error.message}")
         }
       )
     }

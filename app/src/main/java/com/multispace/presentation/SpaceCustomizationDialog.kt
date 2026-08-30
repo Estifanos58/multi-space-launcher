@@ -525,6 +525,19 @@ private fun LayoutCustomizationTab(
 
     Spacer(modifier = Modifier.height(20.dp))
 
+    // Layer 1 Display Mode
+    Text(
+      text = "Home Screen Mode (Layer 1)",
+      style = MaterialTheme.typography.titleSmall,
+      fontWeight = FontWeight.SemiBold
+    )
+    Text(
+      text = "Horizontal multi-page swipe or continuous vertical scroll",
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+
     // App Labels Toggle
     Card(
       colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),

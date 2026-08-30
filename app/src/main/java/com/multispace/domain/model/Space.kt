@@ -38,7 +38,12 @@ data class Space(
   val appTheme: String = THEME_DEFAULT,
   val gridColumns: Int = DEFAULT_GRID_COLUMNS,
   val iconSize: String = ICON_SIZE_MEDIUM,
-  val labelVisibility: Boolean = true
+  val labelVisibility: Boolean = true,
+  val layer1DisplayMode: String = DISPLAY_MODE_PAGE,
+  val layer2DisplayMode: String = DISPLAY_MODE_SCROLL,
+  val layer2AccessMode: String = ACCESS_MODE_DOCK_BUTTON,
+  val dockCapacity: Int = DEFAULT_DOCK_CAPACITY,
+  val layoutPreset: String = PRESET_DEFAULT
 ) {
   val isProtected: Boolean
     get() = (authPolicy == AUTH_PIN || authPolicy == AUTH_PATTERN) && !pinHash.isNullOrEmpty() && !pinSalt.isNullOrEmpty()
@@ -80,5 +85,38 @@ data class Space(
     const val ICON_SIZE_SMALL = "SMALL"
     const val ICON_SIZE_MEDIUM = "MEDIUM"
     const val ICON_SIZE_LARGE = "LARGE"
+
+    // Layer Display Modes
+    const val DISPLAY_MODE_PAGE = "PAGE"
+    const val DISPLAY_MODE_SCROLL = "SCROLL"
+
+    // Layer 2 Access Modes
+    const val ACCESS_MODE_DOCK_BUTTON = "DOCK_BUTTON"
+    const val ACCESS_MODE_SWIPE_UP = "SWIPE_UP"
+
+    // Dock bounds
+    const val DEFAULT_DOCK_CAPACITY = 5
+    const val MIN_DOCK_CAPACITY = 3
+    const val MAX_DOCK_CAPACITY = 7
+
+    // Layout Presets
+    const val PRESET_DEFAULT = "DEFAULT"
+    const val PRESET_APPLE = "APPLE_INSPIRED"
+    const val PRESET_ONE_UI = "SAMSUNG_ONEUI"
+    const val PRESET_PIXEL = "PIXEL_INSPIRED"
+    const val PRESET_CLASSIC = "CLASSIC_ANDROID"
+    const val PRESET_MINIMAL = "MINIMAL"
+    const val PRESET_COMPACT = "COMPACT"
+    const val PRESET_LARGE_ICONS = "LARGE_ICONS"
+    const val PRESET_PRODUCTIVITY = "PRODUCTIVITY"
+    const val PRESET_GAMING = "GAMING"
+
+    fun createDefault(
+      id: String = DEFAULT_SPACE_ID,
+      name: String = DEFAULT_SPACE_NAME
+    ): Space = Space(
+      id = id,
+      name = name
+    )
   }
 }
