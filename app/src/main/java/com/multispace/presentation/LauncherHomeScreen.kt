@@ -80,6 +80,18 @@ fun LauncherHomeScreen(
     spaceViewModel.isSpaceUnlocked(activeSpace)
   }
 
+  // Automatic first-install configuration: ensure Default Space is configured as current Home page
+  LaunchedEffect(discoveryUiState.allApps.isNotEmpty(), activeSpace?.id, activePlacements.isEmpty(), activeDockItems.isEmpty()) {
+    if (discoveryUiState.allApps.isNotEmpty() &&
+      (activeSpace?.id == Space.DEFAULT_SPACE_ID || activeSpace == null) &&
+      activePlacements.isEmpty() &&
+      activeDockItems.isEmpty()
+    ) {
+      val targetSpaceId = activeSpace?.id ?: Space.DEFAULT_SPACE_ID
+      spaceViewModel.importCurrentHomeLayout(targetSpaceId, discoveryUiState.allApps)
+    }
+  }
+
   // Handle Android back button: close Layer 2 if open
   BackHandler(enabled = activeLayerIndex == 2) {
     spaceViewModel.setLayer(1)

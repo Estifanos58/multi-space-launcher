@@ -129,9 +129,19 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     ensureDefaultSpaceInitialized()
   }
 
-  fun ensureDefaultSpaceInitialized() {
+  fun ensureDefaultSpaceInitialized(apps: List<DiscoveredApp> = emptyList()) {
     viewModelScope.launch {
-      spaceRepository.ensureDefaultSpaceInitialized()
+      val appList = if (apps.isNotEmpty()) {
+        apps
+      } else {
+        try {
+          com.multispace.platform.AppDiscoveryManager(getApplication<Application>().applicationContext).loadInstalledApps()
+        } catch (e: Exception) {
+          AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to load installed apps for default space initialization: ${e.message}")
+          emptyList()
+        }
+      }
+      spaceRepository.ensureDefaultSpaceInitialized(appList)
     }
   }
 

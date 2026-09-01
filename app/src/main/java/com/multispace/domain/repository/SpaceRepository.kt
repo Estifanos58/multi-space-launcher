@@ -13,7 +13,7 @@ interface SpaceRepository {
   val activeSpaceIdFlow: Flow<String?>
   val activeSpaceFlow: Flow<Space?>
 
-  suspend fun ensureDefaultSpaceInitialized(): Result<Space>
+  suspend fun ensureDefaultSpaceInitialized(initialApps: List<DiscoveredApp> = emptyList()): Result<Space>
   suspend fun getSpaceById(spaceId: String): Space?
   suspend fun setActiveSpaceId(spaceId: String): Result<Unit>
   suspend fun createSpace(name: String, layoutType: String = "GRID_4"): Result<Space>

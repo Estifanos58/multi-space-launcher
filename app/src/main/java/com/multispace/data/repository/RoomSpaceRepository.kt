@@ -52,20 +52,29 @@ class RoomSpaceRepository(
     }
   }
 
-  override suspend fun ensureDefaultSpaceInitialized(): Result<Space> {
+  override suspend fun ensureDefaultSpaceInitialized(initialApps: List<DiscoveredApp>): Result<Space> {
     return try {
       val count = spaceDao.getSpaceCount()
       if (count == 0) {
-        AppLogger.i(AppLogger.Category.LAUNCHER, "No Spaces found in database. Initializing Default Space.")
+        AppLogger.i(AppLogger.Category.LAUNCHER, "No Spaces found in database. Initializing Default Space with Phone's Home Layout.")
         val defaultSpace = Space(
           id = Space.DEFAULT_SPACE_ID,
           name = Space.DEFAULT_SPACE_NAME,
           orderIndex = 0,
           createdAt = System.currentTimeMillis(),
-          updatedAt = System.currentTimeMillis()
+          updatedAt = System.currentTimeMillis(),
+          gridColumns = 4,
+          dockCapacity = 5,
+          layoutPreset = Space.PRESET_DEFAULT,
+          layer1DisplayMode = Space.DISPLAY_MODE_PAGE,
+          layer2DisplayMode = Space.DISPLAY_MODE_SCROLL
         )
         spaceDao.insertSpace(SpaceEntity.fromDomain(defaultSpace))
         preferences.setActiveSpaceId(Space.DEFAULT_SPACE_ID)
+
+        if (initialApps.isNotEmpty()) {
+          importCurrentHomeLayout(Space.DEFAULT_SPACE_ID, initialApps)
+        }
         Result.success(defaultSpace)
       } else {
         val spaces = spaceDao.getAllSpaces()
@@ -74,6 +83,18 @@ class RoomSpaceRepository(
         if (currentActiveId != resolvedSpace.id) {
           preferences.setActiveSpaceId(resolvedSpace.id)
         }
+
+        // If the default space has no placements and no dock items yet, auto-import phone layout
+        val defaultEntity = spaces.firstOrNull { it.id == Space.DEFAULT_SPACE_ID }
+        if (defaultEntity != null && initialApps.isNotEmpty()) {
+          val placements = layoutDao.getPlacementsForSpaceLayer(Space.DEFAULT_SPACE_ID, SpaceItemPlacement.LAYER_HOME)
+          val dockItems = layoutDao.getDockItemsForSpace(Space.DEFAULT_SPACE_ID)
+          if (placements.isEmpty() && dockItems.isEmpty()) {
+            AppLogger.i(AppLogger.Category.LAUNCHER, "Default Space unconfigured: automatically importing Phone's Home Layout")
+            importCurrentHomeLayout(Space.DEFAULT_SPACE_ID, initialApps)
+          }
+        }
+
         Result.success(resolvedSpace.toDomain())
       }
     } catch (e: Exception) {
@@ -1365,6 +1386,27 @@ class RoomSpaceRepository(
       }
       layoutDao.insertPlacements(placements)
       successes.add("Imported ${allInstalledApps.size} launchable application shortcuts onto organized Home pages")
+
+      // Ensure all imported apps are registered as memberships in this Space
+      if (allInstalledApps.isNotEmpty()) {
+        val existingMemberships = membershipDao.getMembershipsForSpace(spaceId)
+        val existingPkgs = existingMemberships.map { it.packageName }.toSet()
+        val newMemberships = allInstalledApps
+          .filterNot { existingPkgs.contains(it.packageName) }
+          .mapIndexed { idx, app ->
+            SpaceMembershipEntity(
+              spaceId = spaceId,
+              packageName = app.packageName,
+              componentName = app.activityName,
+              userHandleId = app.userHandleId,
+              orderIndex = existingMemberships.size + idx,
+              addedAt = System.currentTimeMillis()
+            )
+          }
+        if (newMemberships.isNotEmpty()) {
+          membershipDao.insertMemberships(newMemberships)
+        }
+      }
 
       // Detect current default launcher package if available
       var launcherPkg = "System Default"
