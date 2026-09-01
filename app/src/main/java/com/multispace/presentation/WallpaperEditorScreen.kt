@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -18,9 +19,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -41,7 +43,7 @@ import com.multispace.ui.theme.*
  * Workflow:
  * 1. Select / inspect image
  * 2. Configure display mode: Crop/Fill (ContentScale.Crop) vs Fit (ContentScale.Fit)
- * 3. Adjust Zoom & Scrim / Darkness overlay
+ * 3. Adjust Zoom, Position Offset (Pan & Pinch), and Scrim / Darkness overlay
  * 4. Toggle Live Launcher Preview overlay with apps, dock, and search/time widget
  * 5. Confirm to persist or Cancel to discard changes
  */
@@ -56,15 +58,22 @@ fun WallpaperEditorScreen(
   dockCapacity: Int,
   getBitmap: (DiscoveredApp) -> android.graphics.Bitmap?,
   onPickNewImage: () -> Unit,
-  onApply: (imageUri: String, mode: String) -> Unit,
+  initialScaleMode: String = "crop",
+  initialZoomLevel: Float = 1.0f,
+  initialDimLevel: Float = 0.20f,
+  initialOffsetX: Float = 0.0f,
+  initialOffsetY: Float = 0.0f,
+  onApply: (imageUri: String, scaleMode: String, zoomLevel: Float, dimLevel: Float, offsetX: Float, offsetY: Float) -> Unit,
   onCancel: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   val context = LocalContext.current
   var currentImageUri by remember { mutableStateOf(initialImageUri) }
-  var scaleMode by remember { mutableStateOf("crop") } // "crop" or "fit"
-  var zoomLevel by remember { mutableFloatStateOf(1.0f) }
-  var dimLevel by remember { mutableFloatStateOf(0.15f) }
+  var scaleMode by remember { mutableStateOf(initialScaleMode) } // "crop" or "fit"
+  var zoomLevel by remember { mutableFloatStateOf(initialZoomLevel.coerceIn(1.0f, 3.0f)) }
+  var dimLevel by remember { mutableFloatStateOf(initialDimLevel.coerceIn(0.0f, 0.8f)) }
+  var offsetX by remember { mutableFloatStateOf(initialOffsetX) }
+  var offsetY by remember { mutableFloatStateOf(initialOffsetY) }
   var showLiveLauncherOverlay by remember { mutableStateOf(true) }
 
   Scaffold(
@@ -143,7 +152,7 @@ fun WallpaperEditorScreen(
           Button(
             onClick = {
               if (currentImageUri != null) {
-                onApply(currentImageUri!!, scaleMode)
+                onApply(currentImageUri!!, scaleMode, zoomLevel, dimLevel, offsetX, offsetY)
               } else {
                 onCancel()
               }
@@ -173,11 +182,11 @@ fun WallpaperEditorScreen(
         .padding(paddingValues)
         .verticalScroll(rememberScrollState())
     ) {
-      // 1. Phone Canvas Live Preview
+      // 1. Phone Canvas Live Preview with interactive pinch-to-zoom and pan
       Box(
         modifier = Modifier
           .fillMaxWidth()
-          .height(380.dp)
+          .height(390.dp)
           .padding(16.dp),
         contentAlignment = Alignment.Center
       ) {
@@ -190,7 +199,17 @@ fun WallpaperEditorScreen(
             .border(3.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(24.dp)),
           color = Color.Black
         ) {
-          Box(modifier = Modifier.fillMaxSize()) {
+          Box(
+            modifier = Modifier
+              .fillMaxSize()
+              .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                  zoomLevel = (zoomLevel * zoom).coerceIn(1.0f, 3.0f)
+                  offsetX = (offsetX + pan.x).coerceIn(-400f, 400f)
+                  offsetY = (offsetY + pan.y).coerceIn(-400f, 400f)
+                }
+              }
+          ) {
             // Underneath Wallpaper
             if (currentImageUri != null) {
               AsyncImage(
@@ -202,7 +221,12 @@ fun WallpaperEditorScreen(
                 contentScale = if (scaleMode == "crop") ContentScale.Crop else ContentScale.Fit,
                 modifier = Modifier
                   .fillMaxSize()
-                  .scale(zoomLevel)
+                  .graphicsLayer {
+                    scaleX = zoomLevel
+                    scaleY = zoomLevel
+                    translationX = offsetX
+                    translationY = offsetY
+                  }
               )
             } else {
               Box(
@@ -398,12 +422,32 @@ fun WallpaperEditorScreen(
             .padding(16.dp),
           verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-          Text(
-            text = "Scaling & Presentation Mode",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = Color.White
-          )
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Text(
+              text = "Scaling & Presentation Mode",
+              style = MaterialTheme.typography.titleSmall,
+              fontWeight = FontWeight.Bold,
+              color = Color.White
+            )
+
+            TextButton(
+              onClick = {
+                zoomLevel = 1.0f
+                dimLevel = 0.20f
+                offsetX = 0f
+                offsetY = 0f
+                scaleMode = "crop"
+              }
+            ) {
+              Icon(Icons.Default.Refresh, contentDescription = null, tint = PrimaryPurpleLight, modifier = Modifier.size(16.dp))
+              Spacer(modifier = Modifier.width(4.dp))
+              Text("Reset", color = PrimaryPurpleLight, fontSize = 12.sp)
+            }
+          }
 
           // Scaling Mode Choice: Crop/Fill vs Fit
           Row(
@@ -451,6 +495,12 @@ fun WallpaperEditorScreen(
             }
           }
 
+          Text(
+            text = "Tip: Pinch or drag the wallpaper preview above to freely position and frame your image.",
+            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.65f)
+          )
+
           Divider(color = Color.White.copy(alpha = 0.15f))
 
           // Zoom / Scale Slider
@@ -465,7 +515,7 @@ fun WallpaperEditorScreen(
             Slider(
               value = zoomLevel,
               onValueChange = { zoomLevel = it },
-              valueRange = 1.0f..2.5f,
+              valueRange = 1.0f..3.0f,
               colors = SliderDefaults.colors(
                 thumbColor = PrimaryPurple,
                 activeTrackColor = PrimaryPurpleLight,
@@ -487,7 +537,7 @@ fun WallpaperEditorScreen(
             Slider(
               value = dimLevel,
               onValueChange = { dimLevel = it },
-              valueRange = 0.0f..0.6f,
+              valueRange = 0.0f..0.8f,
               colors = SliderDefaults.colors(
                 thumbColor = PrimaryPurple,
                 activeTrackColor = PrimaryPurpleLight,

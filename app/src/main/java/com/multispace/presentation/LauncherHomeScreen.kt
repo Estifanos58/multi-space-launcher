@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -78,9 +79,14 @@ fun LauncherHomeScreen(
   }
 
   // Determine dynamic background styling and contrast
-  val currentBgType = activeSpace?.backgroundType ?: Space.BACKGROUND_DEFAULT
-  val currentBgColor = activeSpace?.backgroundColor
-  val currentBgImageUri = activeSpace?.backgroundImageUri
+  val currentBgType = activeSpace?.homeWallpaperType ?: activeSpace?.backgroundType ?: Space.BACKGROUND_DEFAULT
+  val currentBgColor = activeSpace?.homeWallpaperColor ?: activeSpace?.backgroundColor
+  val currentBgImageUri = activeSpace?.homeWallpaperImageUri ?: activeSpace?.backgroundImageUri
+  val currentScaleMode = activeSpace?.homeWallpaperScaleMode ?: "crop"
+  val currentZoomLevel = activeSpace?.homeWallpaperZoomLevel ?: 1.0f
+  val currentDimLevel = activeSpace?.homeWallpaperDimLevel ?: 0.20f
+  val currentOffsetX = activeSpace?.homeWallpaperOffsetX ?: 0.0f
+  val currentOffsetY = activeSpace?.homeWallpaperOffsetY ?: 0.0f
 
   val isDarkThemeBackground = remember(currentBgType, currentBgColor, currentBgImageUri) {
     when (currentBgType) {
@@ -181,15 +187,24 @@ fun LauncherHomeScreen(
               .crossfade(true)
               .build(),
             contentDescription = "Space Wallpaper",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-          )
-          // Scrim overlay to maintain high icon/text readability over photos
-          Box(
+            contentScale = if (currentScaleMode == "crop") ContentScale.Crop else ContentScale.Fit,
             modifier = Modifier
               .fillMaxSize()
-              .background(Color.Black.copy(alpha = 0.35f))
+              .graphicsLayer {
+                scaleX = currentZoomLevel
+                scaleY = currentZoomLevel
+                translationX = currentOffsetX
+                translationY = currentOffsetY
+              }
           )
+          // Scrim overlay to maintain high icon/text readability over photos
+          if (currentDimLevel > 0f) {
+            Box(
+              modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = currentDimLevel))
+            )
+          }
         } else {
           Box(
             modifier = Modifier

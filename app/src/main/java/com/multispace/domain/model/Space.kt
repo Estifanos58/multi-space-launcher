@@ -44,7 +44,22 @@ data class Space(
   val layer2AccessMode: String = ACCESS_MODE_DOCK_BUTTON,
   val dockCapacity: Int = DEFAULT_DOCK_CAPACITY,
   val layoutPreset: String = PRESET_DEFAULT,
-  val useLayer2: Boolean = true
+  val useLayer2: Boolean = true,
+  val homeWallpaperScaleMode: String = "crop",
+  val homeWallpaperZoomLevel: Float = 1.0f,
+  val homeWallpaperDimLevel: Float = 0.20f,
+  val homeWallpaperOffsetX: Float = 0.0f,
+  val homeWallpaperOffsetY: Float = 0.0f,
+  val phoneLockWallpaperScaleMode: String = "crop",
+  val phoneLockWallpaperZoomLevel: Float = 1.0f,
+  val phoneLockWallpaperDimLevel: Float = 0.20f,
+  val phoneLockWallpaperOffsetX: Float = 0.0f,
+  val phoneLockWallpaperOffsetY: Float = 0.0f,
+  val spaceLockWallpaperScaleMode: String = "crop",
+  val spaceLockWallpaperZoomLevel: Float = 1.0f,
+  val spaceLockWallpaperDimLevel: Float = 0.20f,
+  val spaceLockWallpaperOffsetX: Float = 0.0f,
+  val spaceLockWallpaperOffsetY: Float = 0.0f
 ) {
   val isProtected: Boolean
     get() = (authPolicy == AUTH_PIN || authPolicy == AUTH_PATTERN) && !pinHash.isNullOrEmpty() && !pinSalt.isNullOrEmpty()

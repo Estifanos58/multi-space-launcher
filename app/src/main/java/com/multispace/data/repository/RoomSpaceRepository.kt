@@ -161,6 +161,21 @@ class RoomSpaceRepository(
     dockCapacity: Int,
     layoutPreset: String,
     useLayer2: Boolean,
+    homeWallpaperScaleMode: String,
+    homeWallpaperZoomLevel: Float,
+    homeWallpaperDimLevel: Float,
+    homeWallpaperOffsetX: Float,
+    homeWallpaperOffsetY: Float,
+    phoneLockWallpaperScaleMode: String,
+    phoneLockWallpaperZoomLevel: Float,
+    phoneLockWallpaperDimLevel: Float,
+    phoneLockWallpaperOffsetX: Float,
+    phoneLockWallpaperOffsetY: Float,
+    spaceLockWallpaperScaleMode: String,
+    spaceLockWallpaperZoomLevel: Float,
+    spaceLockWallpaperDimLevel: Float,
+    spaceLockWallpaperOffsetX: Float,
+    spaceLockWallpaperOffsetY: Float,
     initialApps: List<DiscoveredApp>
   ): Result<Space> {
     val trimmed = name.trim()
@@ -203,7 +218,22 @@ class RoomSpaceRepository(
         layer2AccessMode = layer2AccessMode,
         dockCapacity = dockCapacity,
         layoutPreset = layoutPreset,
-        useLayer2 = useLayer2
+        useLayer2 = useLayer2,
+        homeWallpaperScaleMode = homeWallpaperScaleMode,
+        homeWallpaperZoomLevel = homeWallpaperZoomLevel,
+        homeWallpaperDimLevel = homeWallpaperDimLevel,
+        homeWallpaperOffsetX = homeWallpaperOffsetX,
+        homeWallpaperOffsetY = homeWallpaperOffsetY,
+        phoneLockWallpaperScaleMode = phoneLockWallpaperScaleMode,
+        phoneLockWallpaperZoomLevel = phoneLockWallpaperZoomLevel,
+        phoneLockWallpaperDimLevel = phoneLockWallpaperDimLevel,
+        phoneLockWallpaperOffsetX = phoneLockWallpaperOffsetX,
+        phoneLockWallpaperOffsetY = phoneLockWallpaperOffsetY,
+        spaceLockWallpaperScaleMode = spaceLockWallpaperScaleMode,
+        spaceLockWallpaperZoomLevel = spaceLockWallpaperZoomLevel,
+        spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
+        spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
+        spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY
       )
       spaceDao.insertSpace(SpaceEntity.fromDomain(space))
 
@@ -289,6 +319,21 @@ class RoomSpaceRepository(
     dockCapacity: Int,
     layoutPreset: String,
     useLayer2: Boolean,
+    homeWallpaperScaleMode: String,
+    homeWallpaperZoomLevel: Float,
+    homeWallpaperDimLevel: Float,
+    homeWallpaperOffsetX: Float,
+    homeWallpaperOffsetY: Float,
+    phoneLockWallpaperScaleMode: String,
+    phoneLockWallpaperZoomLevel: Float,
+    phoneLockWallpaperDimLevel: Float,
+    phoneLockWallpaperOffsetX: Float,
+    phoneLockWallpaperOffsetY: Float,
+    spaceLockWallpaperScaleMode: String,
+    spaceLockWallpaperZoomLevel: Float,
+    spaceLockWallpaperDimLevel: Float,
+    spaceLockWallpaperOffsetX: Float,
+    spaceLockWallpaperOffsetY: Float,
     updatedApps: List<DiscoveredApp>
   ): Result<Space> {
     val trimmed = name.trim()
@@ -355,7 +400,22 @@ class RoomSpaceRepository(
         layer2AccessMode = layer2AccessMode,
         dockCapacity = dockCapacity,
         layoutPreset = layoutPreset,
-        useLayer2 = useLayer2
+        useLayer2 = useLayer2,
+        homeWallpaperScaleMode = homeWallpaperScaleMode,
+        homeWallpaperZoomLevel = homeWallpaperZoomLevel,
+        homeWallpaperDimLevel = homeWallpaperDimLevel,
+        homeWallpaperOffsetX = homeWallpaperOffsetX,
+        homeWallpaperOffsetY = homeWallpaperOffsetY,
+        phoneLockWallpaperScaleMode = phoneLockWallpaperScaleMode,
+        phoneLockWallpaperZoomLevel = phoneLockWallpaperZoomLevel,
+        phoneLockWallpaperDimLevel = phoneLockWallpaperDimLevel,
+        phoneLockWallpaperOffsetX = phoneLockWallpaperOffsetX,
+        phoneLockWallpaperOffsetY = phoneLockWallpaperOffsetY,
+        spaceLockWallpaperScaleMode = spaceLockWallpaperScaleMode,
+        spaceLockWallpaperZoomLevel = spaceLockWallpaperZoomLevel,
+        spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
+        spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
+        spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY
       )
       spaceDao.updateSpace(updated)
 

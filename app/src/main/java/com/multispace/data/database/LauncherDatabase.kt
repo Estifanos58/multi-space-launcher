@@ -25,7 +25,7 @@ import com.multispace.data.entity.SpaceMembershipEntity
     SpaceFolderItemEntity::class,
     SpaceDockItemEntity::class
   ],
-  version = 5,
+  version = 6,
   exportSchema = false
 )
 abstract class LauncherDatabase : RoomDatabase() {
@@ -139,6 +139,26 @@ abstract class LauncherDatabase : RoomDatabase() {
       }
     }
 
+    private val MIGRATION_5_6 = object : Migration(5, 6) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE spaces ADD COLUMN home_wallpaper_scale_mode TEXT NOT NULL DEFAULT 'crop'")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN home_wallpaper_zoom_level REAL NOT NULL DEFAULT 1.0")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN home_wallpaper_dim_level REAL NOT NULL DEFAULT 0.20")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN home_wallpaper_offset_x REAL NOT NULL DEFAULT 0.0")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN home_wallpaper_offset_y REAL NOT NULL DEFAULT 0.0")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN phone_lock_wallpaper_scale_mode TEXT NOT NULL DEFAULT 'crop'")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN phone_lock_wallpaper_zoom_level REAL NOT NULL DEFAULT 1.0")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN phone_lock_wallpaper_dim_level REAL NOT NULL DEFAULT 0.20")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN phone_lock_wallpaper_offset_x REAL NOT NULL DEFAULT 0.0")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN phone_lock_wallpaper_offset_y REAL NOT NULL DEFAULT 0.0")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN space_lock_wallpaper_scale_mode TEXT NOT NULL DEFAULT 'crop'")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN space_lock_wallpaper_zoom_level REAL NOT NULL DEFAULT 1.0")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN space_lock_wallpaper_dim_level REAL NOT NULL DEFAULT 0.20")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN space_lock_wallpaper_offset_x REAL NOT NULL DEFAULT 0.0")
+        db.execSQL("ALTER TABLE spaces ADD COLUMN space_lock_wallpaper_offset_y REAL NOT NULL DEFAULT 0.0")
+      }
+    }
+
     fun getInstance(context: Context): LauncherDatabase {
       return INSTANCE ?: synchronized(this) {
         val instance = Room.databaseBuilder(
@@ -146,7 +166,7 @@ abstract class LauncherDatabase : RoomDatabase() {
           LauncherDatabase::class.java,
           "multispace_launcher.db"
         )
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
         .fallbackToDestructiveMigration()
         .build()
         INSTANCE = instance

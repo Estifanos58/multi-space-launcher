@@ -46,6 +46,21 @@ interface SpaceRepository {
     dockCapacity: Int = Space.DEFAULT_DOCK_CAPACITY,
     layoutPreset: String = Space.PRESET_DEFAULT,
     useLayer2: Boolean = true,
+    homeWallpaperScaleMode: String = "crop",
+    homeWallpaperZoomLevel: Float = 1.0f,
+    homeWallpaperDimLevel: Float = 0.20f,
+    homeWallpaperOffsetX: Float = 0.0f,
+    homeWallpaperOffsetY: Float = 0.0f,
+    phoneLockWallpaperScaleMode: String = "crop",
+    phoneLockWallpaperZoomLevel: Float = 1.0f,
+    phoneLockWallpaperDimLevel: Float = 0.20f,
+    phoneLockWallpaperOffsetX: Float = 0.0f,
+    phoneLockWallpaperOffsetY: Float = 0.0f,
+    spaceLockWallpaperScaleMode: String = "crop",
+    spaceLockWallpaperZoomLevel: Float = 1.0f,
+    spaceLockWallpaperDimLevel: Float = 0.20f,
+    spaceLockWallpaperOffsetX: Float = 0.0f,
+    spaceLockWallpaperOffsetY: Float = 0.0f,
     initialApps: List<DiscoveredApp> = emptyList()
   ): Result<Space>
 
@@ -80,6 +95,21 @@ interface SpaceRepository {
     dockCapacity: Int = Space.DEFAULT_DOCK_CAPACITY,
     layoutPreset: String = Space.PRESET_DEFAULT,
     useLayer2: Boolean = true,
+    homeWallpaperScaleMode: String = "crop",
+    homeWallpaperZoomLevel: Float = 1.0f,
+    homeWallpaperDimLevel: Float = 0.20f,
+    homeWallpaperOffsetX: Float = 0.0f,
+    homeWallpaperOffsetY: Float = 0.0f,
+    phoneLockWallpaperScaleMode: String = "crop",
+    phoneLockWallpaperZoomLevel: Float = 1.0f,
+    phoneLockWallpaperDimLevel: Float = 0.20f,
+    phoneLockWallpaperOffsetX: Float = 0.0f,
+    phoneLockWallpaperOffsetY: Float = 0.0f,
+    spaceLockWallpaperScaleMode: String = "crop",
+    spaceLockWallpaperZoomLevel: Float = 1.0f,
+    spaceLockWallpaperDimLevel: Float = 0.20f,
+    spaceLockWallpaperOffsetX: Float = 0.0f,
+    spaceLockWallpaperOffsetY: Float = 0.0f,
     updatedApps: List<DiscoveredApp> = emptyList()
   ): Result<Space>
   suspend fun renameSpace(spaceId: String, newName: String): Result<Unit>

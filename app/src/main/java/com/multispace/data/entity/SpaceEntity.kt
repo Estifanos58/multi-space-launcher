@@ -105,7 +105,52 @@ data class SpaceEntity(
   val layoutPreset: String = "DEFAULT",
 
   @ColumnInfo(name = "use_layer2")
-  val useLayer2: Boolean = true
+  val useLayer2: Boolean = true,
+
+  @ColumnInfo(name = "home_wallpaper_scale_mode")
+  val homeWallpaperScaleMode: String = "crop",
+
+  @ColumnInfo(name = "home_wallpaper_zoom_level")
+  val homeWallpaperZoomLevel: Float = 1.0f,
+
+  @ColumnInfo(name = "home_wallpaper_dim_level")
+  val homeWallpaperDimLevel: Float = 0.20f,
+
+  @ColumnInfo(name = "home_wallpaper_offset_x")
+  val homeWallpaperOffsetX: Float = 0.0f,
+
+  @ColumnInfo(name = "home_wallpaper_offset_y")
+  val homeWallpaperOffsetY: Float = 0.0f,
+
+  @ColumnInfo(name = "phone_lock_wallpaper_scale_mode")
+  val phoneLockWallpaperScaleMode: String = "crop",
+
+  @ColumnInfo(name = "phone_lock_wallpaper_zoom_level")
+  val phoneLockWallpaperZoomLevel: Float = 1.0f,
+
+  @ColumnInfo(name = "phone_lock_wallpaper_dim_level")
+  val phoneLockWallpaperDimLevel: Float = 0.20f,
+
+  @ColumnInfo(name = "phone_lock_wallpaper_offset_x")
+  val phoneLockWallpaperOffsetX: Float = 0.0f,
+
+  @ColumnInfo(name = "phone_lock_wallpaper_offset_y")
+  val phoneLockWallpaperOffsetY: Float = 0.0f,
+
+  @ColumnInfo(name = "space_lock_wallpaper_scale_mode")
+  val spaceLockWallpaperScaleMode: String = "crop",
+
+  @ColumnInfo(name = "space_lock_wallpaper_zoom_level")
+  val spaceLockWallpaperZoomLevel: Float = 1.0f,
+
+  @ColumnInfo(name = "space_lock_wallpaper_dim_level")
+  val spaceLockWallpaperDimLevel: Float = 0.20f,
+
+  @ColumnInfo(name = "space_lock_wallpaper_offset_x")
+  val spaceLockWallpaperOffsetX: Float = 0.0f,
+
+  @ColumnInfo(name = "space_lock_wallpaper_offset_y")
+  val spaceLockWallpaperOffsetY: Float = 0.0f
 ) {
   fun toDomain(): Space = Space(
     id = id,
@@ -140,7 +185,22 @@ data class SpaceEntity(
     layer2AccessMode = layer2AccessMode,
     dockCapacity = dockCapacity,
     layoutPreset = layoutPreset,
-    useLayer2 = useLayer2
+    useLayer2 = useLayer2,
+    homeWallpaperScaleMode = homeWallpaperScaleMode,
+    homeWallpaperZoomLevel = homeWallpaperZoomLevel,
+    homeWallpaperDimLevel = homeWallpaperDimLevel,
+    homeWallpaperOffsetX = homeWallpaperOffsetX,
+    homeWallpaperOffsetY = homeWallpaperOffsetY,
+    phoneLockWallpaperScaleMode = phoneLockWallpaperScaleMode,
+    phoneLockWallpaperZoomLevel = phoneLockWallpaperZoomLevel,
+    phoneLockWallpaperDimLevel = phoneLockWallpaperDimLevel,
+    phoneLockWallpaperOffsetX = phoneLockWallpaperOffsetX,
+    phoneLockWallpaperOffsetY = phoneLockWallpaperOffsetY,
+    spaceLockWallpaperScaleMode = spaceLockWallpaperScaleMode,
+    spaceLockWallpaperZoomLevel = spaceLockWallpaperZoomLevel,
+    spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
+    spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
+    spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY
   )
 
   companion object {
@@ -177,7 +237,22 @@ data class SpaceEntity(
       layer2AccessMode = domain.layer2AccessMode,
       dockCapacity = domain.dockCapacity,
       layoutPreset = domain.layoutPreset,
-      useLayer2 = domain.useLayer2
+      useLayer2 = domain.useLayer2,
+      homeWallpaperScaleMode = domain.homeWallpaperScaleMode,
+      homeWallpaperZoomLevel = domain.homeWallpaperZoomLevel,
+      homeWallpaperDimLevel = domain.homeWallpaperDimLevel,
+      homeWallpaperOffsetX = domain.homeWallpaperOffsetX,
+      homeWallpaperOffsetY = domain.homeWallpaperOffsetY,
+      phoneLockWallpaperScaleMode = domain.phoneLockWallpaperScaleMode,
+      phoneLockWallpaperZoomLevel = domain.phoneLockWallpaperZoomLevel,
+      phoneLockWallpaperDimLevel = domain.phoneLockWallpaperDimLevel,
+      phoneLockWallpaperOffsetX = domain.phoneLockWallpaperOffsetX,
+      phoneLockWallpaperOffsetY = domain.phoneLockWallpaperOffsetY,
+      spaceLockWallpaperScaleMode = domain.spaceLockWallpaperScaleMode,
+      spaceLockWallpaperZoomLevel = domain.spaceLockWallpaperZoomLevel,
+      spaceLockWallpaperDimLevel = domain.spaceLockWallpaperDimLevel,
+      spaceLockWallpaperOffsetX = domain.spaceLockWallpaperOffsetX,
+      spaceLockWallpaperOffsetY = domain.spaceLockWallpaperOffsetY
     )
   }
 }

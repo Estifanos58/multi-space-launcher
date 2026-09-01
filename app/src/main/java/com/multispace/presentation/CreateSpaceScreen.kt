@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -297,6 +298,11 @@ fun CreateSpaceScreen(
   var homeSelectedBgColor by rememberSaveable { mutableStateOf(editingSpace?.homeWallpaperColor ?: editingSpace?.backgroundColor ?: PRESET_BACKGROUND_COLORS.first().first) }
   var homeSelectedGradientId by rememberSaveable { mutableStateOf(PRESET_GRADIENTS.firstOrNull { it.representativeColor == (editingSpace?.homeWallpaperColor ?: editingSpace?.backgroundColor) }?.id ?: PRESET_GRADIENTS.first().id) }
   var homeCustomImageUri by rememberSaveable { mutableStateOf(editingSpace?.homeWallpaperImageUri ?: editingSpace?.backgroundImageUri) }
+  var homeWallpaperScaleMode by rememberSaveable { mutableStateOf(editingSpace?.homeWallpaperScaleMode ?: "crop") }
+  var homeWallpaperZoomLevel by rememberSaveable { mutableFloatStateOf(editingSpace?.homeWallpaperZoomLevel ?: 1.0f) }
+  var homeWallpaperDimLevel by rememberSaveable { mutableFloatStateOf(editingSpace?.homeWallpaperDimLevel ?: 0.20f) }
+  var homeWallpaperOffsetX by rememberSaveable { mutableFloatStateOf(editingSpace?.homeWallpaperOffsetX ?: 0.0f) }
+  var homeWallpaperOffsetY by rememberSaveable { mutableFloatStateOf(editingSpace?.homeWallpaperOffsetY ?: 0.0f) }
 
   // Phone Lock Screen Wallpaper
   val initialPhoneLockCat = remember(editingSpace) {
@@ -310,6 +316,11 @@ fun CreateSpaceScreen(
   var phoneLockSelectedBgColor by rememberSaveable { mutableStateOf(editingSpace?.phoneLockWallpaperColor ?: PRESET_BACKGROUND_COLORS[1].first) }
   var phoneLockSelectedGradientId by rememberSaveable { mutableStateOf(PRESET_GRADIENTS.firstOrNull { it.representativeColor == editingSpace?.phoneLockWallpaperColor }?.id ?: PRESET_GRADIENTS[1].id) }
   var phoneLockCustomImageUri by rememberSaveable { mutableStateOf(editingSpace?.phoneLockWallpaperImageUri) }
+  var phoneLockWallpaperScaleMode by rememberSaveable { mutableStateOf(editingSpace?.phoneLockWallpaperScaleMode ?: "crop") }
+  var phoneLockWallpaperZoomLevel by rememberSaveable { mutableFloatStateOf(editingSpace?.phoneLockWallpaperZoomLevel ?: 1.0f) }
+  var phoneLockWallpaperDimLevel by rememberSaveable { mutableFloatStateOf(editingSpace?.phoneLockWallpaperDimLevel ?: 0.20f) }
+  var phoneLockWallpaperOffsetX by rememberSaveable { mutableFloatStateOf(editingSpace?.phoneLockWallpaperOffsetX ?: 0.0f) }
+  var phoneLockWallpaperOffsetY by rememberSaveable { mutableFloatStateOf(editingSpace?.phoneLockWallpaperOffsetY ?: 0.0f) }
 
   // Space Lock Screen Wallpaper
   val initialSpaceLockCat = remember(editingSpace) {
@@ -323,6 +334,11 @@ fun CreateSpaceScreen(
   var spaceLockSelectedBgColor by rememberSaveable { mutableStateOf(editingSpace?.spaceLockWallpaperColor ?: PRESET_BACKGROUND_COLORS[4].first) }
   var spaceLockSelectedGradientId by rememberSaveable { mutableStateOf(PRESET_GRADIENTS.firstOrNull { it.representativeColor == editingSpace?.spaceLockWallpaperColor }?.id ?: PRESET_GRADIENTS[4].id) }
   var spaceLockCustomImageUri by rememberSaveable { mutableStateOf(editingSpace?.spaceLockWallpaperImageUri) }
+  var spaceLockWallpaperScaleMode by rememberSaveable { mutableStateOf(editingSpace?.spaceLockWallpaperScaleMode ?: "crop") }
+  var spaceLockWallpaperZoomLevel by rememberSaveable { mutableFloatStateOf(editingSpace?.spaceLockWallpaperZoomLevel ?: 1.0f) }
+  var spaceLockWallpaperDimLevel by rememberSaveable { mutableFloatStateOf(editingSpace?.spaceLockWallpaperDimLevel ?: 0.20f) }
+  var spaceLockWallpaperOffsetX by rememberSaveable { mutableFloatStateOf(editingSpace?.spaceLockWallpaperOffsetX ?: 0.0f) }
+  var spaceLockWallpaperOffsetY by rememberSaveable { mutableFloatStateOf(editingSpace?.spaceLockWallpaperOffsetY ?: 0.0f) }
 
   // Theme for Apps
   var selectedAppTheme by rememberSaveable { mutableStateOf(editingSpace?.appTheme ?: Space.THEME_DEFAULT) }
@@ -535,19 +551,59 @@ fun CreateSpaceScreen(
             else -> homePhotoPickerLauncher.launch("image/*")
           }
         },
-        onApply = { newUri, _ ->
+        initialScaleMode = when (wallpaperEditorTarget) {
+          "phone_lock" -> phoneLockWallpaperScaleMode
+          "space_lock" -> spaceLockWallpaperScaleMode
+          else -> homeWallpaperScaleMode
+        },
+        initialZoomLevel = when (wallpaperEditorTarget) {
+          "phone_lock" -> phoneLockWallpaperZoomLevel
+          "space_lock" -> spaceLockWallpaperZoomLevel
+          else -> homeWallpaperZoomLevel
+        },
+        initialDimLevel = when (wallpaperEditorTarget) {
+          "phone_lock" -> phoneLockWallpaperDimLevel
+          "space_lock" -> spaceLockWallpaperDimLevel
+          else -> homeWallpaperDimLevel
+        },
+        initialOffsetX = when (wallpaperEditorTarget) {
+          "phone_lock" -> phoneLockWallpaperOffsetX
+          "space_lock" -> spaceLockWallpaperOffsetX
+          else -> homeWallpaperOffsetX
+        },
+        initialOffsetY = when (wallpaperEditorTarget) {
+          "phone_lock" -> phoneLockWallpaperOffsetY
+          "space_lock" -> spaceLockWallpaperOffsetY
+          else -> homeWallpaperOffsetY
+        },
+        onApply = { newUri, scaleMode, zoomLevel, dimLevel, offsetX, offsetY ->
           when (wallpaperEditorTarget) {
             "phone_lock" -> {
               phoneLockCustomImageUri = newUri
               phoneLockWallpaperCategory = "photo"
+              phoneLockWallpaperScaleMode = scaleMode
+              phoneLockWallpaperZoomLevel = zoomLevel
+              phoneLockWallpaperDimLevel = dimLevel
+              phoneLockWallpaperOffsetX = offsetX
+              phoneLockWallpaperOffsetY = offsetY
             }
             "space_lock" -> {
               spaceLockCustomImageUri = newUri
               spaceLockWallpaperCategory = "photo"
+              spaceLockWallpaperScaleMode = scaleMode
+              spaceLockWallpaperZoomLevel = zoomLevel
+              spaceLockWallpaperDimLevel = dimLevel
+              spaceLockWallpaperOffsetX = offsetX
+              spaceLockWallpaperOffsetY = offsetY
             }
             else -> {
               homeCustomImageUri = newUri
               homeWallpaperCategory = "photo"
+              homeWallpaperScaleMode = scaleMode
+              homeWallpaperZoomLevel = zoomLevel
+              homeWallpaperDimLevel = dimLevel
+              homeWallpaperOffsetX = offsetX
+              homeWallpaperOffsetY = offsetY
             }
           }
           currentSubPage = CreateSpaceSubPage.MAIN_TABS
@@ -929,6 +985,21 @@ fun CreateSpaceScreen(
                           useLayer2 = useLayer2,
                           dockCapacity = dockCapacity,
                           layoutPreset = selectedLayoutPreset,
+                          homeWallpaperScaleMode = homeWallpaperScaleMode,
+                          homeWallpaperZoomLevel = homeWallpaperZoomLevel,
+                          homeWallpaperDimLevel = homeWallpaperDimLevel,
+                          homeWallpaperOffsetX = homeWallpaperOffsetX,
+                          homeWallpaperOffsetY = homeWallpaperOffsetY,
+                          phoneLockWallpaperScaleMode = phoneLockWallpaperScaleMode,
+                          phoneLockWallpaperZoomLevel = phoneLockWallpaperZoomLevel,
+                          phoneLockWallpaperDimLevel = phoneLockWallpaperDimLevel,
+                          phoneLockWallpaperOffsetX = phoneLockWallpaperOffsetX,
+                          phoneLockWallpaperOffsetY = phoneLockWallpaperOffsetY,
+                          spaceLockWallpaperScaleMode = spaceLockWallpaperScaleMode,
+                          spaceLockWallpaperZoomLevel = spaceLockWallpaperZoomLevel,
+                          spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
+                          spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
+                          spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY,
                           updatedApps = selectedAppObjects,
                           onResult = { success, _ ->
                             isCreating = false
@@ -968,6 +1039,21 @@ fun CreateSpaceScreen(
                           useLayer2 = useLayer2,
                           dockCapacity = dockCapacity,
                           layoutPreset = selectedLayoutPreset,
+                          homeWallpaperScaleMode = homeWallpaperScaleMode,
+                          homeWallpaperZoomLevel = homeWallpaperZoomLevel,
+                          homeWallpaperDimLevel = homeWallpaperDimLevel,
+                          homeWallpaperOffsetX = homeWallpaperOffsetX,
+                          homeWallpaperOffsetY = homeWallpaperOffsetY,
+                          phoneLockWallpaperScaleMode = phoneLockWallpaperScaleMode,
+                          phoneLockWallpaperZoomLevel = phoneLockWallpaperZoomLevel,
+                          phoneLockWallpaperDimLevel = phoneLockWallpaperDimLevel,
+                          phoneLockWallpaperOffsetX = phoneLockWallpaperOffsetX,
+                          phoneLockWallpaperOffsetY = phoneLockWallpaperOffsetY,
+                          spaceLockWallpaperScaleMode = spaceLockWallpaperScaleMode,
+                          spaceLockWallpaperZoomLevel = spaceLockWallpaperZoomLevel,
+                          spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
+                          spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
+                          spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY,
                           initialApps = selectedAppObjects,
                           onResult = { success, newId ->
                             isCreating = false
@@ -1094,6 +1180,11 @@ fun CreateSpaceScreen(
                 homeSelectedGradientId = homeSelectedGradientId,
                 onHomeSelectGradient = { homeSelectedGradientId = it },
                 homeCustomImageUri = homeCustomImageUri,
+                homeScaleMode = homeWallpaperScaleMode,
+                homeZoomLevel = homeWallpaperZoomLevel,
+                homeDimLevel = homeWallpaperDimLevel,
+                homeOffsetX = homeWallpaperOffsetX,
+                homeOffsetY = homeWallpaperOffsetY,
                 onHomePickCustomPhoto = { homePhotoPickerLauncher.launch("image/*") },
                 onHomeRemoveCustomPhoto = {
                   homeCustomImageUri = null
@@ -1110,6 +1201,11 @@ fun CreateSpaceScreen(
                 phoneLockSelectedGradientId = phoneLockSelectedGradientId,
                 onPhoneLockSelectGradient = { phoneLockSelectedGradientId = it },
                 phoneLockCustomImageUri = phoneLockCustomImageUri,
+                phoneLockScaleMode = phoneLockWallpaperScaleMode,
+                phoneLockZoomLevel = phoneLockWallpaperZoomLevel,
+                phoneLockDimLevel = phoneLockWallpaperDimLevel,
+                phoneLockOffsetX = phoneLockWallpaperOffsetX,
+                phoneLockOffsetY = phoneLockWallpaperOffsetY,
                 onPhoneLockPickCustomPhoto = { phoneLockPhotoPickerLauncher.launch("image/*") },
                 onPhoneLockRemoveCustomPhoto = {
                   phoneLockCustomImageUri = null
@@ -1126,6 +1222,11 @@ fun CreateSpaceScreen(
                 spaceLockSelectedGradientId = spaceLockSelectedGradientId,
                 onSpaceLockSelectGradient = { spaceLockSelectedGradientId = it },
                 spaceLockCustomImageUri = spaceLockCustomImageUri,
+                spaceLockScaleMode = spaceLockWallpaperScaleMode,
+                spaceLockZoomLevel = spaceLockWallpaperZoomLevel,
+                spaceLockDimLevel = spaceLockWallpaperDimLevel,
+                spaceLockOffsetX = spaceLockWallpaperOffsetX,
+                spaceLockOffsetY = spaceLockWallpaperOffsetY,
                 onSpaceLockPickCustomPhoto = { spaceLockPhotoPickerLauncher.launch("image/*") },
                 onSpaceLockRemoveCustomPhoto = {
                   spaceLockCustomImageUri = null
@@ -2043,6 +2144,11 @@ private fun Tab2WallpaperAndTheme(
   homeSelectedGradientId: String,
   onHomeSelectGradient: (String) -> Unit,
   homeCustomImageUri: String?,
+  homeScaleMode: String = "crop",
+  homeZoomLevel: Float = 1.0f,
+  homeDimLevel: Float = 0.20f,
+  homeOffsetX: Float = 0.0f,
+  homeOffsetY: Float = 0.0f,
   onHomePickCustomPhoto: () -> Unit,
   onHomeRemoveCustomPhoto: () -> Unit,
   onHomeOpenEditor: () -> Unit,
@@ -2054,6 +2160,11 @@ private fun Tab2WallpaperAndTheme(
   phoneLockSelectedGradientId: String,
   onPhoneLockSelectGradient: (String) -> Unit,
   phoneLockCustomImageUri: String?,
+  phoneLockScaleMode: String = "crop",
+  phoneLockZoomLevel: Float = 1.0f,
+  phoneLockDimLevel: Float = 0.20f,
+  phoneLockOffsetX: Float = 0.0f,
+  phoneLockOffsetY: Float = 0.0f,
   onPhoneLockPickCustomPhoto: () -> Unit,
   onPhoneLockRemoveCustomPhoto: () -> Unit,
   onPhoneLockOpenEditor: () -> Unit,
@@ -2065,6 +2176,11 @@ private fun Tab2WallpaperAndTheme(
   spaceLockSelectedGradientId: String,
   onSpaceLockSelectGradient: (String) -> Unit,
   spaceLockCustomImageUri: String?,
+  spaceLockScaleMode: String = "crop",
+  spaceLockZoomLevel: Float = 1.0f,
+  spaceLockDimLevel: Float = 0.20f,
+  spaceLockOffsetX: Float = 0.0f,
+  spaceLockOffsetY: Float = 0.0f,
   onSpaceLockPickCustomPhoto: () -> Unit,
   onSpaceLockRemoveCustomPhoto: () -> Unit,
   onSpaceLockOpenEditor: () -> Unit,
@@ -2092,6 +2208,11 @@ private fun Tab2WallpaperAndTheme(
         selectedGradientId = homeSelectedGradientId,
         onSelectGradient = onHomeSelectGradient,
         customImageUri = homeCustomImageUri,
+        scaleMode = homeScaleMode,
+        zoomLevel = homeZoomLevel,
+        dimLevel = homeDimLevel,
+        offsetX = homeOffsetX,
+        offsetY = homeOffsetY,
         onPickCustomPhoto = onHomePickCustomPhoto,
         onRemoveCustomPhoto = onHomeRemoveCustomPhoto,
         onOpenEditor = onHomeOpenEditor,
@@ -2112,6 +2233,11 @@ private fun Tab2WallpaperAndTheme(
         selectedGradientId = phoneLockSelectedGradientId,
         onSelectGradient = onPhoneLockSelectGradient,
         customImageUri = phoneLockCustomImageUri,
+        scaleMode = phoneLockScaleMode,
+        zoomLevel = phoneLockZoomLevel,
+        dimLevel = phoneLockDimLevel,
+        offsetX = phoneLockOffsetX,
+        offsetY = phoneLockOffsetY,
         onPickCustomPhoto = onPhoneLockPickCustomPhoto,
         onRemoveCustomPhoto = onPhoneLockRemoveCustomPhoto,
         onOpenEditor = onPhoneLockOpenEditor,
@@ -2132,6 +2258,11 @@ private fun Tab2WallpaperAndTheme(
         selectedGradientId = spaceLockSelectedGradientId,
         onSelectGradient = onSpaceLockSelectGradient,
         customImageUri = spaceLockCustomImageUri,
+        scaleMode = spaceLockScaleMode,
+        zoomLevel = spaceLockZoomLevel,
+        dimLevel = spaceLockDimLevel,
+        offsetX = spaceLockOffsetX,
+        offsetY = spaceLockOffsetY,
         onPickCustomPhoto = onSpaceLockPickCustomPhoto,
         onRemoveCustomPhoto = onSpaceLockRemoveCustomPhoto,
         onOpenEditor = onSpaceLockOpenEditor,
@@ -2272,6 +2403,11 @@ private fun WallpaperSectionCard(
   selectedGradientId: String,
   onSelectGradient: (String) -> Unit,
   customImageUri: String?,
+  scaleMode: String = "crop",
+  zoomLevel: Float = 1.0f,
+  dimLevel: Float = 0.20f,
+  offsetX: Float = 0.0f,
+  offsetY: Float = 0.0f,
   onPickCustomPhoto: () -> Unit,
   onRemoveCustomPhoto: () -> Unit,
   onOpenEditor: (() -> Unit)? = null,
@@ -2347,14 +2483,23 @@ private fun WallpaperSectionCard(
               .crossfade(true)
               .build(),
             contentDescription = "Custom Photo Wallpaper",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-          )
-          Box(
+            contentScale = if (scaleMode == "crop") ContentScale.Crop else ContentScale.Fit,
             modifier = Modifier
               .fillMaxSize()
-              .background(Color.Black.copy(alpha = 0.25f))
+              .graphicsLayer {
+                scaleX = zoomLevel
+                scaleY = zoomLevel
+                translationX = offsetX
+                translationY = offsetY
+              }
           )
+          if (dimLevel > 0f) {
+            Box(
+              modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = dimLevel))
+            )
+          }
         }
 
         // Mock UI overlay
