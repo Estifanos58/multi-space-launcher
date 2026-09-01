@@ -1,5 +1,6 @@
 package com.multispace.presentation
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -71,6 +72,7 @@ fun LauncherConfigurationScreen(
   val context = LocalContext.current
   val coroutineScope = rememberCoroutineScope()
   val isServiceActive by RecentsController.isServiceActive.collectAsStateWithLifecycle()
+  val recentsDiagnostic by RecentsController.diagnosticInfo.collectAsStateWithLifecycle()
   val isAccessibilityConfigured = remember(isServiceActive) {
     RecentsController.isAccessibilityServiceEnabled(context)
   }
@@ -469,17 +471,123 @@ fun LauncherConfigurationScreen(
               lineHeight = 16.sp
             )
 
+            // Real-time Diagnostic Panel
+            Surface(
+              shape = RoundedCornerShape(12.dp),
+              color = Color(0xFFF8FAFC),
+              border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+              ) {
+                Text(
+                  text = "DIAGNOSTIC STATUS (MSLauncher:RECENTS)",
+                  style = MaterialTheme.typography.labelSmall,
+                  fontWeight = FontWeight.Bold,
+                  color = PrimaryPurpleDark,
+                  fontSize = 10.sp
+                )
+
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                  Text("Accessibility Service:", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 11.sp)
+                  Text(
+                    text = if (recentsDiagnostic.isServiceConnected) "Connected (Bound)" else if (recentsDiagnostic.isEnabledInSettings) "Enabled in Settings (Not Bound)" else "Disabled",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (recentsDiagnostic.isServiceConnected) Color(0xFF2E7D32) else if (recentsDiagnostic.isEnabledInSettings) Color(0xFFE65100) else TextSecondary,
+                    fontSize = 11.sp
+                  )
+                }
+
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                  Text("System Action Availability:", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 11.sp)
+                  Text(
+                    text = when (recentsDiagnostic.isRecentsActionAvailable) {
+                      true -> "GLOBAL_ACTION_RECENTS available (${recentsDiagnostic.systemActionsCount} actions)"
+                      false -> "GLOBAL_ACTION_RECENTS unavailable"
+                      null -> if (recentsDiagnostic.isServiceConnected) "Available" else "Unknown (Service inactive)"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (recentsDiagnostic.isRecentsActionAvailable == true || (recentsDiagnostic.isRecentsActionAvailable == null && recentsDiagnostic.isServiceConnected)) Color(0xFF2E7D32) else TextSecondary,
+                    fontSize = 11.sp
+                  )
+                }
+
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                  Text("Last Attempt:", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 11.sp)
+                  Text(
+                    text = when (recentsDiagnostic.lastInvocationResult) {
+                      RecentsInvocationResult.SUCCESS -> "Success"
+                      RecentsInvocationResult.SERVICE_DISABLED -> "Failed (Service Disabled/Unbound)"
+                      RecentsInvocationResult.ACTION_FAILED -> "Failed (performGlobalAction = false)"
+                      RecentsInvocationResult.ACTION_UNAVAILABLE -> "Failed (Action Unavailable)"
+                      null -> "None"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (recentsDiagnostic.lastInvocationResult == RecentsInvocationResult.SUCCESS) Color(0xFF2E7D32) else if (recentsDiagnostic.lastInvocationResult != null) Color(0xFFC62828) else TextSecondary,
+                    fontSize = 11.sp
+                  )
+                }
+
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                  Text("Last Result:", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 11.sp)
+                  Text(
+                    text = when (recentsDiagnostic.lastResult) {
+                      true -> "performGlobalAction = true"
+                      false -> "performGlobalAction = false"
+                      null -> "Not invoked yet"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (recentsDiagnostic.lastResult == true) Color(0xFF2E7D32) else if (recentsDiagnostic.lastResult == false) Color(0xFFC62828) else TextSecondary,
+                    fontSize = 11.sp
+                  )
+                }
+
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                  Text("Last Failure:", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 11.sp)
+                  Text(
+                    text = recentsDiagnostic.lastFailureReason ?: "None",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (recentsDiagnostic.lastFailureReason != null) Color(0xFFC62828) else TextSecondary,
+                    fontSize = 11.sp
+                  )
+                }
+              }
+            }
+
             Row(
               modifier = Modifier.fillMaxWidth(),
               horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
               Button(
                 onClick = {
-                  val result = RecentsController.invokeNativeRecents(context)
+                  val result = RecentsController.invokeNativeRecents(context, source = "CONFIG_SCREEN_TEST_BUTTON")
                   when (result) {
                     RecentsInvocationResult.SUCCESS -> {
                       coroutineScope.launch {
-                        snackbarHostState.showSnackbar("Requested Android System Overview")
+                        snackbarHostState.showSnackbar("performGlobalAction(GLOBAL_ACTION_RECENTS) returned TRUE")
                       }
                     }
                     RecentsInvocationResult.SERVICE_DISABLED -> {
@@ -487,7 +595,7 @@ fun LauncherConfigurationScreen(
                     }
                     RecentsInvocationResult.ACTION_FAILED -> {
                       coroutineScope.launch {
-                        snackbarHostState.showSnackbar("System Recents action failed to execute")
+                        snackbarHostState.showSnackbar("performGlobalAction(GLOBAL_ACTION_RECENTS) returned FALSE")
                       }
                     }
                     RecentsInvocationResult.ACTION_UNAVAILABLE -> {
@@ -507,7 +615,7 @@ fun LauncherConfigurationScreen(
                   modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Test System Recents", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("TEST NATIVE RECENTS", fontSize = 12.sp, fontWeight = FontWeight.Bold)
               }
 
               OutlinedButton(

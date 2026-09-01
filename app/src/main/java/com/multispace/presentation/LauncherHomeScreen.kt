@@ -405,7 +405,7 @@ fun LauncherHomeScreen(
                 },
                 onClick = {
                   showSpaceSwitcherMenu = false
-                  val result = RecentsController.invokeNativeRecents(context)
+                  val result = RecentsController.invokeNativeRecents(context, source = "HOME_SPACE_MENU")
                   when (result) {
                     RecentsInvocationResult.SUCCESS -> {}
                     RecentsInvocationResult.SERVICE_DISABLED -> {
@@ -452,7 +452,7 @@ fun LauncherHomeScreen(
           ) {
             IconButton(
               onClick = {
-                val result = RecentsController.invokeNativeRecents(context)
+                val result = RecentsController.invokeNativeRecents(context, source = "HOME_TOP_BAR_BUTTON")
                 when (result) {
                   RecentsInvocationResult.SUCCESS -> {}
                   RecentsInvocationResult.SERVICE_DISABLED -> {
