@@ -163,7 +163,52 @@ The integrated launcher is hardened against process recreation, activity destruc
 
 ---
 
-## 7. Technology Baseline
+## 8. Android Task Model, Entry Points & System Recents Relationship
+
+The launcher architecture establishes strict separation between three distinct system concepts:
+
+```text
+┌─────────────────────────────────────────┐
+│        Multi-Space Home Surface         │
+│   (MainActivity - CATEGORY_HOME)        │
+│   - Wallpaper, App Grid, Dock, Switcher │
+│   - Root of Android Home Task           │
+└─────────────────────────────────────────┘
+                    ≠
+┌─────────────────────────────────────────┐
+│   Multi-Space Configuration Surface     │
+│ (ConfigurationActivity - LAUNCHER)      │
+│   - Space Management, Presets, Settings │
+│   - Task Affinity: com.multispace.config│
+└─────────────────────────────────────────┘
+                    ≠
+┌─────────────────────────────────────────┐
+│       Android System Recents            │
+│   (System UI / Overview - Keycode 187)  │
+│   - OS-owned Task Switcher              │
+│   - NOT a part of Multi-Space Launcher  │
+└─────────────────────────────────────────┘
+```
+
+### Key Architectural Boundaries:
+1. **Multi-Space Home Surface (`MainActivity`)**:
+   - Registered with `<category android:name="android.intent.category.HOME" />` and `<category android:name="android.intent.category.DEFAULT" />`.
+   - `launchMode="singleTask"`, `stateNotNeeded="true"`.
+   - Manifested as the single default root when the user navigates Home, presses the hardware/software Home button, or selects the launcher as default.
+   - Strictly renders `LauncherHomeScreen` (active Space wallpaper, grid, and dock) and never displays the Configuration screen.
+2. **Multi-Space Configuration Surface (`ConfigurationActivity`)**:
+   - Registered with `<category android:name="android.intent.category.LAUNCHER" />` and `<category android:name="android.intent.category.DEFAULT" />`.
+   - `launchMode="singleTask"`, `taskAffinity="com.multispace.configuration"`.
+   - Entered when the user taps the Multi-Space Launcher icon in an external application drawer or taps "Manage Spaces / Settings" from the Home surface.
+   - Runs in a dedicated task so that configuration navigation does not pollute or replace the Home task in Android's task manager.
+3. **Android System Recents / Overview**:
+   - The three-line or square system navigation button triggers Android OS Overview (`KEYCODE_APP_SWITCH` / keycode 187).
+   - This surface is owned 100% by Android SystemUI / Launcher3 / OEM System.
+   - Multi-Space launcher does NOT implement, emulate, fake, or intercept system Recents. When other apps (e.g. Chrome) are open, SystemUI displays native task cards; Multi-Space participates cleanly as a standard Android Home task.
+
+---
+
+## 9. Technology Baseline
 * **Language:** Kotlin 2.2.10
 * **UI Toolkit:** Jetpack Compose with Material 3 (Compose BOM 2024.09.00)
 * **Image Loading:** Coil Compose 2.6.0

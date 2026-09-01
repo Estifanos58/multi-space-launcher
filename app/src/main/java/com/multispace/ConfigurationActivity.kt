@@ -69,9 +69,19 @@ class ConfigurationActivity : ComponentActivity() {
     startActivity(homeIntent)
   }
 
+  private fun logActivityDetails(event: String, intent: Intent?) {
+    val action = intent?.action ?: "null"
+    val categories = intent?.categories?.joinToString(",") ?: "none"
+    val flags = intent?.flags?.let { "0x" + Integer.toHexString(it) } ?: "0x0"
+    AppLogger.i(
+      AppLogger.Category.LIFECYCLE,
+      "ConfigurationActivity $event -> taskId=$taskId, isTaskRoot=$isTaskRoot, action=$action, categories=[$categories], flags=$flags"
+    )
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    AppLogger.i(AppLogger.Category.LIFECYCLE, "ConfigurationActivity onCreate (Task ID: $taskId)")
+    logActivityDetails("onCreate", intent)
     updateDefaultHomeStatus()
     spaceViewModel.ensureDefaultSpaceInitialized()
     discoveryViewModel.loadApps(isSilent = true)
@@ -163,10 +173,32 @@ class ConfigurationActivity : ComponentActivity() {
     }
   }
 
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    logActivityDetails("onNewIntent", intent)
+    updateDefaultHomeStatus()
+  }
+
   override fun onResume() {
     super.onResume()
+    logActivityDetails("onResume", intent)
     updateDefaultHomeStatus()
     discoveryViewModel.loadApps(isSilent = true)
-    AppLogger.d(AppLogger.Category.LIFECYCLE, "ConfigurationActivity onResume")
+  }
+
+  override fun onPause() {
+    super.onPause()
+    logActivityDetails("onPause", intent)
+  }
+
+  override fun onStop() {
+    super.onStop()
+    logActivityDetails("onStop", intent)
+  }
+
+  override fun onDestroy() {
+    super.onDestroy()
+    logActivityDetails("onDestroy", intent)
   }
 }

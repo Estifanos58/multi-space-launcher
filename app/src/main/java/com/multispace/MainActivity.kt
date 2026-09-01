@@ -82,10 +82,20 @@ class MainActivity : ComponentActivity() {
     startActivity(intent)
   }
 
+  private fun logActivityDetails(event: String, intent: Intent?) {
+    val action = intent?.action ?: "null"
+    val categories = intent?.categories?.joinToString(",") ?: "none"
+    val flags = intent?.flags?.let { "0x" + Integer.toHexString(it) } ?: "0x0"
+    AppLogger.i(
+      AppLogger.Category.LIFECYCLE,
+      "MainActivity $event -> taskId=$taskId, isTaskRoot=$isTaskRoot, action=$action, categories=[$categories], flags=$flags"
+    )
+    recordEvent("I/Lifecycle", "$event (taskId=$taskId, root=$isTaskRoot, act=$action)")
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    AppLogger.i(AppLogger.Category.LIFECYCLE, "MainActivity onCreate: Initializing HOME Launcher (Task ID: $taskId)")
-    recordEvent("I/Lifecycle", "MainActivity onCreate (HOME task root)")
+    logActivityDetails("onCreate", intent)
 
     updateDefaultHomeStatus()
     spaceViewModel.ensureDefaultSpaceInitialized()
@@ -135,6 +145,7 @@ class MainActivity : ComponentActivity() {
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
+    logActivityDetails("onNewIntent", intent)
     updateDefaultHomeStatus()
 
     val isHomeIntent = intent.hasCategory(Intent.CATEGORY_HOME) == true ||
@@ -151,41 +162,36 @@ class MainActivity : ComponentActivity() {
 
   override fun onStart() {
     super.onStart()
+    logActivityDetails("onStart", intent)
     updateDefaultHomeStatus()
     spaceViewModel.ensureDefaultSpaceInitialized()
     discoveryViewModel.loadApps(isSilent = true)
-    AppLogger.d(AppLogger.Category.LIFECYCLE, "MainActivity onStart")
-    recordEvent("D/Lifecycle", "MainActivity onStart")
   }
 
   override fun onResume() {
     super.onResume()
+    logActivityDetails("onResume", intent)
     updateDefaultHomeStatus()
     discoveryViewModel.loadApps(isSilent = true)
-    AppLogger.d(AppLogger.Category.LIFECYCLE, "MainActivity onResume (isDefault=${isDefaultHomeState.value})")
-    recordEvent("D/Lifecycle", "MainActivity onResume (isDefault=${isDefaultHomeState.value})")
   }
 
   override fun onPause() {
     super.onPause()
-    AppLogger.d(AppLogger.Category.LIFECYCLE, "MainActivity onPause")
-    recordEvent("D/Lifecycle", "MainActivity onPause (navigating away)")
+    logActivityDetails("onPause", intent)
   }
 
   override fun onStop() {
     super.onStop()
-    AppLogger.d(AppLogger.Category.LIFECYCLE, "MainActivity onStop")
-    recordEvent("D/Lifecycle", "MainActivity onStop")
+    logActivityDetails("onStop", intent)
   }
 
   override fun onDestroy() {
     super.onDestroy()
+    logActivityDetails("onDestroy", intent)
     try {
       unregisterReceiver(screenOffReceiver)
     } catch (e: Exception) {
       // Receiver may not be registered
     }
-    AppLogger.d(AppLogger.Category.LIFECYCLE, "MainActivity onDestroy")
-    recordEvent("D/Lifecycle", "MainActivity onDestroy")
   }
 }
