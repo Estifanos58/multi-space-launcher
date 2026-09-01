@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -24,7 +25,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
+import com.multispace.platform.RecentsController
+import com.multispace.platform.RecentsInvocationResult
 import com.multispace.ui.theme.*
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -62,6 +66,14 @@ fun LauncherConfigurationScreen(
   var disablePinTargetSpace by remember { mutableStateOf<Space?>(null) }
   var spaceToUnlockForSwitch by remember { mutableStateOf<Space?>(null) }
   var spaceToAuthForEdit by remember { mutableStateOf<Space?>(null) }
+  var showRecentsDisclosureDialog by remember { mutableStateOf(false) }
+
+  val context = LocalContext.current
+  val coroutineScope = rememberCoroutineScope()
+  val isServiceActive by RecentsController.isServiceActive.collectAsStateWithLifecycle()
+  val isAccessibilityConfigured = remember(isServiceActive) {
+    RecentsController.isAccessibilityServiceEnabled(context)
+  }
 
   val snackbarHostState = remember { SnackbarHostState() }
 
@@ -402,7 +414,134 @@ fun LauncherConfigurationScreen(
           }
         }
       }
+
+      // 4. Native Recent Apps (Overview Bridge) Section
+      item {
+        Card(
+          shape = RoundedCornerShape(16.dp),
+          colors = CardDefaults.cardColors(containerColor = LightSurfaceContainerLow),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Column(modifier = Modifier.weight(1f)) {
+                Text(
+                  text = "Native Recent Apps Bridge",
+                  style = MaterialTheme.typography.titleSmall,
+                  fontWeight = FontWeight.Bold,
+                  color = TextPrimary
+                )
+                Text(
+                  text = "Triggers real Android OS Overview (task cards & thumbnails)",
+                  style = MaterialTheme.typography.labelSmall,
+                  color = TextSecondary
+                )
+              }
+              Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = if (isAccessibilityConfigured) Color(0xFFE8F5E9) else Color(0xFFF1F5F9)
+              ) {
+                Text(
+                  text = if (isAccessibilityConfigured) "SERVICE ACTIVE" else "DISABLED (OPTIONAL)",
+                  style = MaterialTheme.typography.labelSmall,
+                  fontWeight = FontWeight.Bold,
+                  color = if (isAccessibilityConfigured) Color(0xFF2E7D32) else TextSecondary,
+                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                  fontSize = 10.sp
+                )
+              }
+            }
+
+            Text(
+              text = "On devices with proprietary Quickstep restrictions (e.g. Transsion/HiOS), third-party launchers cannot invoke system recents directly. This optional service allows Multi-Space to request Android\'s native Overview via GLOBAL_ACTION_RECENTS with zero screen reading or data collection.",
+              style = MaterialTheme.typography.bodySmall,
+              color = TextSecondary,
+              fontSize = 12.sp,
+              lineHeight = 16.sp
+            )
+
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+              Button(
+                onClick = {
+                  val result = RecentsController.invokeNativeRecents(context)
+                  when (result) {
+                    RecentsInvocationResult.SUCCESS -> {
+                      coroutineScope.launch {
+                        snackbarHostState.showSnackbar("Requested Android System Overview")
+                      }
+                    }
+                    RecentsInvocationResult.SERVICE_DISABLED -> {
+                      showRecentsDisclosureDialog = true
+                    }
+                    RecentsInvocationResult.ACTION_FAILED -> {
+                      coroutineScope.launch {
+                        snackbarHostState.showSnackbar("System Recents action failed to execute")
+                      }
+                    }
+                    RecentsInvocationResult.ACTION_UNAVAILABLE -> {
+                      coroutineScope.launch {
+                        snackbarHostState.showSnackbar("Global Recents action unavailable on device")
+                      }
+                    }
+                  }
+                },
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurpleDark),
+                modifier = Modifier.weight(1f).testTag("btn_test_native_recents")
+              ) {
+                Icon(
+                  imageVector = Icons.Default.GridView,
+                  contentDescription = "Test Recents",
+                  modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Test System Recents", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+              }
+
+              OutlinedButton(
+                onClick = {
+                  if (isAccessibilityConfigured) {
+                    context.startActivity(RecentsController.createAccessibilitySettingsIntent())
+                  } else {
+                    showRecentsDisclosureDialog = true
+                  }
+                },
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.testTag("btn_configure_accessibility")
+              ) {
+                Text(
+                  text = if (isAccessibilityConfigured) "Settings" else "Enable...",
+                  fontSize = 12.sp,
+                  color = TextPrimary
+                )
+              }
+            }
+          }
+        }
+      }
     }
+  }
+
+  if (showRecentsDisclosureDialog) {
+    NativeRecentsDisclosureDialog(
+      onDismiss = { showRecentsDisclosureDialog = false },
+      onAcceptAndOpenSettings = {
+        showRecentsDisclosureDialog = false
+        context.startActivity(RecentsController.createAccessibilitySettingsIntent())
+      }
+    )
   }
 
   // Dialogs

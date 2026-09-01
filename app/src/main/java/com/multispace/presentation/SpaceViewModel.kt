@@ -38,6 +38,10 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
   private val _userFeedback = MutableSharedFlow<String>(extraBufferCapacity = 8)
   val userFeedback: SharedFlow<String> = _userFeedback.asSharedFlow()
 
+  fun postFeedback(message: String) {
+    _userFeedback.tryEmit(message)
+  }
+
   // Layer State (1 = Layer 1 Curated Home, 2 = Layer 2 Space App Library)
   private val _activeLayerIndex = MutableStateFlow(1)
   val activeLayerIndex: StateFlow<Int> = _activeLayerIndex.asStateFlow()

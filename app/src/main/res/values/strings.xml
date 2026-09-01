@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Multi-Space Launcher</string>
+    <string name="accessibility_service_description">Optional bridge allowing Multi-Space Launcher to request Android\'s native Recent Apps / Overview screen on devices with Quickstep integration restrictions. Does not inspect screen content or collect data.</string>
 </resources>

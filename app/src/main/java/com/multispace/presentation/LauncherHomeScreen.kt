@@ -37,7 +37,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.multispace.domain.model.*
+import com.multispace.platform.RecentsController
+import com.multispace.platform.RecentsInvocationResult
 import com.multispace.ui.theme.*
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +69,10 @@ fun LauncherHomeScreen(
   var showImportDialog by remember { mutableStateOf(false) }
   var importReport by remember { mutableStateOf<ImportReport?>(null) }
   var isImporting by remember { mutableStateOf(false) }
+  var showRecentsDisclosureDialog by remember { mutableStateOf(false) }
+
+  val context = LocalContext.current
+  val coroutineScope = rememberCoroutineScope()
 
   var activeFolderInDialog by remember { mutableStateOf<SpaceFolder?>(null) }
 
@@ -388,6 +395,40 @@ fun LauncherHomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                   ) {
                     Icon(
+                      imageVector = Icons.Default.GridView,
+                      contentDescription = null,
+                      tint = PrimaryPurpleDark,
+                      modifier = Modifier.size(18.dp)
+                    )
+                    Text("System Recent Apps...", color = PrimaryPurpleDark, fontWeight = FontWeight.Medium)
+                  }
+                },
+                onClick = {
+                  showSpaceSwitcherMenu = false
+                  val result = RecentsController.invokeNativeRecents(context)
+                  when (result) {
+                    RecentsInvocationResult.SUCCESS -> {}
+                    RecentsInvocationResult.SERVICE_DISABLED -> {
+                      showRecentsDisclosureDialog = true
+                    }
+                    RecentsInvocationResult.ACTION_FAILED -> {
+                      spaceViewModel.postFeedback("System Recents action failed to execute")
+                    }
+                    RecentsInvocationResult.ACTION_UNAVAILABLE -> {
+                      spaceViewModel.postFeedback("Global Recents action unavailable on device")
+                    }
+                  }
+                },
+                modifier = Modifier.testTag("menu_system_recent_apps")
+              )
+
+              DropdownMenuItem(
+                text = {
+                  Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                  ) {
+                    Icon(
                       imageVector = Icons.Default.Settings,
                       contentDescription = null,
                       tint = TextSecondary,
@@ -404,11 +445,39 @@ fun LauncherHomeScreen(
             }
           }
 
-          // Top Right Action Buttons: Lock, Settings
+          // Top Right Action Buttons: Native Recents, Lock, Settings
           Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp)
           ) {
+            IconButton(
+              onClick = {
+                val result = RecentsController.invokeNativeRecents(context)
+                when (result) {
+                  RecentsInvocationResult.SUCCESS -> {}
+                  RecentsInvocationResult.SERVICE_DISABLED -> {
+                    showRecentsDisclosureDialog = true
+                  }
+                  RecentsInvocationResult.ACTION_FAILED -> {
+                    spaceViewModel.postFeedback("System Recents action failed to execute")
+                  }
+                  RecentsInvocationResult.ACTION_UNAVAILABLE -> {
+                    spaceViewModel.postFeedback("Global Recents action unavailable on device")
+                  }
+                }
+              },
+              modifier = Modifier
+                .size(36.dp)
+                .testTag("btn_trigger_native_recents")
+            ) {
+              Icon(
+                imageVector = Icons.Default.GridView,
+                contentDescription = "Native System Recents",
+                tint = if (isDarkThemeBackground) Color.White.copy(alpha = 0.9f) else TextSecondary,
+                modifier = Modifier.size(20.dp)
+              )
+            }
+
             IconButton(
               onClick = { spaceViewModel.lockPhone() },
               modifier = Modifier
@@ -803,6 +872,17 @@ fun LauncherHomeScreen(
         showImportDialog = false
         importReport = null
         isImporting = false
+      }
+    )
+  }
+
+  // Native Recents Disclosure Dialog
+  if (showRecentsDisclosureDialog) {
+    NativeRecentsDisclosureDialog(
+      onDismiss = { showRecentsDisclosureDialog = false },
+      onAcceptAndOpenSettings = {
+        showRecentsDisclosureDialog = false
+        context.startActivity(RecentsController.createAccessibilitySettingsIntent())
       }
     )
   }

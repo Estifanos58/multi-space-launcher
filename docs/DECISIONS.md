@@ -328,6 +328,20 @@
   - The Android native Recents/Overview button accurately previews the active Space Home surface under the Home task, while the Configuration activity resides cleanly in its own management task.
 * **Reason:** Aligns with standard Android Home launcher OS architecture, satisfying strict task separation and clean user experience across native Recents/Overview and app drawer launches.
 
+---
+
+### DECISION-027: Handling of OEM Quickstep / Recents System Provider Boundaries
+* **Date:** 2026-09-01
+* **Type:** `DECISION`
+* **Status:** `ACTIVE`
+* **Problem:** On certain OEM devices (such as Transsion / HiOS / XOS), the system Overview / Recents component (`mRecentsComponent`) is tightly coupled to the pre-installed system launcher (`com.transsion.hilauncher/...RecentsActivity`). When a third-party launcher is set as the default HOME provider, the system may refuse to trigger the custom launcher's recents or fail to transition to the system recents provider upon `KEYCODE_APP_SWITCH` (keyevent 187).
+* **Chosen Approach:**
+  - Multi-Space Launcher strictly implements the standard Android Home task contract (`type=home`, `activityType=2`, `inRecents=true`, `stateNotNeeded=true`).
+  - Strict prohibition against non-standard workarounds (zero AccessibilityService abuse, zero fake recent app cards in Compose, zero hidden APIs, zero synthetic key injection).
+  - Document this behavior as an OEM Quickstep firmware limitation.
+* **Reason:** Preserves Android platform integrity, security, and Play Store policy compliance. Android OS owns the Overview/Recents lifecycle; third-party launchers must never attempt to hijack or fake OS-level task switching.
+
+
 
 
 
