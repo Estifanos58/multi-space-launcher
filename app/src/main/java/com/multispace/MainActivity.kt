@@ -30,12 +30,6 @@ class MainActivity : ComponentActivity() {
   // Reactive state for default launcher status
   private val isDefaultHomeState = mutableStateOf(false)
 
-  // Distinct modes:
-  // "config": Dedicated Configuration / Space Management screen (shown when opening the app)
-  // "home": Primary Multi-Space Launcher surface
-  // "diagnostics": App catalog & telemetry view
-  private var activeScreenState = mutableStateOf("config")
-
   private val screenOffReceiver = object : android.content.BroadcastReceiver() {
     override fun onReceive(context: android.content.Context?, intent: Intent?) {
       if (intent?.action == Intent.ACTION_SCREEN_OFF) {
@@ -80,12 +74,19 @@ class MainActivity : ComponentActivity() {
     }
   }
 
+  private fun openConfigurationActivity() {
+    AppLogger.i(AppLogger.Category.LAUNCHER, "MainActivity -> Launching ConfigurationActivity")
+    val intent = Intent(this, ConfigurationActivity::class.java)
+    startActivity(intent)
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    AppLogger.i(AppLogger.Category.LIFECYCLE, "MainActivity onCreate: Initializing Launcher")
-    recordEvent("I/Lifecycle", "MainActivity onCreate (singleTask)")
+    AppLogger.i(AppLogger.Category.LIFECYCLE, "MainActivity onCreate: Initializing HOME Launcher (Task ID: $taskId)")
+    recordEvent("I/Lifecycle", "MainActivity onCreate (HOME task root)")
 
     updateDefaultHomeStatus()
+    spaceViewModel.ensureDefaultSpaceInitialized()
 
     try {
       val filter = android.content.IntentFilter(Intent.ACTION_SCREEN_OFF)
@@ -93,14 +94,6 @@ class MainActivity : ComponentActivity() {
     } catch (e: Exception) {
       AppLogger.w(AppLogger.Category.LIFECYCLE, "Could not register screenOffReceiver: ${e.message}")
     }
-
-    // Distinguish between Android HOME intent vs opening the app normally:
-    val isHomeIntent = intent?.hasCategory(Intent.CATEGORY_HOME) == true ||
-      (intent?.action == Intent.ACTION_MAIN && intent?.categories?.contains(Intent.CATEGORY_HOME) == true)
-
-    // When clicked/launched as an application, show the configuration page
-    // When invoked via system Home button/intent while default launcher, show home surface
-    activeScreenState.value = if (isHomeIntent && isDefaultHomeState.value) "home" else "config"
 
     enableEdgeToEdge()
     setContent {
@@ -110,104 +103,27 @@ class MainActivity : ComponentActivity() {
           color = androidx.compose.material3.MaterialTheme.colorScheme.background
         ) {
           val isPhoneLocked by spaceViewModel.isPhoneLocked.collectAsState()
-          val currentScreen by activeScreenState
-          val isDefaultHome by isDefaultHomeState
-          var editingSpace by remember { mutableStateOf<com.multispace.domain.model.Space?>(null) }
 
           if (isPhoneLocked) {
             MultiSpaceLockScreen(
               spaceViewModel = spaceViewModel,
-              onUnlockSuccess = { matchedSpace ->
-                activeScreenState.value = "home"
+              onUnlockSuccess = { _ ->
+                // Phone unlocked, reveal active Space home surface
               },
               modifier = Modifier.fillMaxSize()
             )
           } else {
-            if (currentScreen == "diagnostics" || currentScreen == "create_space") {
-              androidx.activity.compose.BackHandler {
-                editingSpace = null
-                activeScreenState.value = "config"
-              }
-            }
-
-            when (currentScreen) {
-              "create_space" -> {
-                val discoveryUiState by discoveryViewModel.uiState.collectAsState()
-                CreateSpaceScreen(
-                  allApps = discoveryUiState.allApps,
-                  spaceViewModel = spaceViewModel,
-                  getBitmap = { app -> discoveryViewModel.getAppIconBitmap(app) },
-                  editingSpace = editingSpace,
-                  onNavigateBack = {
-                    editingSpace = null
-                    activeScreenState.value = "config"
-                  },
-                  onSpaceCreated = { newSpaceId ->
-                    editingSpace = null
-                    activeScreenState.value = "config"
-                  },
-                  modifier = Modifier.fillMaxSize()
-                )
-              }
-              "home" -> {
-                LauncherHomeScreen(
-                  discoveryViewModel = discoveryViewModel,
-                  spaceViewModel = spaceViewModel,
-                  onLaunchApp = { app ->
-                    discoveryViewModel.launchApp(app)
-                  },
-                  onOpenConfiguration = {
-                    activeScreenState.value = "config"
-                  },
-                  modifier = Modifier.fillMaxSize()
-                )
-              }
-              "config" -> {
-                LauncherConfigurationScreen(
-                  spaceViewModel = spaceViewModel,
-                  discoveryViewModel = discoveryViewModel,
-                  isDefaultHome = isDefaultHome,
-                  onRequestSetDefaultHome = { requestSetDefaultHome() },
-                  onOpenDiagnostics = {
-                    activeScreenState.value = "diagnostics"
-                  },
-                  onOpenHomeSurface = {
-                    activeScreenState.value = "home"
-                  },
-                  onOpenCreateSpace = {
-                    editingSpace = null
-                    activeScreenState.value = "create_space"
-                  },
-                  onOpenEditSpace = { spaceToEdit ->
-                    editingSpace = spaceToEdit
-                    activeScreenState.value = "create_space"
-                  },
-                  modifier = Modifier.fillMaxSize()
-                )
-              }
-              "diagnostics" -> {
-                AppCatalogScreen(
-                  viewModel = discoveryViewModel,
-                  onNavigateDiagnostics = {
-                    // Diagnostics telemetry
-                  },
-                  onNavigateHome = {
-                    activeScreenState.value = "home"
-                  },
-                  modifier = Modifier.fillMaxSize()
-                )
-              }
-              else -> {
-                LauncherDiagnosticsScreen(
-                  eventLogs = eventLogs,
-                  onTriggerCheck = {
-                    updateDefaultHomeStatus()
-                    recordEvent("D/Launcher", "Manual Role Status Check: isDefault=${isDefaultHomeState.value}")
-                  },
-                  modifier = Modifier.fillMaxSize()
-                )
-              }
-            }
+            LauncherHomeScreen(
+              discoveryViewModel = discoveryViewModel,
+              spaceViewModel = spaceViewModel,
+              onLaunchApp = { app ->
+                discoveryViewModel.launchApp(app)
+              },
+              onOpenConfiguration = {
+                openConfigurationActivity()
+              },
+              modifier = Modifier.fillMaxSize()
+            )
           }
         }
       }
@@ -225,11 +141,9 @@ class MainActivity : ComponentActivity() {
     AppLogger.i(AppLogger.Category.LAUNCHER, "MainActivity onNewIntent: isHomeIntent=$isHomeIntent, isDefault=${isDefaultHomeState.value}")
     recordEvent("I/Launcher", "onNewIntent: isHomeIntent=$isHomeIntent, isDefault=${isDefaultHomeState.value}")
 
-    if (isHomeIntent && isDefaultHomeState.value) {
-      activeScreenState.value = "home"
-    } else if (!isHomeIntent) {
-      // User tapped the app icon in launcher / app drawer
-      activeScreenState.value = "config"
+    // When the user presses Home or unlocks, always return to the active space Layer 1
+    if (isHomeIntent) {
+      spaceViewModel.setLayer(1)
     }
   }
 
