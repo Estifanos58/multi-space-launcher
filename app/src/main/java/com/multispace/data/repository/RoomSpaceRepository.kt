@@ -160,6 +160,7 @@ class RoomSpaceRepository(
     layer2AccessMode: String,
     dockCapacity: Int,
     layoutPreset: String,
+    useLayer2: Boolean,
     initialApps: List<DiscoveredApp>
   ): Result<Space> {
     val trimmed = name.trim()
@@ -201,7 +202,8 @@ class RoomSpaceRepository(
         layer2DisplayMode = layer2DisplayMode,
         layer2AccessMode = layer2AccessMode,
         dockCapacity = dockCapacity,
-        layoutPreset = layoutPreset
+        layoutPreset = layoutPreset,
+        useLayer2 = useLayer2
       )
       spaceDao.insertSpace(SpaceEntity.fromDomain(space))
 
@@ -286,6 +288,7 @@ class RoomSpaceRepository(
     layer2AccessMode: String,
     dockCapacity: Int,
     layoutPreset: String,
+    useLayer2: Boolean,
     updatedApps: List<DiscoveredApp>
   ): Result<Space> {
     val trimmed = name.trim()
@@ -351,7 +354,8 @@ class RoomSpaceRepository(
         layer2DisplayMode = layer2DisplayMode,
         layer2AccessMode = layer2AccessMode,
         dockCapacity = dockCapacity,
-        layoutPreset = layoutPreset
+        layoutPreset = layoutPreset,
+        useLayer2 = useLayer2
       )
       spaceDao.updateSpace(updated)
 

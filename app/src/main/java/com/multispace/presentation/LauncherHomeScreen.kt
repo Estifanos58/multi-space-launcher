@@ -438,6 +438,7 @@ fun LauncherHomeScreen(
             onRemoveFromDock = { item ->
               activeSpace?.let { spaceViewModel.removeAppFromDock(it.id, item.id) }
             },
+            useLayer2 = activeSpace?.useLayer2 ?: true,
             modifier = Modifier.navigationBarsPadding()
           )
         }

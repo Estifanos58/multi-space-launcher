@@ -11,6 +11,7 @@ val LightSurfaceContainerLow = Color(0xFFF7F2FA)
 val LightSurfaceContainerLowest = Color(0xFFFFFFFF)
 
 val PrimaryPurple = Color(0xFF6750A4)
+val PrimaryPurpleLight = Color(0xFFD0BCFF)
 val PrimaryPurpleDark = Color(0xFF21005D)
 val PrimaryContainerLight = Color(0xFFEADDFF)
 val PrimaryContainerBadge = Color(0xFFD0BCFF)
@@ -24,5 +25,6 @@ val DarkTerminalText = Color(0xFFE6E1E5)
 val DarkTerminalAccent = Color(0xFFD0BCFF)
 
 val StatusGreen = Color(0xFF22C55E)
+val SuccessGreen = Color(0xFF22C55E)
 val StatusAmber = Color(0xFFF59E0B)
 

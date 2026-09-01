@@ -45,6 +45,7 @@ interface SpaceRepository {
     layer2AccessMode: String = Space.ACCESS_MODE_DOCK_BUTTON,
     dockCapacity: Int = Space.DEFAULT_DOCK_CAPACITY,
     layoutPreset: String = Space.PRESET_DEFAULT,
+    useLayer2: Boolean = true,
     initialApps: List<DiscoveredApp> = emptyList()
   ): Result<Space>
 
@@ -78,6 +79,7 @@ interface SpaceRepository {
     layer2AccessMode: String = Space.ACCESS_MODE_DOCK_BUTTON,
     dockCapacity: Int = Space.DEFAULT_DOCK_CAPACITY,
     layoutPreset: String = Space.PRESET_DEFAULT,
+    useLayer2: Boolean = true,
     updatedApps: List<DiscoveredApp> = emptyList()
   ): Result<Space>
   suspend fun renameSpace(spaceId: String, newName: String): Result<Unit>

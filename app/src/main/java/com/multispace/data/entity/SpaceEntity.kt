@@ -102,7 +102,10 @@ data class SpaceEntity(
   val dockCapacity: Int = 5,
 
   @ColumnInfo(name = "layout_preset")
-  val layoutPreset: String = "DEFAULT"
+  val layoutPreset: String = "DEFAULT",
+
+  @ColumnInfo(name = "use_layer2")
+  val useLayer2: Boolean = true
 ) {
   fun toDomain(): Space = Space(
     id = id,
@@ -136,7 +139,8 @@ data class SpaceEntity(
     layer2DisplayMode = layer2DisplayMode,
     layer2AccessMode = layer2AccessMode,
     dockCapacity = dockCapacity,
-    layoutPreset = layoutPreset
+    layoutPreset = layoutPreset,
+    useLayer2 = useLayer2
   )
 
   companion object {
@@ -172,7 +176,8 @@ data class SpaceEntity(
       layer2DisplayMode = domain.layer2DisplayMode,
       layer2AccessMode = domain.layer2AccessMode,
       dockCapacity = domain.dockCapacity,
-      layoutPreset = domain.layoutPreset
+      layoutPreset = domain.layoutPreset,
+      useLayer2 = domain.useLayer2
     )
   }
 }

@@ -38,7 +38,8 @@ fun SpaceDockBar(
   onLaunchApp: (DiscoveredApp) -> Unit,
   onOpenLayer2: () -> Unit,
   onRemoveFromDock: (SpaceDockItem) -> Unit,
-  modifier: Modifier = Modifier
+  modifier: Modifier = Modifier,
+  useLayer2: Boolean = true
 ) {
   var itemForAction by remember { mutableStateOf<SpaceDockItem?>(null) }
   val appLookup = remember(allApps) {
@@ -62,7 +63,7 @@ fun SpaceDockBar(
       horizontalArrangement = Arrangement.SpaceEvenly,
       verticalAlignment = Alignment.CenterVertically
     ) {
-      val isCenterDrawerButton = accessMode == Space.ACCESS_MODE_DOCK_BUTTON
+      val isCenterDrawerButton = useLayer2 && accessMode == Space.ACCESS_MODE_DOCK_BUTTON
       val maxAppSlots = if (isCenterDrawerButton) (capacity - 1).coerceAtLeast(1) else capacity
       val displayedDockItems = dockItems.take(maxAppSlots)
 

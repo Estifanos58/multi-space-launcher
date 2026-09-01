@@ -56,7 +56,8 @@ enum class CreateSpaceSubPage {
   MAIN_TABS,
   PATTERN_GRID_CHOICE,
   PATTERN_DRAWING,
-  CUSTOM_GRID
+  CUSTOM_GRID,
+  WALLPAPER_EDITOR
 }
 
 enum class CredentialOption {
@@ -274,9 +275,14 @@ fun CreateSpaceScreen(
   var layer2AccessMode by rememberSaveable {
     mutableStateOf(editingSpace?.layer2AccessMode ?: Space.ACCESS_MODE_DOCK_BUTTON)
   }
+  var useLayer2 by rememberSaveable {
+    mutableStateOf(editingSpace?.useLayer2 ?: true)
+  }
   var dockCapacity by rememberSaveable {
     mutableIntStateOf(editingSpace?.dockCapacity ?: Space.DEFAULT_DOCK_CAPACITY)
   }
+  var presetToConfirm by remember { mutableStateOf<LayoutPreset?>(null) }
+  var wallpaperEditorTarget by rememberSaveable { mutableStateOf("home") }
 
   // Tab 2: Wallpaper & Theme State
   // Home Wallpaper
@@ -405,6 +411,9 @@ fun CreateSpaceScreen(
       CreateSpaceSubPage.CUSTOM_GRID -> {
         currentSubPage = CreateSpaceSubPage.MAIN_TABS
       }
+      CreateSpaceSubPage.WALLPAPER_EDITOR -> {
+        currentSubPage = CreateSpaceSubPage.MAIN_TABS
+      }
       CreateSpaceSubPage.MAIN_TABS -> {
         if (currentTab > 0) {
           currentTab -= 1
@@ -502,6 +511,53 @@ fun CreateSpaceScreen(
       )
     }
 
+    CreateSpaceSubPage.WALLPAPER_EDITOR -> {
+      WallpaperEditorScreen(
+        targetTitle = when (wallpaperEditorTarget) {
+          "phone_lock" -> "Phone Lock Screen Wallpaper"
+          "space_lock" -> "Space Lock Screen Wallpaper"
+          else -> "Home Wallpaper"
+        },
+        initialImageUri = when (wallpaperEditorTarget) {
+          "phone_lock" -> phoneLockCustomImageUri
+          "space_lock" -> spaceLockCustomImageUri
+          else -> homeCustomImageUri
+        },
+        apps = allApps,
+        gridColumns = gridColumns,
+        spaceName = spaceName,
+        dockCapacity = dockCapacity,
+        getBitmap = getBitmap,
+        onPickNewImage = {
+          when (wallpaperEditorTarget) {
+            "phone_lock" -> phoneLockPhotoPickerLauncher.launch("image/*")
+            "space_lock" -> spaceLockPhotoPickerLauncher.launch("image/*")
+            else -> homePhotoPickerLauncher.launch("image/*")
+          }
+        },
+        onApply = { newUri, _ ->
+          when (wallpaperEditorTarget) {
+            "phone_lock" -> {
+              phoneLockCustomImageUri = newUri
+              phoneLockWallpaperCategory = "photo"
+            }
+            "space_lock" -> {
+              spaceLockCustomImageUri = newUri
+              spaceLockWallpaperCategory = "photo"
+            }
+            else -> {
+              homeCustomImageUri = newUri
+              homeWallpaperCategory = "photo"
+            }
+          }
+          currentSubPage = CreateSpaceSubPage.MAIN_TABS
+        },
+        onCancel = {
+          currentSubPage = CreateSpaceSubPage.MAIN_TABS
+        }
+      )
+    }
+
     CreateSpaceSubPage.MAIN_TABS -> {
       Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -519,10 +575,10 @@ fun CreateSpaceScreen(
                   )
                   Text(
                     text = when (currentTab) {
-                      0 -> "Step 1 of 4: Space Identity & Security"
-                      1 -> "Step 2 of 4: Layout Preset & Paradigm"
-                      2 -> "Step 3 of 4: Wallpaper & App Theme"
-                      else -> "Step 4 of 4: Apps & Grid Layout"
+                      0 -> "Space Identity & Security"
+                      1 -> "Layout Preset & Paradigm"
+                      2 -> "Wallpaper & App Theme"
+                      else -> "Apps & Grid Layout"
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = TextSecondary
@@ -567,7 +623,7 @@ fun CreateSpaceScreen(
                       contentDescription = null,
                       modifier = Modifier.size(14.dp)
                     )
-                    Text("1. Basics", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    Text("Basics", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                   }
                 }
               )
@@ -589,7 +645,7 @@ fun CreateSpaceScreen(
                       contentDescription = null,
                       modifier = Modifier.size(14.dp)
                     )
-                    Text("2. Presets", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    Text("Presets", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                   }
                 }
               )
@@ -611,7 +667,7 @@ fun CreateSpaceScreen(
                       contentDescription = null,
                       modifier = Modifier.size(14.dp)
                     )
-                    Text("3. Wallpaper", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    Text("Wallpaper", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                   }
                 }
               )
@@ -633,7 +689,7 @@ fun CreateSpaceScreen(
                       contentDescription = null,
                       modifier = Modifier.size(14.dp)
                     )
-                    Text("4. Apps", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    Text("Apps", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                   }
                 }
               )
@@ -870,6 +926,7 @@ fun CreateSpaceScreen(
                           layer1DisplayMode = layer1DisplayMode,
                           layer2DisplayMode = layer2DisplayMode,
                           layer2AccessMode = layer2AccessMode,
+                          useLayer2 = useLayer2,
                           dockCapacity = dockCapacity,
                           layoutPreset = selectedLayoutPreset,
                           updatedApps = selectedAppObjects,
@@ -908,6 +965,7 @@ fun CreateSpaceScreen(
                           layer1DisplayMode = layer1DisplayMode,
                           layer2DisplayMode = layer2DisplayMode,
                           layer2AccessMode = layer2AccessMode,
+                          useLayer2 = useLayer2,
                           dockCapacity = dockCapacity,
                           layoutPreset = selectedLayoutPreset,
                           initialApps = selectedAppObjects,
@@ -997,16 +1055,32 @@ fun CreateSpaceScreen(
               )
             }
             1 -> {
-              // TAB 2: Layout Presets with Graphical Smartphone Picture Previews
+              // TAB 2: Layout Presets with Graphical Smartphone Picture Previews & Advanced Behavioral Customization
               Tab2LayoutPresets(
                 selectedPresetId = selectedLayoutPreset,
+                layer1DisplayMode = layer1DisplayMode,
+                onLayer1DisplayModeChange = { layer1DisplayMode = it },
+                layer2DisplayMode = layer2DisplayMode,
+                onLayer2DisplayModeChange = { layer2DisplayMode = it },
+                layer2AccessMode = layer2AccessMode,
+                onLayer2AccessModeChange = { layer2AccessMode = it },
+                useLayer2 = useLayer2,
+                onUseLayer2Change = { useLayer2 = it },
+                dockCapacity = dockCapacity,
+                onDockCapacityChange = { dockCapacity = it },
+                gridColumns = gridColumns,
                 onSelectPreset = { preset ->
-                  selectedLayoutPreset = preset.id
-                  gridColumns = preset.gridColumns
-                  layer1DisplayMode = preset.layer1DisplayMode
-                  layer2DisplayMode = preset.layer2DisplayMode
-                  layer2AccessMode = preset.layer2AccessMode
-                  dockCapacity = preset.dockCapacity
+                  if (isEditMode || selectedLayoutPreset != preset.id) {
+                    presetToConfirm = preset
+                  } else {
+                    selectedLayoutPreset = preset.id
+                    gridColumns = preset.gridColumns
+                    layer1DisplayMode = preset.layer1DisplayMode
+                    layer2DisplayMode = preset.layer2DisplayMode
+                    layer2AccessMode = preset.layer2AccessMode
+                    useLayer2 = preset.useLayer2
+                    dockCapacity = preset.dockCapacity
+                  }
                 }
               )
             }
@@ -1025,6 +1099,10 @@ fun CreateSpaceScreen(
                   homeCustomImageUri = null
                   homeWallpaperCategory = "gradients"
                 },
+                onHomeOpenEditor = {
+                  wallpaperEditorTarget = "home"
+                  currentSubPage = CreateSpaceSubPage.WALLPAPER_EDITOR
+                },
                 phoneLockWallpaperCategory = phoneLockWallpaperCategory,
                 onPhoneLockWallpaperCategoryChange = { phoneLockWallpaperCategory = it },
                 phoneLockSelectedBgColor = phoneLockSelectedBgColor,
@@ -1036,6 +1114,10 @@ fun CreateSpaceScreen(
                 onPhoneLockRemoveCustomPhoto = {
                   phoneLockCustomImageUri = null
                   phoneLockWallpaperCategory = "gradients"
+                },
+                onPhoneLockOpenEditor = {
+                  wallpaperEditorTarget = "phone_lock"
+                  currentSubPage = CreateSpaceSubPage.WALLPAPER_EDITOR
                 },
                 spaceLockWallpaperCategory = spaceLockWallpaperCategory,
                 onSpaceLockWallpaperCategoryChange = { spaceLockWallpaperCategory = it },
@@ -1049,12 +1131,16 @@ fun CreateSpaceScreen(
                   spaceLockCustomImageUri = null
                   spaceLockWallpaperCategory = "gradients"
                 },
+                onSpaceLockOpenEditor = {
+                  wallpaperEditorTarget = "space_lock"
+                  currentSubPage = CreateSpaceSubPage.WALLPAPER_EDITOR
+                },
                 selectedAppTheme = selectedAppTheme,
                 onSelectAppTheme = { selectedAppTheme = it }
               )
             }
             else -> {
-              // TAB 3: Apps & Layout (App Selection, Grid Formats, Custom Grid Trigger)
+              // TAB 4: Apps & Layout (App Selection, Grid Formats, Custom Grid Trigger)
               Tab3AppsAndLayout(
                 allApps = allApps,
                 searchQuery = appSearchQuery,
@@ -1083,6 +1169,64 @@ fun CreateSpaceScreen(
                 getBitmap = getBitmap
               )
             }
+          }
+
+          if (presetToConfirm != null) {
+            val preset = presetToConfirm!!
+            AlertDialog(
+              onDismissRequest = { presetToConfirm = null },
+              title = {
+                Text(
+                  text = "Apply ${preset.name} Preset?",
+                  fontWeight = FontWeight.Bold
+                )
+              },
+              text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                  Text(
+                    text = "This will update your layout paradigm settings:",
+                    style = MaterialTheme.typography.bodyMedium
+                  )
+                  Text(
+                    text = "• Grid Columns: ${preset.gridColumns}\n" +
+                      "• Dock Slots: ${preset.dockCapacity}\n" +
+                      "• Workspace: ${if (preset.layer1DisplayMode == Space.DISPLAY_MODE_PAGE) "Paged" else "Vertical Scroll"}\n" +
+                      "• Drawer Access: ${if (preset.layer2AccessMode == Space.ACCESS_MODE_DOCK_BUTTON) "Center Dock Button" else "Swipe Up Gesture"}\n" +
+                      "• Layer 2 Enabled: ${if (preset.useLayer2) "Yes" else "No"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                  )
+                  Text(
+                    text = "Your existing app memberships, folders, passwords, and custom wallpapers will not be removed.",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = SuccessGreen
+                  )
+                }
+              },
+              confirmButton = {
+                Button(
+                  onClick = {
+                    selectedLayoutPreset = preset.id
+                    gridColumns = preset.gridColumns
+                    layer1DisplayMode = preset.layer1DisplayMode
+                    layer2DisplayMode = preset.layer2DisplayMode
+                    layer2AccessMode = preset.layer2AccessMode
+                    useLayer2 = preset.useLayer2
+                    dockCapacity = preset.dockCapacity
+                    presetToConfirm = null
+                  },
+                  colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
+                ) {
+                  Text("Apply Preset", fontWeight = FontWeight.Bold)
+                }
+              },
+              dismissButton = {
+                TextButton(onClick = { presetToConfirm = null }) {
+                  Text("Cancel")
+                }
+              }
+            )
           }
         }
       }
@@ -1545,11 +1689,22 @@ private fun Tab1BasicsAndSecurity(
 }
 
 // ---------------------------------------------------------------------------
-// TAB 2: Layout Presets Page (Visual Picture Previews of Screen Paradigms)
+// TAB 2: Layout Presets Page (Visual Picture Previews of Screen Paradigms & Advanced Customization)
 // ---------------------------------------------------------------------------
 @Composable
 private fun Tab2LayoutPresets(
   selectedPresetId: String,
+  layer1DisplayMode: String,
+  onLayer1DisplayModeChange: (String) -> Unit,
+  layer2DisplayMode: String,
+  onLayer2DisplayModeChange: (String) -> Unit,
+  layer2AccessMode: String,
+  onLayer2AccessModeChange: (String) -> Unit,
+  useLayer2: Boolean,
+  onUseLayer2Change: (Boolean) -> Unit,
+  dockCapacity: Int,
+  onDockCapacityChange: (Int) -> Unit,
+  gridColumns: Int,
   onSelectPreset: (LayoutPreset) -> Unit
 ) {
   val presets = remember { LayoutPreset.ALL_PRESETS }
@@ -1606,9 +1761,258 @@ private fun Tab2LayoutPresets(
       }
     }
 
+    // Active Behavioral Settings & Independent Mode Customization Card
+    item {
+      Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = LightSurfaceContainerLow),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Column(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+          verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Column {
+              Text(
+                text = "Behavioral Properties",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+              )
+              Text(
+                text = "Customize workspace & drawer modes independently",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary
+              )
+            }
+            Icon(
+              imageVector = Icons.Default.Tune,
+              contentDescription = null,
+              tint = PrimaryPurpleDark,
+              modifier = Modifier.size(20.dp)
+            )
+          }
+
+          // Active Summary Chips
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+          ) {
+            SuggestionChip(
+              onClick = {},
+              label = { Text("${gridColumns} Cols", fontSize = 11.sp) }
+            )
+            SuggestionChip(
+              onClick = {},
+              label = {
+                Text(
+                  if (layer1DisplayMode == Space.DISPLAY_MODE_PAGE) "Paged Workspace" else "Scroll Workspace",
+                  fontSize = 11.sp
+                )
+              }
+            )
+            SuggestionChip(
+              onClick = {},
+              label = {
+                Text(
+                  if (useLayer2) "Layer 2 Enabled" else "No Drawer (Home Only)",
+                  fontSize = 11.sp
+                )
+              }
+            )
+            if (useLayer2) {
+              SuggestionChip(
+                onClick = {},
+                label = {
+                  Text(
+                    if (layer2AccessMode == Space.ACCESS_MODE_DOCK_BUTTON) "Dock Button" else "Swipe Up",
+                    fontSize = 11.sp
+                  )
+                }
+              )
+            }
+            SuggestionChip(
+              onClick = {},
+              label = { Text("${dockCapacity} Dock Slots", fontSize = 11.sp) }
+            )
+          }
+
+          HorizontalDivider(color = Color.Black.copy(alpha = 0.06f))
+
+          // 1. Layer 1 Display Mode (Workspace)
+          Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+              text = "Layer 1 Workspace Display Mode",
+              style = MaterialTheme.typography.labelMedium,
+              fontWeight = FontWeight.Bold,
+              color = TextPrimary
+            )
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+              FilterChip(
+                selected = layer1DisplayMode == Space.DISPLAY_MODE_PAGE,
+                onClick = { onLayer1DisplayModeChange(Space.DISPLAY_MODE_PAGE) },
+                label = { Text("Paged Pages (Default)", fontSize = 12.sp) },
+                leadingIcon = if (layer1DisplayMode == Space.DISPLAY_MODE_PAGE) {
+                  { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                } else null,
+                modifier = Modifier.weight(1f)
+              )
+              FilterChip(
+                selected = layer1DisplayMode == Space.DISPLAY_MODE_SCROLL,
+                onClick = { onLayer1DisplayModeChange(Space.DISPLAY_MODE_SCROLL) },
+                label = { Text("Vertical Scroll", fontSize = 12.sp) },
+                leadingIcon = if (layer1DisplayMode == Space.DISPLAY_MODE_SCROLL) {
+                  { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                } else null,
+                modifier = Modifier.weight(1f)
+              )
+            }
+          }
+
+          // 2. Use Layer 2 (App Drawer) Toggle
+          Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = if (useLayer2) PrimaryPurple.copy(alpha = 0.06f) else LightSurfaceContainerHigh,
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Column(modifier = Modifier.weight(1f)) {
+                Text(
+                  text = "Enable Layer 2 (All-Apps Drawer)",
+                  style = MaterialTheme.typography.bodyMedium,
+                  fontWeight = FontWeight.Bold,
+                  color = TextPrimary
+                )
+                Text(
+                  text = if (useLayer2) "Secondary app library drawer is active" else "Disabled: All space apps stay on Home workspace",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = TextSecondary
+                )
+              }
+              Switch(
+                checked = useLayer2,
+                onCheckedChange = onUseLayer2Change,
+                modifier = Modifier.testTag("switch_use_layer2")
+              )
+            }
+          }
+
+          // 3. Layer 2 Display Mode (if enabled)
+          if (useLayer2) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+              Text(
+                text = "Layer 2 Drawer Display Mode",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+              )
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+              ) {
+                FilterChip(
+                  selected = layer2DisplayMode == Space.DISPLAY_MODE_SCROLL,
+                  onClick = { onLayer2DisplayModeChange(Space.DISPLAY_MODE_SCROLL) },
+                  label = { Text("Vertical Scroll (Default)", fontSize = 12.sp) },
+                  leadingIcon = if (layer2DisplayMode == Space.DISPLAY_MODE_SCROLL) {
+                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                  } else null,
+                  modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                  selected = layer2DisplayMode == Space.DISPLAY_MODE_PAGE,
+                  onClick = { onLayer2DisplayModeChange(Space.DISPLAY_MODE_PAGE) },
+                  label = { Text("Horizontal Paged", fontSize = 12.sp) },
+                  leadingIcon = if (layer2DisplayMode == Space.DISPLAY_MODE_PAGE) {
+                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                  } else null,
+                  modifier = Modifier.weight(1f)
+                )
+              }
+            }
+
+            // 4. Layer 2 Access Mode
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+              Text(
+                text = "Layer 2 Drawer Access Mode",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+              )
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+              ) {
+                FilterChip(
+                  selected = layer2AccessMode == Space.ACCESS_MODE_DOCK_BUTTON,
+                  onClick = { onLayer2AccessModeChange(Space.ACCESS_MODE_DOCK_BUTTON) },
+                  label = { Text("Center Dock Button", fontSize = 12.sp) },
+                  leadingIcon = if (layer2AccessMode == Space.ACCESS_MODE_DOCK_BUTTON) {
+                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                  } else null,
+                  modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                  selected = layer2AccessMode == Space.ACCESS_MODE_SWIPE_UP,
+                  onClick = { onLayer2AccessModeChange(Space.ACCESS_MODE_SWIPE_UP) },
+                  label = { Text("Swipe Up Gesture", fontSize = 12.sp) },
+                  leadingIcon = if (layer2AccessMode == Space.ACCESS_MODE_SWIPE_UP) {
+                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                  } else null,
+                  modifier = Modifier.weight(1f)
+                )
+              }
+            }
+          }
+
+          // 5. Dock Capacity
+          Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+              text = "Dock Bar Capacity ($dockCapacity apps)",
+              style = MaterialTheme.typography.labelMedium,
+              fontWeight = FontWeight.Bold,
+              color = TextPrimary
+            )
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+              (3..7).forEach { slots ->
+                val isSelected = dockCapacity == slots
+                FilterChip(
+                  selected = isSelected,
+                  onClick = { onDockCapacityChange(slots) },
+                  label = { Text("$slots", fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                  modifier = Modifier.weight(1f)
+                )
+              }
+            }
+          }
+        }
+      }
+    }
+
     item {
       Text(
-        text = "Available Layout Paradigms (${presets.size})",
+        text = "Layout Presets (${presets.size})",
         style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.Bold,
         color = TextPrimary,
@@ -1641,6 +2045,7 @@ private fun Tab2WallpaperAndTheme(
   homeCustomImageUri: String?,
   onHomePickCustomPhoto: () -> Unit,
   onHomeRemoveCustomPhoto: () -> Unit,
+  onHomeOpenEditor: () -> Unit,
 
   phoneLockWallpaperCategory: String,
   onPhoneLockWallpaperCategoryChange: (String) -> Unit,
@@ -1651,6 +2056,7 @@ private fun Tab2WallpaperAndTheme(
   phoneLockCustomImageUri: String?,
   onPhoneLockPickCustomPhoto: () -> Unit,
   onPhoneLockRemoveCustomPhoto: () -> Unit,
+  onPhoneLockOpenEditor: () -> Unit,
 
   spaceLockWallpaperCategory: String,
   onSpaceLockWallpaperCategoryChange: (String) -> Unit,
@@ -1661,6 +2067,7 @@ private fun Tab2WallpaperAndTheme(
   spaceLockCustomImageUri: String?,
   onSpaceLockPickCustomPhoto: () -> Unit,
   onSpaceLockRemoveCustomPhoto: () -> Unit,
+  onSpaceLockOpenEditor: () -> Unit,
 
   selectedAppTheme: String,
   onSelectAppTheme: (String) -> Unit
@@ -1672,10 +2079,10 @@ private fun Tab2WallpaperAndTheme(
     verticalArrangement = Arrangement.spacedBy(16.dp),
     contentPadding = PaddingValues(vertical = 16.dp)
   ) {
-    // 1. Home Wallpaper Section
+    // Home Wallpaper Section
     item {
       WallpaperSectionCard(
-        title = "1. Home Wallpaper",
+        title = "Home Wallpaper",
         description = "Background displayed on your Space launcher Home screen",
         icon = Icons.Default.Home,
         category = homeWallpaperCategory,
@@ -1687,14 +2094,15 @@ private fun Tab2WallpaperAndTheme(
         customImageUri = homeCustomImageUri,
         onPickCustomPhoto = onHomePickCustomPhoto,
         onRemoveCustomPhoto = onHomeRemoveCustomPhoto,
+        onOpenEditor = onHomeOpenEditor,
         testTagPrefix = "home_wallpaper"
       )
     }
 
-    // 2. Phone Lock Screen Wallpaper Section
+    // Phone Lock Screen Wallpaper Section
     item {
       WallpaperSectionCard(
-        title = "2. Phone Lock Screen Wallpaper",
+        title = "Phone Lock Screen Wallpaper",
         description = "Wallpaper applied to your device lock screen when this Space is active",
         icon = Icons.Default.Smartphone,
         category = phoneLockWallpaperCategory,
@@ -1706,14 +2114,15 @@ private fun Tab2WallpaperAndTheme(
         customImageUri = phoneLockCustomImageUri,
         onPickCustomPhoto = onPhoneLockPickCustomPhoto,
         onRemoveCustomPhoto = onPhoneLockRemoveCustomPhoto,
+        onOpenEditor = onPhoneLockOpenEditor,
         testTagPrefix = "phone_lock_wallpaper"
       )
     }
 
-    // 3. Space Lock Screen Wallpaper Section
+    // Space Lock Screen Wallpaper Section
     item {
       WallpaperSectionCard(
-        title = "3. Space Lock Screen Wallpaper",
+        title = "Space Lock Screen Wallpaper",
         description = "Background displayed when entering PIN or Pattern to unlock this Space",
         icon = Icons.Default.Lock,
         category = spaceLockWallpaperCategory,
@@ -1725,11 +2134,12 @@ private fun Tab2WallpaperAndTheme(
         customImageUri = spaceLockCustomImageUri,
         onPickCustomPhoto = onSpaceLockPickCustomPhoto,
         onRemoveCustomPhoto = onSpaceLockRemoveCustomPhoto,
+        onOpenEditor = onSpaceLockOpenEditor,
         testTagPrefix = "space_lock_wallpaper"
       )
     }
 
-    // 4. Theme for Apps Section
+    // Theme for Apps Section
     item {
       Card(
         shape = RoundedCornerShape(16.dp),
@@ -1749,7 +2159,7 @@ private fun Tab2WallpaperAndTheme(
           ) {
             Column {
               Text(
-                text = "4. Theme for Apps",
+                text = "Theme for Apps",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary
@@ -1864,6 +2274,7 @@ private fun WallpaperSectionCard(
   customImageUri: String?,
   onPickCustomPhoto: () -> Unit,
   onRemoveCustomPhoto: () -> Unit,
+  onOpenEditor: (() -> Unit)? = null,
   testTagPrefix: String
 ) {
   val context = LocalContext.current
@@ -1923,7 +2334,10 @@ private fun WallpaperSectionCard(
               else -> Brush.verticalGradient(listOf(Color(selectedBgColor), Color(selectedBgColor)))
             }
           )
-          .border(1.dp, Color.Black.copy(alpha = 0.08f), RoundedCornerShape(14.dp)),
+          .border(1.dp, Color.Black.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+          .clickable(enabled = category == "photo" && customImageUri != null && onOpenEditor != null) {
+            onOpenEditor?.invoke()
+          },
         contentAlignment = Alignment.Center
       ) {
         if (category == "photo" && customImageUri != null) {
@@ -2102,6 +2516,25 @@ private fun WallpaperSectionCard(
             verticalArrangement = Arrangement.spacedBy(8.dp)
           ) {
             if (customImageUri != null) {
+              if (onOpenEditor != null) {
+                Button(
+                  onClick = onOpenEditor,
+                  shape = RoundedCornerShape(8.dp),
+                  colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("btn_edit_${testTagPrefix}_preview")
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.Tune,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                  )
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text("Edit & Live Launcher Preview", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+              }
+
               Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)

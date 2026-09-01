@@ -178,6 +178,7 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     layer2AccessMode: String = Space.ACCESS_MODE_DOCK_BUTTON,
     dockCapacity: Int = Space.DEFAULT_DOCK_CAPACITY,
     layoutPreset: String = Space.PRESET_DEFAULT,
+    useLayer2: Boolean = true,
     initialApps: List<DiscoveredApp> = emptyList(),
     onResult: ((Boolean, String?) -> Unit)? = null
   ) {
@@ -210,6 +211,7 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
         layer2AccessMode = layer2AccessMode,
         dockCapacity = dockCapacity,
         layoutPreset = layoutPreset,
+        useLayer2 = useLayer2,
         initialApps = initialApps
       )
       result.fold(
@@ -259,6 +261,7 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     layer2AccessMode: String = Space.ACCESS_MODE_DOCK_BUTTON,
     dockCapacity: Int = Space.DEFAULT_DOCK_CAPACITY,
     layoutPreset: String = Space.PRESET_DEFAULT,
+    useLayer2: Boolean = true,
     updatedApps: List<DiscoveredApp> = emptyList(),
     onResult: ((Boolean, String?) -> Unit)? = null
   ) {
@@ -293,6 +296,7 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
         layer2AccessMode = layer2AccessMode,
         dockCapacity = dockCapacity,
         layoutPreset = layoutPreset,
+        useLayer2 = useLayer2,
         updatedApps = updatedApps
       )
       result.fold(

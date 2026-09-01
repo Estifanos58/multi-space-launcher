@@ -28,7 +28,8 @@ data class LayoutPreset(
   val dockCapacity: Int = 5,
   val iconSize: String = Space.ICON_SIZE_MEDIUM,
   val labelVisibility: Boolean = true,
-  val appTheme: String = Space.THEME_DEFAULT
+  val appTheme: String = Space.THEME_DEFAULT,
+  val useLayer2: Boolean = true
 ) {
   companion object {
     val ALL_PRESETS: List<LayoutPreset> = listOf(

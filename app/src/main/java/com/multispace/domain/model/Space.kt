@@ -43,7 +43,8 @@ data class Space(
   val layer2DisplayMode: String = DISPLAY_MODE_SCROLL,
   val layer2AccessMode: String = ACCESS_MODE_DOCK_BUTTON,
   val dockCapacity: Int = DEFAULT_DOCK_CAPACITY,
-  val layoutPreset: String = PRESET_DEFAULT
+  val layoutPreset: String = PRESET_DEFAULT,
+  val useLayer2: Boolean = true
 ) {
   val isProtected: Boolean
     get() = (authPolicy == AUTH_PIN || authPolicy == AUTH_PATTERN) && !pinHash.isNullOrEmpty() && !pinSalt.isNullOrEmpty()
