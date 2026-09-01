@@ -71,11 +71,13 @@ Launcher Home UI (`LauncherHomeScreen` 4-column clean grid)
 ## 4. Package Structure (Single-Module `app`)
 
 ```text
-com.example/
-├── MainActivity.kt               # Standard Android Application Entry Point & Home Handler
+com.multispace/
+├── MainActivity.kt               # Dedicated Android CATEGORY_HOME Launcher Entry Point (Home Surface)
+├── ConfigurationActivity.kt      # Dedicated Android CATEGORY_LAUNCHER Entry Point (Space Configuration)
 ├── presentation/                 # UI Layer (Jetpack Compose, Themes, Screens, ViewModels)
 │   ├── LauncherHomeScreen.kt     # Primary 4-column Launcher Home Surface (Active Space projection)
 │   ├── LauncherConfigurationScreen.kt # Dedicated Space Management & Membership Surface
+│   ├── CreateSpaceScreen.kt      # Dedicated Space Creation & App Assignment Screen
 │   ├── AppCatalogScreen.kt       # Application Discovery & Management Surface
 │   ├── SpaceManagementComponents.kt # Space Creation, Rename, Delete & Membership UI
 │   ├── FoundationOverviewScreen.kt # Architecture & Phase Status Overview Screen
@@ -120,9 +122,9 @@ com.example/
 
 | Subsystem | Target Architecture | Current Implementation |
 | :--- | :--- | :--- |
-| **Module Structure** | Single application module | Single `app` module configured |
+| **Module Structure** | Single application module | Single `app` module configured (`com.multispace`) |
 | **UI Toolkit** | Jetpack Compose (Material 3) | Compose configured and active (`LauncherHomeScreen`, `LauncherConfigurationScreen`) |
-| **Android Entry** | Home application (`ROLE_HOME`) | `MainActivity` with HOME/DEFAULT intent filters, `singleTask` |
+| **Android Entry Points** | Separated Home vs Configuration Tasks | `MainActivity` (`CATEGORY_HOME`) and `ConfigurationActivity` (`CATEGORY_LAUNCHER`, affinity `com.multispace.configuration`) |
 | **Diagnostics** | Structured Logcat categories | `AppLogger` with `MSLauncher` tag categories |
 | **App Discovery** | `LauncherApps.getActivityList()` | Implemented via `AppDiscoveryManager` (zero `QUERY_ALL_PACKAGES`) |
 | **App Launching** | `LauncherApps.startMainActivity()` | Implemented via `AppLaunchManager` with fallback |

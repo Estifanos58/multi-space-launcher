@@ -76,7 +76,9 @@ class MainActivity : ComponentActivity() {
 
   private fun openConfigurationActivity() {
     AppLogger.i(AppLogger.Category.LAUNCHER, "MainActivity -> Launching ConfigurationActivity")
-    val intent = Intent(this, ConfigurationActivity::class.java)
+    val intent = Intent(this, ConfigurationActivity::class.java).apply {
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK
+    }
     startActivity(intent)
   }
 

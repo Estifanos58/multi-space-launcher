@@ -314,6 +314,21 @@
   - Transient PIN unlock state resets upon process recreation or reboot, ensuring protected Spaces remain locked.
 * **Reason:** Satisfies the core launcher mandate: deterministic state reconstruction and zero crash risk under any Android lifecycle or package modification scenario.
 
+---
+
+### DECISION-026: Separation of Home Launcher Task and Configuration Entry Point
+* **Date:** 2026-09-01
+* **Type:** `DECISION`
+* **Status:** `ACTIVE`
+* **Problem:** When registered as the default Android HOME launcher, clicking the app icon from an external launcher or app drawer should open the Space Configuration screen, while pressing the device Home button or selecting the app in Android Recents/Overview should navigate to the active Home launcher surface. Previously, mixing both intents in a single activity or task caused Android Overview / Recents preview to display the Configuration UI rather than the Home surface.
+* **Chosen Approach:**
+  - `ConfigurationActivity` is registered as the standalone `CATEGORY_LAUNCHER` entry point with `android:taskAffinity="com.multispace.configuration"` and `android:launchMode="singleTask"`.
+  - `MainActivity` is registered as the dedicated `CATEGORY_HOME` entry point with `android:launchMode="singleTask"` and `android:stateNotNeeded="true"`.
+  - When navigating between `MainActivity` and `ConfigurationActivity`, `Intent.FLAG_ACTIVITY_NEW_TASK` is used to maintain strict task separation.
+  - The Android native Recents/Overview button accurately previews the active Space Home surface under the Home task, while the Configuration activity resides cleanly in its own management task.
+* **Reason:** Aligns with standard Android Home launcher OS architecture, satisfying strict task separation and clean user experience across native Recents/Overview and app drawer launches.
+
+
 
 
 
