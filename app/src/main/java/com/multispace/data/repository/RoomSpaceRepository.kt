@@ -961,10 +961,31 @@ class RoomSpaceRepository(
       val allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
       val itemIndex = allHome.indexOfFirst { it.id == placementId }
       if (itemIndex == -1) {
-        return Result.failure(IllegalArgumentException("Placement $placementId not found"))
+        val pkg = if (placementId.startsWith("virtual_")) {
+          placementId.removePrefix("virtual_").substringBeforeLast("_")
+        } else null
+
+        val newId = "place_" + UUID.randomUUID().toString().replace("-", "").take(10)
+        val newItem = SpaceItemPlacementEntity(
+          id = newId,
+          spaceId = spaceId,
+          layer = SpaceItemPlacement.LAYER_HOME,
+          pageIndex = targetPage,
+          positionIndex = targetPosition,
+          itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+          packageName = pkg
+        )
+        val targetPageItems = allHome.filter { it.pageIndex == targetPage }
+          .sortedBy { it.positionIndex }
+          .toMutableList()
+        targetPageItems.add(targetPosition.coerceIn(0, targetPageItems.size), newItem)
+        val reindexedTarget = targetPageItems.mapIndexed { idx, p -> p.copy(positionIndex = idx) }
+        layoutDao.insertPlacements(reindexedTarget)
+        return Result.success(Unit)
       }
 
       val item = allHome.removeAt(itemIndex)
+      val oldPage = item.pageIndex
       val updatedItem = item.copy(pageIndex = targetPage, positionIndex = targetPosition)
       allHome.add(updatedItem)
 
@@ -975,7 +996,18 @@ class RoomSpaceRepository(
       targetPageItems.add(targetPosition.coerceIn(0, targetPageItems.size), updatedItem)
 
       val reindexedTarget = targetPageItems.mapIndexed { idx, p -> p.copy(positionIndex = idx) }
-      layoutDao.insertPlacements(reindexedTarget)
+      val toInsert = reindexedTarget.toMutableList()
+
+      // Re-index source page if targetPage != oldPage
+      if (oldPage != targetPage) {
+        val reindexedSource = allHome.filter { it.pageIndex == oldPage && it.id != item.id }
+          .sortedBy { it.positionIndex }
+          .mapIndexed { idx, p -> p.copy(positionIndex = idx) }
+        toInsert.addAll(reindexedSource)
+      }
+
+      layoutDao.insertPlacements(toInsert)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Moved placement $placementId to page $targetPage, pos $targetPosition")
       Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to move app to page $targetPage", e)

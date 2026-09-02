@@ -330,16 +330,20 @@
 
 ---
 
-### DECISION-027: Handling of OEM Quickstep / Recents System Provider Boundaries
-* **Date:** 2026-09-01
+### DECISION-028: Seamless Continuous Cross-Page Dragging with Edge Auto-Transition and Dynamic Page Extension
+* **Date:** 2026-09-02
 * **Type:** `DECISION`
 * **Status:** `ACTIVE`
-* **Problem:** On certain OEM devices (such as Transsion / HiOS / XOS), the system Overview / Recents component (`mRecentsComponent`) is tightly coupled to the pre-installed system launcher (`com.transsion.hilauncher/...RecentsActivity`). When a third-party launcher is set as the default HOME provider, the system may refuse to trigger the custom launcher's recents or fail to transition to the system recents provider upon `KEYCODE_APP_SWITCH` (keyevent 187).
+* **Problem:** Launcher users need to organize apps across multiple pages fluidly. A drag operation must not be interrupted when transitioning pages, moving past the last page must dynamically create new pages, the floating icon must remain coordinate-stable across page animations, and the user must be able to continue dragging across multiple pages in a single uninterrupted gesture.
 * **Chosen Approach:**
-  - Multi-Space Launcher strictly implements the standard Android Home task contract (`type=home`, `activityType=2`, `inRecents=true`, `stateNotNeeded=true`).
-  - Strict prohibition against non-standard workarounds (zero AccessibilityService abuse, zero fake recent app cards in Compose, zero hidden APIs, zero synthetic key injection).
-  - Document this behavior as an OEM Quickstep firmware limitation.
-* **Reason:** Preserves Android platform integrity, security, and Play Store policy compliance. Android OS owns the Overview/Recents lifecycle; third-party launchers must never attempt to hijack or fake OS-level task switching.
+  - Track pointer position continuously in root coordinates (`currentPointerPos`), rendering the floating dragged item in a root-level overlay independent of page scrolling.
+  - Disable horizontal pager gestures while dragging (`userScrollEnabled = !isDragging`) to avoid gesture contention.
+  - Implement edge detection zones (~80dp / max 22% viewport width) with a 300ms dwell timer and haptic feedback.
+  - Support continuous multi-page dragging: upon page transition completion, if the finger remains in the edge zone, automatically schedule the next transition.
+  - Right edge dwell on the last page dynamically increments `extraPagesCount`, animating to the newly created page immediately.
+  - Persist final placement in Room SQLite only on drop (`handleEndDrag`), with `moveAppToPage` re-indexing both source and target pages to avoid gaps.
+* **Reason:** Delivers a native, fluid Android launcher experience with zero gesture fragmentation, seamless page transitions, and rock-solid persistence integrity.
+
 
 
 

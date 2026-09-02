@@ -694,6 +694,61 @@ This document contains the authoritative history of physical on-device functiona
 * **Observations:** Lifecycle, Package Changes, and Recovery Hardening implemented and verified via compile_applet; ready for human on-device verification.
 * **Tested By:** UNKNOWN
 
+---
+
+### TEST-010: Seamless Cross-Page Dragging, Edge Auto-Transition & Dynamic Page Extension
+* **Date:** 2026-09-02
+* **Build Version:** 1.0 (versionCode 1)
+* **Git Commit:** UNKNOWN
+* **Device:** UNKNOWN
+* **Android Version:** UNKNOWN
+* **API Level:** UNKNOWN
+* **Feature:** Seamless Cross-Page Dragging & Edge Auto-Paging
+* **Related Task:** Seamless Cross-Page App Dragging & Dynamic Page Creation
+
+#### Preconditions
+* Debug APK built successfully from repository (`app-debug.apk`).
+* Physical Android device with 10+ installed apps assigned to active Space.
+
+#### Test Steps
+1. **Initial Long-Press & Drag Initiation**:
+   - Long-press any app icon on Layer 1 Home Screen.
+   - Verify floating dragged icon appears under the finger in root coordinate space with elevation shadow.
+   - Verify origin cell dims (alpha = 0.3f).
+2. **Left Edge Transition**:
+   - Navigate to Page 2.
+   - Drag an app icon to the left screen edge (within left 80dp zone).
+   - Verify subtle purple gradient cue appears on left edge.
+   - Hold finger in zone for >300ms -> verify launcher smoothly animates to Page 1 with subtle haptic vibration.
+   - Verify dragged icon remains firmly attached to the finger throughout the transition without snapping or jumping.
+3. **Right Edge Transition & Continuous Dragging**:
+   - While continuing to hold the same dragged icon, move it across to the right screen edge.
+   - Hold for >300ms -> verify launcher transitions smoothly back to Page 2.
+4. **Dynamic Last-Page Extension**:
+   - While holding the icon on the last page (e.g. Page 2), push to the right screen edge and hold for >300ms.
+   - Verify a new trailing page (Page 3) is dynamically created, PageIndicatorDots updates, and the pager smoothly scrolls to Page 3.
+   - Verify placeholder message appears on the new empty page.
+5. **Drop & Persistence**:
+   - Release the dragged app onto the new Page 3.
+   - Verify app is placed on Page 3.
+   - Restart launcher or switch Spaces and return.
+   - Verify app remains placed on Page 3 in SQLite Room database.
+6. **Drag Cancellation Safety**:
+   - Long-press another app and drag to right edge creating another page, then cancel gesture (or press Back / touch outside).
+   - Verify transient empty page disappears cleanly and original layout is restored.
+
+#### Expected Result
+* Continuous cross-page drag operates fluidly with 300ms edge dwell, dynamic trailing page expansion, coordinate-stable floating icon, haptics, and durable SQLite persistence.
+
+#### Actual Result
+* `NOT PERFORMED` (Awaiting human tester execution on physical test hardware).
+
+#### Result
+* **Status:** `NOT PERFORMED`
+* **Observations:** Build verified and passed all unit tests; ready for physical device verification.
+* **Tested By:** UNKNOWN
+
+
 
 
 
