@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -22,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.multispace.domain.model.Space
+import com.multispace.platform.BiometricAuthManager
 import com.multispace.platform.PinSecurityManager
 import com.multispace.ui.theme.*
 import kotlinx.coroutines.launch
@@ -410,13 +412,56 @@ fun SpaceCredentialVerificationDialog(
   onSuccess: () -> Unit,
   spaceViewModel: SpaceViewModel
 ) {
+  val context = LocalContext.current
+  val fragmentActivity = remember(context) { BiometricAuthManager.findFragmentActivity(context) }
+  val isBiometricAvailable = remember(context) { BiometricAuthManager.isBiometricAvailable(context) }
+
   val isPatternAuth = space.isPatternProtected || space.authPolicy == Space.AUTH_PATTERN
+  val isBiometricAuth = space.isBiometricProtected || space.authPolicy == Space.AUTH_BIOMETRIC
   var enteredPin by remember { mutableStateOf("") }
   var showPinText by remember { mutableStateOf(false) }
   var isError by remember { mutableStateOf(false) }
   var isVerifying by remember { mutableStateOf(false) }
   var clearTrigger by remember { mutableIntStateOf(0) }
   val coroutineScope = rememberCoroutineScope()
+
+  fun triggerBiometricPrompt() {
+    if (fragmentActivity == null || !isBiometricAvailable) return
+    isVerifying = true
+    isError = false
+    BiometricAuthManager.authenticate(
+      activity = fragmentActivity,
+      title = "Authorize '${space.name}'",
+      subtitle = "Scan fingerprint or face to proceed",
+      negativeButtonText = if (isBiometricAuth) "Cancel" else "Use PIN / Pattern",
+      onSuccess = {
+        isVerifying = false
+        if (mode == AuthDialogMode.UNLOCK) {
+          spaceViewModel.unlockSpace(space.id)
+        }
+        onSuccess()
+      },
+      onError = { errorCode, _ ->
+        isVerifying = false
+        if (errorCode != androidx.biometric.BiometricPrompt.ERROR_USER_CANCELED &&
+          errorCode != androidx.biometric.BiometricPrompt.ERROR_NEGATIVE_BUTTON &&
+          errorCode != androidx.biometric.BiometricPrompt.ERROR_CANCELED
+        ) {
+          isError = true
+        }
+      },
+      onFailed = {
+        isVerifying = false
+        isError = true
+      }
+    )
+  }
+
+  LaunchedEffect(Unit) {
+    if (isBiometricAuth && isBiometricAvailable && fragmentActivity != null) {
+      triggerBiometricPrompt()
+    }
+  }
 
   val iconContainerBg: Color
   val iconTint: Color
@@ -431,27 +476,51 @@ fun SpaceCredentialVerificationDialog(
       iconContainerBg = PrimaryContainerLight
       iconTint = PrimaryPurpleDark
       primaryButtonColor = PrimaryPurple
-      headerIcon = if (isPatternAuth) Icons.Default.Gesture else Icons.Default.Lock
+      headerIcon = when {
+        isBiometricAuth -> Icons.Default.Fingerprint
+        isPatternAuth -> Icons.Default.Gesture
+        else -> Icons.Default.Lock
+      }
       dialogTitle = "Unlock '${space.name}'"
-      dialogSubtitle = if (isPatternAuth) "Draw your pattern gesture to access '${space.name}'." else "Enter your numeric PIN to access '${space.name}'."
+      dialogSubtitle = when {
+        isBiometricAuth -> "Authenticate with your fingerprint or face to access '${space.name}'."
+        isPatternAuth -> "Draw your pattern gesture to access '${space.name}'."
+        else -> "Enter your numeric PIN to access '${space.name}'."
+      }
       confirmButtonText = "Unlock Space"
     }
     AuthDialogMode.EDIT -> {
       iconContainerBg = Color(0xFFE3F2FD)
       iconTint = Color(0xFF1565C0)
       primaryButtonColor = Color(0xFF1565C0)
-      headerIcon = if (isPatternAuth) Icons.Default.Gesture else Icons.Default.Lock
+      headerIcon = when {
+        isBiometricAuth -> Icons.Default.Fingerprint
+        isPatternAuth -> Icons.Default.Gesture
+        else -> Icons.Default.Lock
+      }
       dialogTitle = "Unlock to Edit '${space.name}'"
-      dialogSubtitle = if (isPatternAuth) "Draw your pattern gesture to edit settings and apps for '${space.name}'." else "Enter your PIN to edit settings and apps for '${space.name}'."
+      dialogSubtitle = when {
+        isBiometricAuth -> "Authenticate with biometrics to edit '${space.name}'."
+        isPatternAuth -> "Draw your pattern gesture to edit settings and apps for '${space.name}'."
+        else -> "Enter your PIN to edit settings and apps for '${space.name}'."
+      }
       confirmButtonText = "Verify & Edit"
     }
     AuthDialogMode.DELETE -> {
       iconContainerBg = Color(0xFFFFEBEE)
       iconTint = Color(0xFFC62828)
       primaryButtonColor = Color(0xFFC62828)
-      headerIcon = if (isPatternAuth) Icons.Default.Gesture else Icons.Default.DeleteOutline
+      headerIcon = when {
+        isBiometricAuth -> Icons.Default.Fingerprint
+        isPatternAuth -> Icons.Default.Gesture
+        else -> Icons.Default.DeleteOutline
+      }
       dialogTitle = "Authorize Deletion of '${space.name}'"
-      dialogSubtitle = if (isPatternAuth) "Space '${space.name}' is secured with a pattern. Draw pattern to confirm deletion." else "Space '${space.name}' is secured with a PIN. Enter PIN to confirm deletion."
+      dialogSubtitle = when {
+        isBiometricAuth -> "Space '${space.name}' is biometric protected. Verify fingerprint to confirm deletion."
+        isPatternAuth -> "Space '${space.name}' is secured with a pattern. Draw pattern to confirm deletion."
+        else -> "Space '${space.name}' is secured with a PIN. Enter PIN to confirm deletion."
+      }
       confirmButtonText = "Delete Space"
     }
   }
@@ -498,7 +567,47 @@ fun SpaceCredentialVerificationDialog(
           textAlign = TextAlign.Center
         )
 
-        if (isPatternAuth) {
+        if (isBiometricAuth) {
+          Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = LightSurfaceContainerLowest,
+            border = androidx.compose.foundation.BorderStroke(1.dp, LightSurfaceContainerHigh),
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(vertical = 8.dp)
+          ) {
+            Column(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+              horizontalAlignment = Alignment.CenterHorizontally,
+              verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+              Icon(
+                imageVector = Icons.Default.Fingerprint,
+                contentDescription = "Biometric Sensor",
+                tint = primaryButtonColor,
+                modifier = Modifier.size(48.dp)
+              )
+              Text(
+                text = "Biometric Lock Active",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                color = TextPrimary
+              )
+              Button(
+                onClick = { triggerBiometricPrompt() },
+                colors = ButtonDefaults.buttonColors(containerColor = primaryButtonColor),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.testTag("btn_verify_biometric")
+              ) {
+                Icon(Icons.Default.Fingerprint, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Scan Fingerprint")
+              }
+            }
+          }
+        } else if (isPatternAuth) {
           Surface(
             shape = RoundedCornerShape(20.dp),
             color = LightSurfaceContainerLowest,
@@ -575,6 +684,27 @@ fun SpaceCredentialVerificationDialog(
           )
         }
 
+        if (!isBiometricAuth && isBiometricAvailable) {
+          TextButton(
+            onClick = { triggerBiometricPrompt() },
+            modifier = Modifier.testTag("btn_quick_biometric_unlock")
+          ) {
+            Icon(
+              imageVector = Icons.Default.Fingerprint,
+              contentDescription = null,
+              tint = primaryButtonColor,
+              modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+              text = "Or verify with Fingerprint",
+              color = primaryButtonColor,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 13.sp
+            )
+          }
+        }
+
         if (isError) {
           Surface(
             shape = RoundedCornerShape(8.dp),
@@ -593,7 +723,11 @@ fun SpaceCredentialVerificationDialog(
                 modifier = Modifier.size(16.dp)
               )
               Text(
-                text = if (isPatternAuth) "Incorrect pattern. Please try again." else "Incorrect PIN. Please try again.",
+                text = when {
+                  isBiometricAuth -> "Biometric verification failed. Please try again."
+                  isPatternAuth -> "Incorrect pattern. Please try again."
+                  else -> "Incorrect PIN. Please try again."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFFC62828),
                 fontWeight = FontWeight.Medium
@@ -623,7 +757,7 @@ fun SpaceCredentialVerificationDialog(
       }
     },
     confirmButton = {
-      if (!isPatternAuth) {
+      if (!isPatternAuth && !isBiometricAuth) {
         Button(
           onClick = {
             if (enteredPin.isBlank()) {

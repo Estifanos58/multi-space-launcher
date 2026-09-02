@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.multispace.domain.model.Space
+import com.multispace.platform.BiometricAuthManager
 import com.multispace.ui.theme.PrimaryContainerLight
 import com.multispace.ui.theme.PrimaryPurple
 import com.multispace.ui.theme.PrimaryPurpleDark
@@ -43,6 +45,7 @@ fun MultiSpaceLockScreen(
   onUnlockSuccess: (Space) -> Unit,
   modifier: Modifier = Modifier
 ) {
+  val context = LocalContext.current
   val allSpaces by spaceViewModel.allSpaces.collectAsState()
   val activeSpace by spaceViewModel.activeSpace.collectAsState()
 
@@ -54,10 +57,51 @@ fun MultiSpaceLockScreen(
   var patternClearTrigger by remember { mutableIntStateOf(0) }
 
   val coroutineScope = rememberCoroutineScope()
+  val fragmentActivity = remember(context) { BiometricAuthManager.findFragmentActivity(context) }
+  val isBiometricAvailable = remember(context) { BiometricAuthManager.isBiometricAvailable(context) }
+
+  fun triggerBiometricPrompt() {
+    if (fragmentActivity == null || !isBiometricAvailable) return
+    BiometricAuthManager.authenticate(
+      activity = fragmentActivity,
+      title = "Unlock Multi-Space",
+      subtitle = "Verify your fingerprint or face to access your Space",
+      negativeButtonText = "Use PIN / Pattern",
+      onSuccess = {
+        val targetSpace = spaceViewModel.authenticateAndUnlockWithBiometric()
+        if (targetSpace != null) {
+          successSpaceName = targetSpace.name
+          coroutineScope.launch {
+            delay(350)
+            onUnlockSuccess(targetSpace)
+          }
+        }
+      },
+      onError = { errorCode, errString ->
+        if (errorCode != androidx.biometric.BiometricPrompt.ERROR_USER_CANCELED &&
+          errorCode != androidx.biometric.BiometricPrompt.ERROR_NEGATIVE_BUTTON &&
+          errorCode != androidx.biometric.BiometricPrompt.ERROR_CANCELED
+        ) {
+          errorMessage = errString.toString()
+        }
+      },
+      onFailed = {
+        errorMessage = "Biometric not recognized. Try again."
+      }
+    )
+  }
 
   // Real-time clock state
   var currentTimeString by remember { mutableStateOf("") }
   var currentDateString by remember { mutableStateOf("") }
+
+  LaunchedEffect(Unit) {
+    // Attempt biometric prompt once when screen is first presented if available
+    if (isBiometricAvailable && fragmentActivity != null) {
+      delay(300)
+      triggerBiometricPrompt()
+    }
+  }
 
   LaunchedEffect(Unit) {
     while (true) {
@@ -436,6 +480,32 @@ fun MultiSpaceLockScreen(
                 }
               }
             }
+
+            if (isBiometricAvailable) {
+              Spacer(modifier = Modifier.height(4.dp))
+              FilledTonalButton(
+                onClick = { triggerBiometricPrompt() },
+                colors = ButtonDefaults.filledTonalButtonColors(
+                  containerColor = Color.White.copy(alpha = 0.22f),
+                  contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.testTag("btn_pin_biometric_unlock")
+              ) {
+                Icon(
+                  imageVector = Icons.Default.Fingerprint,
+                  contentDescription = "Unlock with Biometrics",
+                  tint = Color.White,
+                  modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                  text = "Unlock with Fingerprint",
+                  fontWeight = FontWeight.SemiBold,
+                  fontSize = 14.sp
+                )
+              }
+            }
           }
         } else {
           // Gesture Pattern Mode
@@ -475,6 +545,31 @@ fun MultiSpaceLockScreen(
                 Icon(Icons.Default.Pin, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Use Numeric PIN instead", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+              }
+              if (isBiometricAvailable) {
+                Spacer(modifier = Modifier.height(12.dp))
+                FilledTonalButton(
+                  onClick = { triggerBiometricPrompt() },
+                  colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = Color.White.copy(alpha = 0.22f),
+                    contentColor = Color.White
+                  ),
+                  shape = RoundedCornerShape(20.dp),
+                  modifier = Modifier.testTag("btn_lock_screen_biometric")
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.Fingerprint,
+                    contentDescription = "Unlock with Biometrics",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                  )
+                  Spacer(modifier = Modifier.width(8.dp))
+                  Text(
+                    text = "Unlock with Fingerprint",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp
+                  )
+                }
               }
             }
           }

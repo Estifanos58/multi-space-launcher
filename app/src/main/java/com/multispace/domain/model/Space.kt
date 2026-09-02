@@ -62,7 +62,10 @@ data class Space(
   val spaceLockWallpaperOffsetY: Float = 0.0f
 ) {
   val isProtected: Boolean
-    get() = (authPolicy == AUTH_PIN || authPolicy == AUTH_PATTERN) && !pinHash.isNullOrEmpty() && !pinSalt.isNullOrEmpty()
+    get() = if (authPolicy == AUTH_BIOMETRIC) true else ((authPolicy == AUTH_PIN || authPolicy == AUTH_PATTERN) && !pinHash.isNullOrEmpty() && !pinSalt.isNullOrEmpty())
+
+  val isBiometricProtected: Boolean
+    get() = authPolicy == AUTH_BIOMETRIC
 
   val isPatternProtected: Boolean
     get() = authPolicy == AUTH_PATTERN && !pinHash.isNullOrEmpty() && !pinSalt.isNullOrEmpty()
@@ -77,6 +80,7 @@ data class Space(
     const val AUTH_NONE = "NONE"
     const val AUTH_PIN = "PIN"
     const val AUTH_PATTERN = "PATTERN"
+    const val AUTH_BIOMETRIC = "BIOMETRIC"
 
     const val DEFAULT_PATTERN_ROWS = 3
     const val DEFAULT_PATTERN_COLS = 3

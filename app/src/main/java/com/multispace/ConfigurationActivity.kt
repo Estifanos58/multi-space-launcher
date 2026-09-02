@@ -4,7 +4,6 @@ import android.app.role.RoleManager
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,6 +11,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.fragment.app.FragmentActivity
 import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.Space
 import com.multispace.platform.HomePlatformManager
@@ -23,7 +23,7 @@ import com.multispace.ui.theme.MyApplicationTheme
  * Launched when the user explicitly opens Multi-Space Launcher from their application drawer or an external launcher.
  * Runs in its own separate task affinity ("com.multispace.configuration") to prevent mixing with the Android HOME task.
  */
-class ConfigurationActivity : ComponentActivity() {
+class ConfigurationActivity : FragmentActivity() {
 
   private val discoveryViewModel: AppDiscoveryViewModel by viewModels()
   private val spaceViewModel: SpaceViewModel by viewModels()

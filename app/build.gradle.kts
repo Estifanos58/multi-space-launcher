@@ -100,6 +100,9 @@ dependencies {
   // Image Loading & Wallpaper Rendering (Customization)
   implementation(libs.coil.compose)
 
+  // Biometric Authentication
+  implementation(libs.androidx.biometric)
+
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
 

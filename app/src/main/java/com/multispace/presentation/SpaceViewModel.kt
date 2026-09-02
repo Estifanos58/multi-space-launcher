@@ -509,6 +509,24 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     return null
   }
 
+  fun authenticateAndUnlockWithBiometric(spaceId: String? = null): Space? {
+    val targetSpace = if (spaceId != null) {
+      allSpaces.value.firstOrNull { it.id == spaceId }
+    } else {
+      activeSpace.value ?: allSpaces.value.firstOrNull()
+    }
+    if (targetSpace != null) {
+      unlockSpace(targetSpace.id)
+      selectActiveSpace(targetSpace.id)
+    }
+    _isPhoneLocked.value = false
+    _userFeedback.tryEmit(
+      if (targetSpace != null) "Biometric unlocked into '${targetSpace.name}'"
+      else "Device unlocked with biometrics"
+    )
+    return targetSpace
+  }
+
   suspend fun verifyAndUnlockSpace(spaceId: String, pin: String): Boolean {
     val isValid = spaceRepository.verifySpacePin(spaceId, pin)
     if (isValid) {

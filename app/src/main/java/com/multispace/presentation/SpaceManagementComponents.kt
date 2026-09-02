@@ -379,9 +379,11 @@ private fun SpaceItemCard(
               }
             }
             if (space.isProtected) {
+              val isBio = space.isBiometricProtected || space.authPolicy == Space.AUTH_BIOMETRIC
+              val isPattern = space.isPatternProtected || space.authPolicy == Space.AUTH_PATTERN
               Surface(
                 shape = RoundedCornerShape(6.dp),
-                color = Color(0xFF2E7D32)
+                color = if (isBio) Color(0xFF6750A4) else if (isPattern) Color(0xFF006C50) else Color(0xFF2E7D32)
               ) {
                 Row(
                   verticalAlignment = Alignment.CenterVertically,
@@ -389,13 +391,21 @@ private fun SpaceItemCard(
                   horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                   Icon(
-                    imageVector = Icons.Default.Lock,
+                    imageVector = when {
+                      isBio -> Icons.Default.Fingerprint
+                      isPattern -> Icons.Default.Gesture
+                      else -> Icons.Default.Lock
+                    },
                     contentDescription = "Protected",
                     tint = Color.White,
                     modifier = Modifier.size(10.dp)
                   )
                   Text(
-                    text = "PIN",
+                    text = when {
+                      isBio -> "BIOMETRIC"
+                      isPattern -> "PATTERN"
+                      else -> "PIN"
+                    },
                     color = Color.White,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold

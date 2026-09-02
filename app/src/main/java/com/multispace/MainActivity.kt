@@ -4,7 +4,6 @@ import android.app.role.RoleManager
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,6 +11,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.fragment.app.FragmentActivity
 import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.platform.HomePlatformManager
@@ -21,7 +21,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
   private val discoveryViewModel: AppDiscoveryViewModel by viewModels()
   private val spaceViewModel: SpaceViewModel by viewModels()

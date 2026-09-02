@@ -69,7 +69,8 @@ enum class CreateSpaceSubPage {
 enum class CredentialOption {
   NONE,
   PIN,
-  PATTERN
+  PATTERN,
+  BIOMETRIC
 }
 
 data class GradientWallpaperPreset(
@@ -236,6 +237,7 @@ fun CreateSpaceScreen(
   var spaceNameError by rememberSaveable { mutableStateOf<String?>(null) }
   val initialCredentialOption = remember(editingSpace) {
     when {
+      editingSpace?.isBiometricProtected == true || editingSpace?.authPolicy == Space.AUTH_BIOMETRIC -> CredentialOption.BIOMETRIC
       editingSpace?.isPatternProtected == true || editingSpace?.authPolicy == Space.AUTH_PATTERN -> CredentialOption.PATTERN
       editingSpace?.isPinProtected == true || editingSpace?.authPolicy == Space.AUTH_PIN -> CredentialOption.PIN
       else -> CredentialOption.NONE
@@ -900,6 +902,7 @@ fun CreateSpaceScreen(
                           CredentialOption.NONE -> Space.AUTH_NONE
                           CredentialOption.PIN -> Space.AUTH_PIN
                           CredentialOption.PATTERN -> Space.AUTH_PATTERN
+                          CredentialOption.BIOMETRIC -> Space.AUTH_BIOMETRIC
                         }
 
                         if (credentialOption == CredentialOption.PIN) {
@@ -920,7 +923,9 @@ fun CreateSpaceScreen(
                           }
                         }
                       } else {
-                        if (credentialOption == CredentialOption.PIN && pinValue.isNotBlank()) {
+                        if (credentialOption == CredentialOption.BIOMETRIC) {
+                          authPolicy = Space.AUTH_BIOMETRIC
+                        } else if (credentialOption == CredentialOption.PIN && pinValue.isNotBlank()) {
                           authPolicy = Space.AUTH_PIN
                           salt = PinSecurityManager.generateSalt()
                           hash = PinSecurityManager.hashPin(pinValue, salt)
@@ -1617,7 +1622,8 @@ private fun Tab1BasicsAndSecurity(
             val options = listOf(
               CredentialOption.NONE to ("None" to Icons.Default.LockOpen),
               CredentialOption.PIN to ("PIN Code" to Icons.Default.Pin),
-              CredentialOption.PATTERN to ("Pattern" to Icons.Default.Gesture)
+              CredentialOption.PATTERN to ("Pattern" to Icons.Default.Gesture),
+              CredentialOption.BIOMETRIC to ("Biometric" to Icons.Default.Fingerprint)
             )
 
             options.forEach { (opt, meta) ->
@@ -1646,7 +1652,7 @@ private fun Tab1BasicsAndSecurity(
                   )
                   Text(
                     text = meta.first,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurface
                   )
@@ -1663,6 +1669,41 @@ private fun Tab1BasicsAndSecurity(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
               )
+            }
+
+            CredentialOption.BIOMETRIC -> {
+              Surface(
+                shape = ShapeRoundMd,
+                color = QuantumViolet.copy(alpha = 0.08f),
+                border = BorderStroke(1.dp, QuantumViolet.copy(alpha = 0.3f)),
+                modifier = Modifier.fillMaxWidth().testTag("card_biometric_security_info")
+              ) {
+                Row(
+                  modifier = Modifier.padding(14.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.Fingerprint,
+                    contentDescription = null,
+                    tint = QuantumViolet,
+                    modifier = Modifier.size(36.dp)
+                  )
+                  Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                      text = "Biometric Protection Enabled",
+                      fontWeight = FontWeight.Bold,
+                      fontSize = 14.sp,
+                      color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                      text = "This space is protected by your device's biometric sensor (fingerprint or face unlock).",
+                      fontSize = 12.sp,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                  }
+                }
+              }
             }
 
             CredentialOption.PIN -> {
