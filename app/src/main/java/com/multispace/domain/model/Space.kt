@@ -136,7 +136,15 @@ data class Space(
       name: String = DEFAULT_SPACE_NAME
     ): Space = Space(
       id = id,
-      name = name
+      name = name,
+      backgroundType = BACKGROUND_IMAGE,
+      backgroundImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
+      homeWallpaperType = BACKGROUND_IMAGE,
+      homeWallpaperImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
+      phoneLockWallpaperType = BACKGROUND_IMAGE,
+      phoneLockWallpaperImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
+      spaceLockWallpaperType = BACKGROUND_IMAGE,
+      spaceLockWallpaperImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI
     )
   }
 }

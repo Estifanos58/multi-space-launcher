@@ -20,6 +20,7 @@ import com.multispace.domain.model.SpaceFolder
 import com.multispace.domain.model.SpaceFolderItem
 import com.multispace.domain.model.SpaceItemPlacement
 import com.multispace.domain.model.SpaceMembership
+import com.multispace.domain.model.WallpaperCatalog
 import com.multispace.domain.repository.SpaceRepository
 import com.multispace.platform.PinSecurityManager
 import java.util.UUID
@@ -63,6 +64,14 @@ class RoomSpaceRepository(
           orderIndex = 0,
           createdAt = System.currentTimeMillis(),
           updatedAt = System.currentTimeMillis(),
+          backgroundType = Space.BACKGROUND_IMAGE,
+          backgroundImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
+          homeWallpaperType = Space.BACKGROUND_IMAGE,
+          homeWallpaperImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
+          phoneLockWallpaperType = Space.BACKGROUND_IMAGE,
+          phoneLockWallpaperImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
+          spaceLockWallpaperType = Space.BACKGROUND_IMAGE,
+          spaceLockWallpaperImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
           gridColumns = 4,
           dockCapacity = 5,
           layoutPreset = Space.PRESET_DEFAULT,

@@ -377,16 +377,6 @@ fun Layer1HomeScreen(
       }
   ) {
     Column(modifier = Modifier.fillMaxSize()) {
-      // Top Removal Bucket when dragging
-      RemovalBucketBar(
-        isVisible = isDragging && draggedPlacement != null,
-        isHovered = isOverBin,
-        onPositioned = { binBounds = it },
-        modifier = Modifier
-          .align(Alignment.CenterHorizontally)
-          .padding(top = AppDimens.Spacing8)
-      )
-
       // Main content: either Paged or Scrolling
       if (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL) {
         // Vertical continuous scrolling layout
@@ -496,6 +486,17 @@ fun Layer1HomeScreen(
         }
       }
     }
+
+    // Top Removal Bucket overlay (floats on top of apps without shifting grid layout)
+    RemovalBucketBar(
+      isVisible = isDragging && draggedPlacement != null,
+      isHovered = isOverBin,
+      onPositioned = { binBounds = it },
+      modifier = Modifier
+        .align(Alignment.TopCenter)
+        .padding(top = AppDimens.Spacing8)
+        .zIndex(50f)
+    )
 
     // Subtle edge auto-paging activation indicator cues
     if (isDragging && space.layer1DisplayMode != Space.DISPLAY_MODE_SCROLL && !isOverBin) {

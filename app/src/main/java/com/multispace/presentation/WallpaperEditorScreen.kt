@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -27,6 +28,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,6 +38,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
+import com.multispace.domain.model.WallpaperCatalog
 import com.multispace.ui.components.ModernCard
 import com.multispace.ui.components.ModernSectionHeader
 import com.multispace.ui.theme.*
@@ -213,7 +216,22 @@ fun WallpaperEditorScreen(
               }
           ) {
             // Underneath Wallpaper
-            if (currentImageUri != null) {
+            val presetRes = WallpaperCatalog.resolveDrawableRes(currentImageUri)
+            if (presetRes != null) {
+              Image(
+                painter = painterResource(id = presetRes),
+                contentDescription = "Wallpaper Preview",
+                contentScale = if (scaleMode == "crop") ContentScale.Crop else ContentScale.Fit,
+                modifier = Modifier
+                  .fillMaxSize()
+                  .graphicsLayer {
+                    scaleX = zoomLevel
+                    scaleY = zoomLevel
+                    translationX = offsetX
+                    translationY = offsetY
+                  }
+              )
+            } else if (currentImageUri != null) {
               AsyncImage(
                 model = ImageRequest.Builder(context)
                   .data(Uri.parse(currentImageUri))
@@ -492,6 +510,105 @@ fun WallpaperEditorScreen(
                       fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                     ),
                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                  )
+                }
+              }
+            }
+          }
+
+          HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+          // Curated Wallpaper Presets
+          Column(verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Text(
+                text = "Preset Wallpapers",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+              )
+              TextButton(
+                onClick = onPickNewImage,
+                modifier = Modifier.testTag("btn_editor_pick_gallery")
+              ) {
+                Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = QuantumViolet, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Pick from Gallery", color = QuantumViolet, fontSize = 12.sp)
+              }
+            }
+
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+              horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
+            ) {
+              WallpaperCatalog.PRESET_WALLPAPERS.forEach { preset ->
+                val isSelected = (currentImageUri == preset.uriString) ||
+                  (currentImageUri == preset.id) ||
+                  (currentImageUri != null && currentImageUri!!.contains(preset.id.removePrefix("wp_")))
+
+                Column(
+                  modifier = Modifier
+                    .width(76.dp)
+                    .clip(ShapeRoundSm)
+                    .clickable {
+                      currentImageUri = preset.uriString
+                    }
+                    .padding(2.dp),
+                  horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                  Box(
+                    modifier = Modifier
+                      .size(width = 72.dp, height = 96.dp)
+                      .clip(ShapeRoundSm)
+                      .border(
+                        width = if (isSelected) 2.dp else 1.dp,
+                        color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.outlineVariant,
+                        shape = ShapeRoundSm
+                      )
+                  ) {
+                    Image(
+                      painter = painterResource(id = preset.drawableRes),
+                      contentDescription = preset.name,
+                      contentScale = ContentScale.Crop,
+                      modifier = Modifier.fillMaxSize()
+                    )
+                    if (isSelected) {
+                      Box(
+                        modifier = Modifier
+                          .fillMaxSize()
+                          .background(Color.Black.copy(alpha = 0.25f))
+                      )
+                      Box(
+                        modifier = Modifier
+                          .padding(4.dp)
+                          .size(18.dp)
+                          .clip(CircleShape)
+                          .background(QuantumViolet)
+                          .align(Alignment.TopEnd),
+                        contentAlignment = Alignment.Center
+                      ) {
+                        Icon(
+                          imageVector = Icons.Default.Check,
+                          contentDescription = "Selected",
+                          tint = Color.White,
+                          modifier = Modifier.size(12.dp)
+                        )
+                      }
+                    }
+                  }
+                  Spacer(modifier = Modifier.height(2.dp))
+                  Text(
+                    text = preset.name,
+                    fontSize = 10.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center
                   )
                 }
               }

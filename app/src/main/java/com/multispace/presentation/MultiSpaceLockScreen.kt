@@ -2,6 +2,7 @@ package com.multispace.presentation
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,13 +24,16 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.multispace.R
 import com.multispace.domain.model.Space
+import com.multispace.domain.model.WallpaperCatalog
 import com.multispace.platform.BiometricAuthManager
 import com.multispace.ui.theme.PrimaryContainerLight
 import com.multispace.ui.theme.PrimaryPurple
@@ -151,17 +155,34 @@ fun MultiSpaceLockScreen(
     val phoneLockBgImageUri = activeSpace?.phoneLockWallpaperImageUri
 
     when {
-      phoneLockBgType == Space.BACKGROUND_IMAGE && !phoneLockBgImageUri.isNullOrEmpty() -> {
-        AsyncImage(
-          model = phoneLockBgImageUri,
-          contentDescription = "Lock Screen Wallpaper",
-          contentScale = ContentScale.Crop,
-          modifier = Modifier.fillMaxSize()
-        )
+      phoneLockBgType == Space.BACKGROUND_IMAGE || phoneLockBgType == Space.BACKGROUND_DEFAULT -> {
+        val presetRes = WallpaperCatalog.resolveDrawableRes(phoneLockBgImageUri)
+        if (presetRes != null) {
+          Image(
+            painter = painterResource(id = presetRes),
+            contentDescription = "Lock Screen Wallpaper",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+          )
+        } else if (!phoneLockBgImageUri.isNullOrEmpty()) {
+          AsyncImage(
+            model = phoneLockBgImageUri,
+            contentDescription = "Lock Screen Wallpaper",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+          )
+        } else {
+          Image(
+            painter = painterResource(id = R.drawable.img_wallpaper_aurora),
+            contentDescription = "Lock Screen Wallpaper",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+          )
+        }
         Box(
           modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.55f))
+            .background(Color.Black.copy(alpha = 0.50f))
         )
       }
       phoneLockBgType == Space.BACKGROUND_COLOR && phoneLockBgColor != null -> {
@@ -177,19 +198,16 @@ fun MultiSpaceLockScreen(
         )
       }
       else -> {
-        // Deep obsidian gradient with subtle ambient glow
+        Image(
+          painter = painterResource(id = R.drawable.img_wallpaper_aurora),
+          contentDescription = "Lock Screen Wallpaper",
+          contentScale = ContentScale.Crop,
+          modifier = Modifier.fillMaxSize()
+        )
         Box(
           modifier = Modifier
             .fillMaxSize()
-            .background(
-              Brush.verticalGradient(
-                colors = listOf(
-                  Color(0xFF0F0B1E),
-                  Color(0xFF1B142E),
-                  Color(0xFF090611)
-                )
-              )
-            )
+            .background(Color.Black.copy(alpha = 0.50f))
         )
       }
     }

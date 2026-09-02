@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,6 +38,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -47,10 +49,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.multispace.R
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.ImportReport
 import com.multispace.domain.model.LayoutPreset
 import com.multispace.domain.model.Space
+import com.multispace.domain.model.WallpaperCatalog
+import com.multispace.domain.model.WallpaperImagePreset
 import com.multispace.platform.PinSecurityManager
 import androidx.compose.foundation.BorderStroke
 import com.multispace.ui.components.*
@@ -300,15 +305,18 @@ fun CreateSpaceScreen(
   // Home Wallpaper
   val initialHomeCat = remember(editingSpace) {
     when (editingSpace?.homeWallpaperType ?: editingSpace?.backgroundType) {
-      Space.BACKGROUND_IMAGE -> "photo"
+      Space.BACKGROUND_IMAGE -> {
+        val uri = editingSpace?.homeWallpaperImageUri ?: editingSpace?.backgroundImageUri
+        if (uri?.startsWith("content://") == true || uri?.startsWith("file://") == true) "photo" else "wallpapers"
+      }
       Space.BACKGROUND_COLOR -> if (PRESET_GRADIENTS.any { it.representativeColor == (editingSpace?.homeWallpaperColor ?: editingSpace?.backgroundColor) }) "gradients" else "colors"
-      else -> "gradients"
+      else -> "wallpapers"
     }
   }
   var homeWallpaperCategory by rememberSaveable { mutableStateOf(initialHomeCat) }
   var homeSelectedBgColor by rememberSaveable { mutableStateOf(editingSpace?.homeWallpaperColor ?: editingSpace?.backgroundColor ?: PRESET_BACKGROUND_COLORS.first().first) }
   var homeSelectedGradientId by rememberSaveable { mutableStateOf(PRESET_GRADIENTS.firstOrNull { it.representativeColor == (editingSpace?.homeWallpaperColor ?: editingSpace?.backgroundColor) }?.id ?: PRESET_GRADIENTS.first().id) }
-  var homeCustomImageUri by rememberSaveable { mutableStateOf(editingSpace?.homeWallpaperImageUri ?: editingSpace?.backgroundImageUri) }
+  var homeCustomImageUri by rememberSaveable { mutableStateOf(editingSpace?.homeWallpaperImageUri ?: editingSpace?.backgroundImageUri ?: WallpaperCatalog.DEFAULT_WALLPAPER_URI) }
   var homeWallpaperScaleMode by rememberSaveable { mutableStateOf(editingSpace?.homeWallpaperScaleMode ?: "crop") }
   var homeWallpaperZoomLevel by rememberSaveable { mutableFloatStateOf(editingSpace?.homeWallpaperZoomLevel ?: 1.0f) }
   var homeWallpaperDimLevel by rememberSaveable { mutableFloatStateOf(editingSpace?.homeWallpaperDimLevel ?: 0.20f) }
@@ -318,15 +326,18 @@ fun CreateSpaceScreen(
   // Phone Lock Screen Wallpaper
   val initialPhoneLockCat = remember(editingSpace) {
     when (editingSpace?.phoneLockWallpaperType) {
-      Space.BACKGROUND_IMAGE -> "photo"
+      Space.BACKGROUND_IMAGE -> {
+        val uri = editingSpace.phoneLockWallpaperImageUri
+        if (uri?.startsWith("content://") == true || uri?.startsWith("file://") == true) "photo" else "wallpapers"
+      }
       Space.BACKGROUND_COLOR -> if (PRESET_GRADIENTS.any { it.representativeColor == editingSpace.phoneLockWallpaperColor }) "gradients" else "colors"
-      else -> "gradients"
+      else -> "wallpapers"
     }
   }
   var phoneLockWallpaperCategory by rememberSaveable { mutableStateOf(initialPhoneLockCat) }
   var phoneLockSelectedBgColor by rememberSaveable { mutableStateOf(editingSpace?.phoneLockWallpaperColor ?: PRESET_BACKGROUND_COLORS[1].first) }
   var phoneLockSelectedGradientId by rememberSaveable { mutableStateOf(PRESET_GRADIENTS.firstOrNull { it.representativeColor == editingSpace?.phoneLockWallpaperColor }?.id ?: PRESET_GRADIENTS[1].id) }
-  var phoneLockCustomImageUri by rememberSaveable { mutableStateOf(editingSpace?.phoneLockWallpaperImageUri) }
+  var phoneLockCustomImageUri by rememberSaveable { mutableStateOf(editingSpace?.phoneLockWallpaperImageUri ?: WallpaperCatalog.DEFAULT_WALLPAPER_URI) }
   var phoneLockWallpaperScaleMode by rememberSaveable { mutableStateOf(editingSpace?.phoneLockWallpaperScaleMode ?: "crop") }
   var phoneLockWallpaperZoomLevel by rememberSaveable { mutableFloatStateOf(editingSpace?.phoneLockWallpaperZoomLevel ?: 1.0f) }
   var phoneLockWallpaperDimLevel by rememberSaveable { mutableFloatStateOf(editingSpace?.phoneLockWallpaperDimLevel ?: 0.20f) }
@@ -336,15 +347,18 @@ fun CreateSpaceScreen(
   // Space Lock Screen Wallpaper
   val initialSpaceLockCat = remember(editingSpace) {
     when (editingSpace?.spaceLockWallpaperType) {
-      Space.BACKGROUND_IMAGE -> "photo"
+      Space.BACKGROUND_IMAGE -> {
+        val uri = editingSpace.spaceLockWallpaperImageUri
+        if (uri?.startsWith("content://") == true || uri?.startsWith("file://") == true) "photo" else "wallpapers"
+      }
       Space.BACKGROUND_COLOR -> if (PRESET_GRADIENTS.any { it.representativeColor == editingSpace.spaceLockWallpaperColor }) "gradients" else "colors"
-      else -> "gradients"
+      else -> "wallpapers"
     }
   }
   var spaceLockWallpaperCategory by rememberSaveable { mutableStateOf(initialSpaceLockCat) }
   var spaceLockSelectedBgColor by rememberSaveable { mutableStateOf(editingSpace?.spaceLockWallpaperColor ?: PRESET_BACKGROUND_COLORS[4].first) }
   var spaceLockSelectedGradientId by rememberSaveable { mutableStateOf(PRESET_GRADIENTS.firstOrNull { it.representativeColor == editingSpace?.spaceLockWallpaperColor }?.id ?: PRESET_GRADIENTS[4].id) }
-  var spaceLockCustomImageUri by rememberSaveable { mutableStateOf(editingSpace?.spaceLockWallpaperImageUri) }
+  var spaceLockCustomImageUri by rememberSaveable { mutableStateOf(editingSpace?.spaceLockWallpaperImageUri ?: WallpaperCatalog.DEFAULT_WALLPAPER_URI) }
   var spaceLockWallpaperScaleMode by rememberSaveable { mutableStateOf(editingSpace?.spaceLockWallpaperScaleMode ?: "crop") }
   var spaceLockWallpaperZoomLevel by rememberSaveable { mutableFloatStateOf(editingSpace?.spaceLockWallpaperZoomLevel ?: 1.0f) }
   var spaceLockWallpaperDimLevel by rememberSaveable { mutableFloatStateOf(editingSpace?.spaceLockWallpaperDimLevel ?: 0.20f) }
@@ -938,42 +952,51 @@ fun CreateSpaceScreen(
 
                       // Resolve Home Wallpaper
                       val homeBgType = when (homeWallpaperCategory) {
-                        "photo" -> Space.BACKGROUND_IMAGE
+                        "wallpapers", "photo" -> Space.BACKGROUND_IMAGE
                         "colors", "gradients" -> Space.BACKGROUND_COLOR
-                        else -> Space.BACKGROUND_DEFAULT
+                        else -> Space.BACKGROUND_IMAGE
                       }
                       val homeBgColor = when (homeWallpaperCategory) {
                         "gradients" -> PRESET_GRADIENTS.firstOrNull { it.id == homeSelectedGradientId }?.representativeColor ?: homeSelectedBgColor
                         "colors" -> homeSelectedBgColor
                         else -> null
                       }
-                      val homeBgImageUri = if (homeWallpaperCategory == "photo") homeCustomImageUri else null
+                      val homeBgImageUri = when (homeWallpaperCategory) {
+                        "wallpapers", "photo" -> homeCustomImageUri ?: WallpaperCatalog.DEFAULT_WALLPAPER_URI
+                        else -> null
+                      }
 
                       // Resolve Phone Lock Screen Wallpaper
                       val phoneLockBgType = when (phoneLockWallpaperCategory) {
-                        "photo" -> Space.BACKGROUND_IMAGE
+                        "wallpapers", "photo" -> Space.BACKGROUND_IMAGE
                         "colors", "gradients" -> Space.BACKGROUND_COLOR
-                        else -> Space.BACKGROUND_DEFAULT
+                        else -> Space.BACKGROUND_IMAGE
                       }
                       val phoneLockBgColor = when (phoneLockWallpaperCategory) {
                         "gradients" -> PRESET_GRADIENTS.firstOrNull { it.id == phoneLockSelectedGradientId }?.representativeColor ?: phoneLockSelectedBgColor
                         "colors" -> phoneLockSelectedBgColor
                         else -> null
                       }
-                      val phoneLockBgImageUri = if (phoneLockWallpaperCategory == "photo") phoneLockCustomImageUri else null
+                      val phoneLockBgImageUri = when (phoneLockWallpaperCategory) {
+                        "wallpapers", "photo" -> phoneLockCustomImageUri ?: WallpaperCatalog.DEFAULT_WALLPAPER_URI
+                        else -> null
+                      }
 
                       // Resolve Space Lock Screen Wallpaper
                       val spaceLockBgType = when (spaceLockWallpaperCategory) {
-                        "photo" -> Space.BACKGROUND_IMAGE
+                        "wallpapers", "photo" -> Space.BACKGROUND_IMAGE
                         "colors", "gradients" -> Space.BACKGROUND_COLOR
-                        else -> Space.BACKGROUND_DEFAULT
+                        else -> Space.BACKGROUND_IMAGE
                       }
                       val spaceLockBgColor = when (spaceLockWallpaperCategory) {
                         "gradients" -> PRESET_GRADIENTS.firstOrNull { it.id == spaceLockSelectedGradientId }?.representativeColor ?: spaceLockSelectedBgColor
                         "colors" -> spaceLockSelectedBgColor
                         else -> null
                       }
-                      val spaceLockBgImageUri = if (spaceLockWallpaperCategory == "photo") spaceLockCustomImageUri else null
+                      val spaceLockBgImageUri = when (spaceLockWallpaperCategory) {
+                        "wallpapers", "photo" -> spaceLockCustomImageUri ?: WallpaperCatalog.DEFAULT_WALLPAPER_URI
+                        else -> null
+                      }
 
                       val selectedAppObjects = allApps.filter { selectedAppsSet.contains(it.id) }
 
@@ -1209,6 +1232,9 @@ fun CreateSpaceScreen(
                 homeSelectedGradientId = homeSelectedGradientId,
                 onHomeSelectGradient = { homeSelectedGradientId = it },
                 homeCustomImageUri = homeCustomImageUri,
+                onHomeSelectPresetWallpaper = { preset ->
+                  homeCustomImageUri = preset.uriString
+                },
                 homeScaleMode = homeWallpaperScaleMode,
                 homeZoomLevel = homeWallpaperZoomLevel,
                 homeDimLevel = homeWallpaperDimLevel,
@@ -1216,8 +1242,8 @@ fun CreateSpaceScreen(
                 homeOffsetY = homeWallpaperOffsetY,
                 onHomePickCustomPhoto = { homePhotoPickerLauncher.launch("image/*") },
                 onHomeRemoveCustomPhoto = {
-                  homeCustomImageUri = null
-                  homeWallpaperCategory = "gradients"
+                  homeCustomImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI
+                  homeWallpaperCategory = "wallpapers"
                 },
                 onHomeOpenEditor = {
                   wallpaperEditorTarget = "home"
@@ -1230,6 +1256,9 @@ fun CreateSpaceScreen(
                 phoneLockSelectedGradientId = phoneLockSelectedGradientId,
                 onPhoneLockSelectGradient = { phoneLockSelectedGradientId = it },
                 phoneLockCustomImageUri = phoneLockCustomImageUri,
+                onPhoneLockSelectPresetWallpaper = { preset ->
+                  phoneLockCustomImageUri = preset.uriString
+                },
                 phoneLockScaleMode = phoneLockWallpaperScaleMode,
                 phoneLockZoomLevel = phoneLockWallpaperZoomLevel,
                 phoneLockDimLevel = phoneLockWallpaperDimLevel,
@@ -1237,8 +1266,8 @@ fun CreateSpaceScreen(
                 phoneLockOffsetY = phoneLockWallpaperOffsetY,
                 onPhoneLockPickCustomPhoto = { phoneLockPhotoPickerLauncher.launch("image/*") },
                 onPhoneLockRemoveCustomPhoto = {
-                  phoneLockCustomImageUri = null
-                  phoneLockWallpaperCategory = "gradients"
+                  phoneLockCustomImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI
+                  phoneLockWallpaperCategory = "wallpapers"
                 },
                 onPhoneLockOpenEditor = {
                   wallpaperEditorTarget = "phone_lock"
@@ -1251,6 +1280,9 @@ fun CreateSpaceScreen(
                 spaceLockSelectedGradientId = spaceLockSelectedGradientId,
                 onSpaceLockSelectGradient = { spaceLockSelectedGradientId = it },
                 spaceLockCustomImageUri = spaceLockCustomImageUri,
+                onSpaceLockSelectPresetWallpaper = { preset ->
+                  spaceLockCustomImageUri = preset.uriString
+                },
                 spaceLockScaleMode = spaceLockWallpaperScaleMode,
                 spaceLockZoomLevel = spaceLockWallpaperZoomLevel,
                 spaceLockDimLevel = spaceLockWallpaperDimLevel,
@@ -1258,8 +1290,8 @@ fun CreateSpaceScreen(
                 spaceLockOffsetY = spaceLockWallpaperOffsetY,
                 onSpaceLockPickCustomPhoto = { spaceLockPhotoPickerLauncher.launch("image/*") },
                 onSpaceLockRemoveCustomPhoto = {
-                  spaceLockCustomImageUri = null
-                  spaceLockWallpaperCategory = "gradients"
+                  spaceLockCustomImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI
+                  spaceLockWallpaperCategory = "wallpapers"
                 },
                 onSpaceLockOpenEditor = {
                   wallpaperEditorTarget = "space_lock"
@@ -1336,13 +1368,13 @@ fun CreateSpaceScreen(
                       "• Drawer Access: ${if (preset.layer2AccessMode == Space.ACCESS_MODE_DOCK_BUTTON) "Center Dock Button" else "Swipe Up Gesture"}\n" +
                       "• Layer 2 Enabled: ${if (preset.useLayer2) "Yes" else "No"}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                   )
                   Text(
                     text = "Your existing app memberships, folders, passwords, and custom wallpapers will not be removed.",
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium,
-                    color = SuccessGreen
+                    color = EmeraldCore
                   )
                 }
               },
@@ -1358,7 +1390,7 @@ fun CreateSpaceScreen(
                     dockCapacity = preset.dockCapacity
                     presetToConfirm = null
                   },
-                  colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
+                  colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                   Text("Apply Preset", fontWeight = FontWeight.Bold)
                 }
@@ -2331,6 +2363,7 @@ private fun Tab2WallpaperAndTheme(
   homeSelectedGradientId: String,
   onHomeSelectGradient: (String) -> Unit,
   homeCustomImageUri: String?,
+  onHomeSelectPresetWallpaper: (WallpaperImagePreset) -> Unit = {},
   homeScaleMode: String = "crop",
   homeZoomLevel: Float = 1.0f,
   homeDimLevel: Float = 0.20f,
@@ -2347,6 +2380,7 @@ private fun Tab2WallpaperAndTheme(
   phoneLockSelectedGradientId: String,
   onPhoneLockSelectGradient: (String) -> Unit,
   phoneLockCustomImageUri: String?,
+  onPhoneLockSelectPresetWallpaper: (WallpaperImagePreset) -> Unit = {},
   phoneLockScaleMode: String = "crop",
   phoneLockZoomLevel: Float = 1.0f,
   phoneLockDimLevel: Float = 0.20f,
@@ -2363,6 +2397,7 @@ private fun Tab2WallpaperAndTheme(
   spaceLockSelectedGradientId: String,
   onSpaceLockSelectGradient: (String) -> Unit,
   spaceLockCustomImageUri: String?,
+  onSpaceLockSelectPresetWallpaper: (WallpaperImagePreset) -> Unit = {},
   spaceLockScaleMode: String = "crop",
   spaceLockZoomLevel: Float = 1.0f,
   spaceLockDimLevel: Float = 0.20f,
@@ -2395,6 +2430,7 @@ private fun Tab2WallpaperAndTheme(
         selectedGradientId = homeSelectedGradientId,
         onSelectGradient = onHomeSelectGradient,
         customImageUri = homeCustomImageUri,
+        onSelectPresetWallpaper = onHomeSelectPresetWallpaper,
         scaleMode = homeScaleMode,
         zoomLevel = homeZoomLevel,
         dimLevel = homeDimLevel,
@@ -2420,6 +2456,7 @@ private fun Tab2WallpaperAndTheme(
         selectedGradientId = phoneLockSelectedGradientId,
         onSelectGradient = onPhoneLockSelectGradient,
         customImageUri = phoneLockCustomImageUri,
+        onSelectPresetWallpaper = onPhoneLockSelectPresetWallpaper,
         scaleMode = phoneLockScaleMode,
         zoomLevel = phoneLockZoomLevel,
         dimLevel = phoneLockDimLevel,
@@ -2445,6 +2482,7 @@ private fun Tab2WallpaperAndTheme(
         selectedGradientId = spaceLockSelectedGradientId,
         onSelectGradient = onSpaceLockSelectGradient,
         customImageUri = spaceLockCustomImageUri,
+        onSelectPresetWallpaper = onSpaceLockSelectPresetWallpaper,
         scaleMode = spaceLockScaleMode,
         zoomLevel = spaceLockZoomLevel,
         dimLevel = spaceLockDimLevel,
@@ -2579,6 +2617,7 @@ private fun WallpaperSectionCard(
   selectedGradientId: String,
   onSelectGradient: (String) -> Unit,
   customImageUri: String?,
+  onSelectPresetWallpaper: (WallpaperImagePreset) -> Unit = {},
   scaleMode: String = "crop",
   zoomLevel: Float = 1.0f,
   dimLevel: Float = 0.20f,
@@ -2620,49 +2659,75 @@ private fun WallpaperSectionCard(
       Box(
         modifier = Modifier
           .fillMaxWidth()
-          .height(110.dp)
+          .height(120.dp)
           .clip(ShapeRoundMd)
-          .background(
-            when (category) {
-              "gradients" -> {
-                val grad = PRESET_GRADIENTS.firstOrNull { it.id == selectedGradientId } ?: PRESET_GRADIENTS.first()
-                Brush.verticalGradient(grad.colors)
-              }
-              "photo" -> {
-                if (customImageUri != null) Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
-                else Brush.verticalGradient(listOf(Color(selectedBgColor), Color(selectedBgColor)))
-              }
-              else -> Brush.verticalGradient(listOf(Color(selectedBgColor), Color(selectedBgColor)))
-            }
-          )
           .border(BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant), ShapeRoundMd)
           .clickable(enabled = category == "photo" && customImageUri != null && onOpenEditor != null) {
             onOpenEditor?.invoke()
           },
         contentAlignment = Alignment.Center
       ) {
-        if (category == "photo" && customImageUri != null) {
-          AsyncImage(
-            model = ImageRequest.Builder(context)
-              .data(customImageUri)
-              .crossfade(true)
-              .build(),
-            contentDescription = "Custom Photo Wallpaper",
-            contentScale = if (scaleMode == "crop") ContentScale.Crop else ContentScale.Fit,
-            modifier = Modifier
-              .fillMaxSize()
-              .graphicsLayer {
-                scaleX = zoomLevel
-                scaleY = zoomLevel
-                translationX = offsetX
-                translationY = offsetY
-              }
-          )
-          if (dimLevel > 0f) {
+        when (category) {
+          "wallpapers" -> {
+            val resId = WallpaperCatalog.resolveDrawableRes(customImageUri) ?: R.drawable.img_wallpaper_aurora
+            Image(
+              painter = painterResource(id = resId),
+              contentDescription = "Curated Wallpaper Preview",
+              contentScale = ContentScale.Crop,
+              modifier = Modifier.fillMaxSize()
+            )
             Box(
               modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = dimLevel))
+                .background(Color.Black.copy(alpha = 0.20f))
+            )
+          }
+          "photo" -> {
+            if (customImageUri != null) {
+              AsyncImage(
+                model = ImageRequest.Builder(context)
+                  .data(customImageUri)
+                  .crossfade(true)
+                  .build(),
+                contentDescription = "Custom Photo Wallpaper",
+                contentScale = if (scaleMode == "crop") ContentScale.Crop else ContentScale.Fit,
+                modifier = Modifier
+                  .fillMaxSize()
+                  .graphicsLayer {
+                    scaleX = zoomLevel
+                    scaleY = zoomLevel
+                    translationX = offsetX
+                    translationY = offsetY
+                  }
+              )
+              if (dimLevel > 0f) {
+                Box(
+                  modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = dimLevel))
+                )
+              }
+            } else {
+              Box(
+                modifier = Modifier
+                  .fillMaxSize()
+                  .background(Color(selectedBgColor))
+              )
+            }
+          }
+          "gradients" -> {
+            val grad = PRESET_GRADIENTS.firstOrNull { it.id == selectedGradientId } ?: PRESET_GRADIENTS.first()
+            Box(
+              modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(grad.colors))
+            )
+          }
+          else -> {
+            Box(
+              modifier = Modifier
+                .fillMaxSize()
+                .background(Color(selectedBgColor))
             )
           }
         }
@@ -2696,12 +2761,15 @@ private fun WallpaperSectionCard(
         }
       }
 
-      // Category Chips: Gradients, Solid Colors, Custom Photo
+      // Category Chips: Wallpapers, Gradients, Solid Colors, Custom Photo
       Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+          .fillMaxWidth()
+          .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
       ) {
         val categories = listOf(
+          "wallpapers" to "Wallpapers",
           "gradients" to "Gradients",
           "colors" to "Solid Colors",
           "photo" to "Custom Photo"
@@ -2712,14 +2780,109 @@ private fun WallpaperSectionCard(
           FilterChip(
             selected = isSelected,
             onClick = { onCategoryChange(catKey) },
-            label = { Text(catLabel, fontSize = 11.sp) },
-            modifier = Modifier.weight(1f)
+            label = { Text(catLabel, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+            modifier = Modifier.testTag("${testTagPrefix}_tab_$catKey")
           )
         }
       }
 
       // Category Specific Content
       when (category) {
+        "wallpapers" -> {
+          Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+          ) {
+            Text(
+              text = "Curated High-Resolution Artwork & Landscapes",
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+              horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+              WallpaperCatalog.PRESET_WALLPAPERS.forEach { preset ->
+                val isSelected = (customImageUri == preset.uriString) ||
+                  (customImageUri == preset.id) ||
+                  (customImageUri != null && customImageUri.contains(preset.id.removePrefix("wp_"))) ||
+                  (customImageUri == null && preset.id == WallpaperCatalog.DEFAULT_WALLPAPER_ID)
+
+                Column(
+                  modifier = Modifier
+                    .width(100.dp)
+                    .clip(ShapeRoundMd)
+                    .clickable {
+                      onSelectPresetWallpaper(preset)
+                    }
+                    .padding(2.dp)
+                    .testTag("${testTagPrefix}_preset_${preset.id}"),
+                  horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                  Box(
+                    modifier = Modifier
+                      .size(width = 96.dp, height = 130.dp)
+                      .clip(ShapeRoundMd)
+                      .border(
+                        width = if (isSelected) 3.dp else 1.dp,
+                        color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.outlineVariant,
+                        shape = ShapeRoundMd
+                      )
+                  ) {
+                    Image(
+                      painter = painterResource(id = preset.drawableRes),
+                      contentDescription = preset.name,
+                      contentScale = ContentScale.Crop,
+                      modifier = Modifier.fillMaxSize()
+                    )
+                    if (isSelected) {
+                      Box(
+                        modifier = Modifier
+                          .fillMaxSize()
+                          .background(Color.Black.copy(alpha = 0.3f))
+                      )
+                      Box(
+                        modifier = Modifier
+                          .padding(6.dp)
+                          .size(24.dp)
+                          .clip(CircleShape)
+                          .background(QuantumViolet)
+                          .align(Alignment.TopEnd),
+                        contentAlignment = Alignment.Center
+                      ) {
+                        Icon(
+                          imageVector = Icons.Default.Check,
+                          contentDescription = "Selected",
+                          tint = Color.White,
+                          modifier = Modifier.size(16.dp)
+                        )
+                      }
+                    }
+                  }
+                  Spacer(modifier = Modifier.height(4.dp))
+                  Text(
+                    text = preset.name,
+                    fontSize = 11.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center
+                  )
+                  Text(
+                    text = preset.category,
+                    fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center
+                  )
+                }
+              }
+            }
+          }
+        }
+
         "gradients" -> {
           Row(
             modifier = Modifier

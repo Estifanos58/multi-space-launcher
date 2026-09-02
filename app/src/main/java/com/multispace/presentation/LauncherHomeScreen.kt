@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.multispace.R
 import com.multispace.domain.model.*
 import com.multispace.platform.RecentsController
 import com.multispace.platform.RecentsInvocationResult
@@ -200,15 +202,43 @@ fun LauncherHomeScreen(
               .background(Color(currentBgColor))
           )
         } else {
+          Image(
+            painter = painterResource(id = R.drawable.img_wallpaper_aurora),
+            contentDescription = "Space Wallpaper",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+          )
           Box(
             modifier = Modifier
               .fillMaxSize()
-              .background(MaterialTheme.colorScheme.background)
+              .background(Color.Black.copy(alpha = 0.20f))
           )
         }
       }
       Space.BACKGROUND_IMAGE -> {
-        if (!currentBgImageUri.isNullOrEmpty()) {
+        val presetRes = WallpaperCatalog.resolveDrawableRes(currentBgImageUri)
+        if (presetRes != null) {
+          Image(
+            painter = painterResource(id = presetRes),
+            contentDescription = "Space Wallpaper",
+            contentScale = if (currentScaleMode == "crop") ContentScale.Crop else ContentScale.Fit,
+            modifier = Modifier
+              .fillMaxSize()
+              .graphicsLayer {
+                scaleX = currentZoomLevel
+                scaleY = currentZoomLevel
+                translationX = currentOffsetX
+                translationY = currentOffsetY
+              }
+          )
+          if (currentDimLevel > 0f) {
+            Box(
+              modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = currentDimLevel))
+            )
+          }
+        } else if (!currentBgImageUri.isNullOrEmpty()) {
           val ctx = LocalContext.current
           AsyncImage(
             model = ImageRequest.Builder(ctx)
@@ -235,18 +265,31 @@ fun LauncherHomeScreen(
             )
           }
         } else {
+          Image(
+            painter = painterResource(id = R.drawable.img_wallpaper_aurora),
+            contentDescription = "Space Wallpaper",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+          )
           Box(
             modifier = Modifier
               .fillMaxSize()
-              .background(MaterialTheme.colorScheme.background)
+              .background(Color.Black.copy(alpha = 0.20f))
           )
         }
       }
       else -> {
+        // Space.BACKGROUND_DEFAULT: Default beautiful wallpaper
+        Image(
+          painter = painterResource(id = R.drawable.img_wallpaper_aurora),
+          contentDescription = "Space Wallpaper",
+          contentScale = ContentScale.Crop,
+          modifier = Modifier.fillMaxSize()
+        )
         Box(
           modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(Color.Black.copy(alpha = 0.20f))
         )
       }
     }
