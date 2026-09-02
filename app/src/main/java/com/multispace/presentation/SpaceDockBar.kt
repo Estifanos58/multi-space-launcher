@@ -3,18 +3,20 @@ package com.multispace.presentation
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.testTag
@@ -26,6 +28,13 @@ import androidx.compose.ui.unit.sp
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceDockItem
+import com.multispace.ui.components.ModernDialogContainer
+import com.multispace.ui.components.ModernGlassCard
+import com.multispace.ui.theme.AppDimens
+import com.multispace.ui.theme.CrimsonNova
+import com.multispace.ui.theme.QuantumViolet
+import com.multispace.ui.theme.ShapeRoundLg
+import com.multispace.ui.theme.ShapeRoundMd
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -46,20 +55,17 @@ fun SpaceDockBar(
     allApps.associateBy { "${it.packageName}/${it.activityName}" }
   }
 
-  Surface(
+  ModernGlassCard(
     modifier = modifier
       .fillMaxWidth()
-      .padding(horizontal = 16.dp, vertical = 6.dp)
-      .clip(RoundedCornerShape(28.dp))
+      .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing6)
       .testTag("space_dock_bar"),
-    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-    tonalElevation = 6.dp,
-    shadowElevation = 4.dp
+    shape = ShapeRoundLg
   ) {
     Row(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(horizontal = 12.dp, vertical = 8.dp),
+        .padding(horizontal = AppDimens.Spacing12, vertical = AppDimens.Spacing8),
       horizontalArrangement = Arrangement.SpaceEvenly,
       verticalAlignment = Alignment.CenterVertically
     ) {
@@ -84,20 +90,28 @@ fun SpaceDockBar(
           )
         }
 
-        // Center All-Apps Drawer Button
+        // Center Futuristic All-Apps Drawer Pill Button
         IconButton(
           onClick = onOpenLayer2,
           modifier = Modifier
-            .size(52.dp)
+            .size(50.dp)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primaryContainer)
+            .background(
+              Brush.radialGradient(
+                colors = listOf(
+                  QuantumViolet,
+                  MaterialTheme.colorScheme.primaryContainer
+                )
+              )
+            )
+            .border(AppDimens.BorderThin, QuantumViolet.copy(alpha = 0.5f), CircleShape)
             .testTag("dock_layer2_drawer_button")
         ) {
           Icon(
             imageVector = Icons.Default.Apps,
             contentDescription = "All Apps Library",
-            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-            modifier = Modifier.size(26.dp)
+            tint = Color.White,
+            modifier = Modifier.size(AppDimens.IconMd)
           )
         }
 
@@ -128,33 +142,31 @@ fun SpaceDockBar(
     }
   }
 
-  // Remove from Dock Confirmation Dialog
+  // Modernized Remove from Dock Confirmation Dialog
   if (itemForAction != null) {
     val target = itemForAction!!
     val key = "${target.packageName}/${target.componentName}"
     val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == target.packageName }
 
-    AlertDialog(
-      onDismissRequest = { itemForAction = null },
-      title = { Text("Dock Item") },
-      text = { Text("Remove '${app?.label ?: target.packageName}' from Dock?") },
-      confirmButton = {
-        Button(
-          onClick = {
-            onRemoveFromDock(target)
-            itemForAction = null
-          },
-          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-        ) {
-          Text("Remove from Dock")
-        }
+    ModernDialogContainer(
+      title = "Dock Shortcut",
+      subtitle = "Manage persistent dock placement",
+      icon = Icons.Default.DeleteOutline,
+      iconTint = CrimsonNova,
+      confirmButtonText = "Remove",
+      confirmButtonColor = CrimsonNova,
+      onConfirm = {
+        onRemoveFromDock(target)
+        itemForAction = null
       },
-      dismissButton = {
-        TextButton(onClick = { itemForAction = null }) {
-          Text("Cancel")
-        }
-      }
-    )
+      onDismissRequest = { itemForAction = null }
+    ) {
+      Text(
+        text = "Remove '${app?.label ?: target.packageName}' from this Space's dock?",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurface
+      )
+    }
   }
 }
 
@@ -173,8 +185,8 @@ private fun DockAppSlot(
 
   Box(
     modifier = Modifier
-      .size(52.dp)
-      .clip(RoundedCornerShape(14.dp))
+      .size(50.dp)
+      .clip(ShapeRoundMd)
       .combinedClickable(
         onClick = { if (app != null) onLaunchApp(app) },
         onLongClick = onLongPress
@@ -192,7 +204,11 @@ private fun DockAppSlot(
     } else {
       Surface(
         color = MaterialTheme.colorScheme.primaryContainer,
-        shape = RoundedCornerShape(14.dp),
+        shape = ShapeRoundMd,
+        border = androidx.compose.foundation.BorderStroke(
+          AppDimens.BorderThin,
+          MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+        ),
         modifier = Modifier.fillMaxSize()
       ) {
         Box(contentAlignment = Alignment.Center) {

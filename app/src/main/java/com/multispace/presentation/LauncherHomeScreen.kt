@@ -5,8 +5,10 @@ import android.graphics.drawable.Drawable
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -39,6 +41,9 @@ import coil.request.ImageRequest
 import com.multispace.domain.model.*
 import com.multispace.platform.RecentsController
 import com.multispace.platform.RecentsInvocationResult
+import com.multispace.ui.components.ModernEmptyState
+import com.multispace.ui.components.ModernLoadingState
+import com.multispace.ui.components.ModernStatusBadge
 import com.multispace.ui.theme.*
 import kotlinx.coroutines.launch
 
@@ -121,11 +126,16 @@ fun LauncherHomeScreen(
     }
   }
 
-  val headerContentColor = if (isDarkThemeBackground) Color.White else TextPrimary
-  val chipBackgroundColor = if (isDarkThemeBackground) {
-    Color.Black.copy(alpha = 0.5f)
+  val headerContentColor = if (isDarkThemeBackground) Color.White else MaterialTheme.colorScheme.onSurface
+  val pillSurfaceColor = if (isDarkThemeBackground) {
+    Color(0xCC090B10)
   } else {
-    PrimaryContainerLight
+    MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+  }
+  val pillBorderColor = if (isDarkThemeBackground) {
+    Color(0x33A78BFA)
+  } else {
+    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
   }
 
   // Resolve Space presentation: Project active Space's persisted memberships against current Android LauncherApps catalog
@@ -193,15 +203,15 @@ fun LauncherHomeScreen(
           Box(
             modifier = Modifier
               .fillMaxSize()
-              .background(LightBackground)
+              .background(MaterialTheme.colorScheme.background)
           )
         }
       }
       Space.BACKGROUND_IMAGE -> {
         if (!currentBgImageUri.isNullOrEmpty()) {
-          val context = LocalContext.current
+          val ctx = LocalContext.current
           AsyncImage(
-            model = ImageRequest.Builder(context)
+            model = ImageRequest.Builder(ctx)
               .data(currentBgImageUri)
               .crossfade(true)
               .build(),
@@ -228,7 +238,7 @@ fun LauncherHomeScreen(
           Box(
             modifier = Modifier
               .fillMaxSize()
-              .background(LightBackground)
+              .background(MaterialTheme.colorScheme.background)
           )
         }
       }
@@ -236,7 +246,7 @@ fun LauncherHomeScreen(
         Box(
           modifier = Modifier
             .fillMaxSize()
-            .background(LightBackground)
+            .background(MaterialTheme.colorScheme.background)
         )
       }
     }
@@ -245,281 +255,6 @@ fun LauncherHomeScreen(
     Scaffold(
       modifier = Modifier.fillMaxSize(),
       containerColor = Color.Transparent,
-      topBar = {
-        // Minimal Home header
-        Row(
-          modifier = Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          // Space Title & Quick Switcher Chip
-          Box {
-            Surface(
-              shape = RoundedCornerShape(20.dp),
-              color = chipBackgroundColor,
-              modifier = Modifier
-                .clickable { showSpaceSwitcherMenu = true }
-                .testTag("home_space_indicator")
-            ) {
-              Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-              ) {
-                if (activeSpace?.isProtected == true) {
-                  Icon(
-                    imageVector = if (isCurrentSpaceUnlocked) Icons.Default.LockOpen else Icons.Default.Lock,
-                    contentDescription = if (isCurrentSpaceUnlocked) "Unlocked" else "Locked",
-                    tint = if (isCurrentSpaceUnlocked) Color(0xFF2E7D32) else if (isDarkThemeBackground) Color(0xFF81C784) else PrimaryPurpleDark,
-                    modifier = Modifier.size(14.dp)
-                  )
-                } else {
-                  Box(
-                    modifier = Modifier
-                      .size(8.dp)
-                      .clip(CircleShape)
-                      .background(if (isDarkThemeBackground) Color.White else PrimaryPurpleDark)
-                  )
-                }
-                Text(
-                  text = activeSpace?.name ?: "Default",
-                  style = MaterialTheme.typography.titleMedium,
-                  fontWeight = FontWeight.Bold,
-                  color = headerContentColor
-                )
-                Icon(
-                  imageVector = Icons.Default.ArrowDropDown,
-                  contentDescription = "Switch Space",
-                  tint = if (isDarkThemeBackground) Color.White.copy(alpha = 0.8f) else TextSecondary,
-                  modifier = Modifier.size(18.dp)
-                )
-              }
-            }
-
-            // Space Switcher Dropdown Menu
-            DropdownMenu(
-              expanded = showSpaceSwitcherMenu,
-              onDismissRequest = { showSpaceSwitcherMenu = false },
-              modifier = Modifier.background(LightBackground)
-            ) {
-              Text(
-                text = "SWITCH SPACE",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = TextSecondary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                fontSize = 10.sp
-              )
-              allSpaces.forEach { space ->
-                val isCurrent = space.id == activeSpace?.id
-                DropdownMenuItem(
-                  text = {
-                    Row(
-                      verticalAlignment = Alignment.CenterVertically,
-                      horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                      Icon(
-                        imageVector = if (isCurrent) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
-                        contentDescription = null,
-                        tint = if (isCurrent) PrimaryPurpleDark else TextMuted,
-                        modifier = Modifier.size(18.dp)
-                      )
-                      Text(
-                        text = space.name,
-                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                        color = TextPrimary
-                      )
-                      if (space.isProtected) {
-                        Spacer(modifier = Modifier.weight(1f))
-                        Icon(
-                          imageVector = Icons.Default.Lock,
-                          contentDescription = "Protected",
-                          tint = TextSecondary,
-                          modifier = Modifier.size(14.dp)
-                        )
-                      }
-                    }
-                  },
-                  onClick = {
-                    showSpaceSwitcherMenu = false
-                    if (space.isProtected) {
-                      spaceToUnlockForSwitch = space
-                    } else {
-                      spaceViewModel.selectActiveSpace(space.id)
-                    }
-                  },
-                  modifier = Modifier.testTag("menu_switch_space_${space.id}")
-                )
-              }
-              HorizontalDivider(color = LightSurfaceContainerHigh)
-
-              DropdownMenuItem(
-                text = {
-                  Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                  ) {
-                    Icon(
-                      imageVector = Icons.Default.FileDownload,
-                      contentDescription = null,
-                      tint = PrimaryPurpleDark,
-                      modifier = Modifier.size(18.dp)
-                    )
-                    Text("Import Android Layout...", color = PrimaryPurpleDark, fontWeight = FontWeight.Medium)
-                  }
-                },
-                onClick = {
-                  showSpaceSwitcherMenu = false
-                  showImportDialog = true
-                },
-                modifier = Modifier.testTag("menu_import_layout")
-              )
-
-              DropdownMenuItem(
-                text = {
-                  Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                  ) {
-                    Icon(
-                      imageVector = Icons.Default.Palette,
-                      contentDescription = null,
-                      tint = PrimaryPurpleDark,
-                      modifier = Modifier.size(18.dp)
-                    )
-                    Text("Customize Space...", color = PrimaryPurpleDark, fontWeight = FontWeight.Medium)
-                  }
-                },
-                onClick = {
-                  showSpaceSwitcherMenu = false
-                  showCustomizationDialogForActiveSpace = true
-                },
-                modifier = Modifier.testTag("menu_customize_active_space")
-              )
-
-              DropdownMenuItem(
-                text = {
-                  Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                  ) {
-                    Icon(
-                      imageVector = Icons.Default.GridView,
-                      contentDescription = null,
-                      tint = PrimaryPurpleDark,
-                      modifier = Modifier.size(18.dp)
-                    )
-                    Text("System Recent Apps...", color = PrimaryPurpleDark, fontWeight = FontWeight.Medium)
-                  }
-                },
-                onClick = {
-                  showSpaceSwitcherMenu = false
-                  val result = RecentsController.invokeNativeRecents(context, source = "HOME_SPACE_MENU")
-                  when (result) {
-                    RecentsInvocationResult.SUCCESS -> {}
-                    RecentsInvocationResult.SERVICE_DISABLED -> {
-                      showRecentsDisclosureDialog = true
-                    }
-                    RecentsInvocationResult.ACTION_FAILED -> {
-                      spaceViewModel.postFeedback("System Recents action failed to execute")
-                    }
-                    RecentsInvocationResult.ACTION_UNAVAILABLE -> {
-                      spaceViewModel.postFeedback("Global Recents action unavailable on device")
-                    }
-                  }
-                },
-                modifier = Modifier.testTag("menu_system_recent_apps")
-              )
-
-              DropdownMenuItem(
-                text = {
-                  Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                  ) {
-                    Icon(
-                      imageVector = Icons.Default.Settings,
-                      contentDescription = null,
-                      tint = TextSecondary,
-                      modifier = Modifier.size(18.dp)
-                    )
-                    Text("Manage Spaces...", color = TextPrimary, fontWeight = FontWeight.Medium)
-                  }
-                },
-                onClick = {
-                  showSpaceSwitcherMenu = false
-                  onOpenConfiguration()
-                }
-              )
-            }
-          }
-
-          // Top Right Action Buttons: Native Recents, Lock, Settings
-          Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-          ) {
-            IconButton(
-              onClick = {
-                val result = RecentsController.invokeNativeRecents(context, source = "HOME_TOP_BAR_BUTTON")
-                when (result) {
-                  RecentsInvocationResult.SUCCESS -> {}
-                  RecentsInvocationResult.SERVICE_DISABLED -> {
-                    showRecentsDisclosureDialog = true
-                  }
-                  RecentsInvocationResult.ACTION_FAILED -> {
-                    spaceViewModel.postFeedback("System Recents action failed to execute")
-                  }
-                  RecentsInvocationResult.ACTION_UNAVAILABLE -> {
-                    spaceViewModel.postFeedback("Global Recents action unavailable on device")
-                  }
-                }
-              },
-              modifier = Modifier
-                .size(36.dp)
-                .testTag("btn_trigger_native_recents")
-            ) {
-              Icon(
-                imageVector = Icons.Default.GridView,
-                contentDescription = "Native System Recents",
-                tint = if (isDarkThemeBackground) Color.White.copy(alpha = 0.9f) else TextSecondary,
-                modifier = Modifier.size(20.dp)
-              )
-            }
-
-            IconButton(
-              onClick = { spaceViewModel.lockPhone() },
-              modifier = Modifier
-                .size(36.dp)
-                .testTag("btn_lock_phone")
-            ) {
-              Icon(
-                imageVector = Icons.Default.Lock,
-                contentDescription = "Lock Multi-Space",
-                tint = if (isDarkThemeBackground) Color.White.copy(alpha = 0.9f) else TextSecondary,
-                modifier = Modifier.size(20.dp)
-              )
-            }
-
-            IconButton(
-              onClick = onOpenConfiguration,
-              modifier = Modifier
-                .size(36.dp)
-                .testTag("btn_open_config")
-            ) {
-              Icon(
-                imageVector = Icons.Default.Settings,
-                contentDescription = "Launcher Settings",
-                tint = if (isDarkThemeBackground) Color.White.copy(alpha = 0.9f) else TextSecondary,
-                modifier = Modifier.size(20.dp)
-              )
-            }
-          }
-        }
-      },
       bottomBar = {
         // Space Dock Bar (Persistent on Home / Layer 1)
         if (isCurrentSpaceUnlocked && activeSpace != null && activeLayerIndex == 1) {
@@ -544,6 +279,7 @@ fun LauncherHomeScreen(
         modifier = Modifier
           .fillMaxSize()
           .padding(paddingValues)
+          .statusBarsPadding()
       ) {
         when {
           !isCurrentSpaceUnlocked -> {
@@ -551,165 +287,113 @@ fun LauncherHomeScreen(
             Column(
               modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .padding(AppDimens.Spacing32),
               verticalArrangement = Arrangement.Center,
               horizontalAlignment = Alignment.CenterHorizontally
             ) {
               Surface(
                 shape = CircleShape,
-                color = if (isDarkThemeBackground) Color.Black.copy(alpha = 0.6f) else PrimaryContainerLight,
-                modifier = Modifier.size(72.dp)
+                color = pillSurfaceColor,
+                border = BorderStroke(AppDimens.BorderMedium, CrimsonNova.copy(alpha = 0.5f)),
+                modifier = Modifier.size(76.dp)
               ) {
                 Box(contentAlignment = Alignment.Center) {
                   Icon(
                     imageVector = Icons.Default.Lock,
                     contentDescription = null,
-                    tint = if (isDarkThemeBackground) Color.White else PrimaryPurpleDark,
-                    modifier = Modifier.size(36.dp)
+                    tint = CrimsonNova,
+                    modifier = Modifier.size(AppDimens.IconHero)
                   )
                 }
               }
-              Spacer(modifier = Modifier.height(16.dp))
+              Spacer(modifier = Modifier.height(AppDimens.Spacing16))
               Text(
                 text = "${activeSpace?.name ?: "Space"} is Protected",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = headerContentColor
               )
-              Spacer(modifier = Modifier.height(6.dp))
+              Spacer(modifier = Modifier.height(AppDimens.Spacing8))
               Text(
-                text = "Enter your PIN to access applications in this Space.",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (isDarkThemeBackground) Color.White.copy(alpha = 0.8f) else TextSecondary,
+                text = "Enter your credential to access applications in this isolated workspace.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (isDarkThemeBackground) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
               )
-              Spacer(modifier = Modifier.height(20.dp))
+              Spacer(modifier = Modifier.height(AppDimens.Spacing24))
               Button(
                 onClick = { showUnlockForActiveSpace = true },
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
-                modifier = Modifier.testTag("btn_unlock_active_space")
+                shape = ShapeRoundMd,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier.height(AppDimens.ButtonHeight).testTag("btn_unlock_active_space")
               ) {
                 Icon(
                   imageVector = Icons.Default.Key,
                   contentDescription = null,
-                  modifier = Modifier.size(16.dp)
+                  modifier = Modifier.size(AppDimens.IconSm)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Enter PIN")
+                Spacer(modifier = Modifier.width(AppDimens.Spacing8))
+                Text(
+                  "Enter PIN / Credential",
+                  style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                )
               }
             }
           }
           discoveryUiState.isLoading && discoveryUiState.allApps.isEmpty() -> {
-            Box(
-              modifier = Modifier.fillMaxSize(),
-              contentAlignment = Alignment.Center
-            ) {
-              CircularProgressIndicator(color = if (isDarkThemeBackground) Color.White else PrimaryPurpleDark)
-            }
+            ModernLoadingState(message = "Scanning installed applications...")
           }
           discoveryUiState.errorMessage != null && spaceScopedApps.isEmpty() -> {
-            Column(
-              modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-              verticalArrangement = Arrangement.Center,
-              horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-              Icon(
-                imageVector = Icons.Default.ErrorOutline,
-                contentDescription = null,
-                tint = Color(0xFFC62828),
-                modifier = Modifier.size(48.dp)
-              )
-              Spacer(modifier = Modifier.height(12.dp))
-              Text(
-                text = "Unable to load Space apps",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = headerContentColor
-              )
-              Spacer(modifier = Modifier.height(6.dp))
-              Text(
-                text = discoveryUiState.errorMessage ?: "",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (isDarkThemeBackground) Color.White.copy(alpha = 0.8f) else TextSecondary,
-                textAlign = TextAlign.Center
-              )
-              Spacer(modifier = Modifier.height(16.dp))
-              Button(
-                onClick = { discoveryViewModel.loadApps() },
-                shape = RoundedCornerShape(8.dp)
-              ) {
-                Text("Retry")
-              }
-            }
+            ModernEmptyState(
+              icon = Icons.Default.ErrorOutline,
+              title = "Unable to load Space apps",
+              description = discoveryUiState.errorMessage ?: "Unknown error occurred during discovery",
+              actionText = "Retry Scan",
+              onActionClick = { discoveryViewModel.loadApps() }
+            )
           }
           spaceScopedApps.isEmpty() -> {
             // Empty Space State prompting to configure app memberships
             Column(
               modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .padding(AppDimens.Spacing32),
               verticalArrangement = Arrangement.Center,
               horizontalAlignment = Alignment.CenterHorizontally
             ) {
-              Surface(
-                shape = CircleShape,
-                color = if (isDarkThemeBackground) Color.Black.copy(alpha = 0.6f) else PrimaryContainerLight,
-                modifier = Modifier.size(72.dp)
-              ) {
-                Box(contentAlignment = Alignment.Center) {
-                  Icon(
-                    imageVector = Icons.Default.Apps,
-                    contentDescription = null,
-                    tint = if (isDarkThemeBackground) Color.White else PrimaryPurpleDark,
-                    modifier = Modifier.size(36.dp)
-                  )
-                }
-              }
-              Spacer(modifier = Modifier.height(16.dp))
-              Text(
-                text = "No apps in ${activeSpace?.name ?: "this Space"}",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = headerContentColor
+              ModernEmptyState(
+                icon = Icons.Default.Apps,
+                title = "No apps in ${activeSpace?.name ?: "this Space"}",
+                description = "Assign apps to this workspace or import your existing home layout to get started."
               )
-              Spacer(modifier = Modifier.height(6.dp))
-              Text(
-                text = "Assign apps to this Space or import your existing layout.",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (isDarkThemeBackground) Color.White.copy(alpha = 0.8f) else TextSecondary,
-                textAlign = TextAlign.Center
-              )
-              Spacer(modifier = Modifier.height(20.dp))
-              Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+              Spacer(modifier = Modifier.height(AppDimens.Spacing16))
+              Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)) {
                 Button(
                   onClick = onOpenConfiguration,
-                  shape = RoundedCornerShape(8.dp),
-                  modifier = Modifier.testTag("btn_empty_space_configure")
+                  shape = ShapeRoundMd,
+                  colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                  modifier = Modifier.height(AppDimens.ButtonHeightSm).testTag("btn_empty_space_configure")
                 ) {
                   Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(AppDimens.IconSm)
                   )
-                  Spacer(modifier = Modifier.width(6.dp))
-                  Text("Add Apps")
+                  Spacer(modifier = Modifier.width(AppDimens.Spacing6))
+                  Text("Add Apps", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
                 }
 
                 OutlinedButton(
                   onClick = { showImportDialog = true },
-                  shape = RoundedCornerShape(8.dp),
-                  modifier = Modifier.testTag("btn_empty_space_import")
+                  shape = ShapeRoundMd,
+                  modifier = Modifier.height(AppDimens.ButtonHeightSm).testTag("btn_empty_space_import")
                 ) {
                   Icon(
                     imageVector = Icons.Default.FileDownload,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(AppDimens.IconSm)
                   )
-                  Spacer(modifier = Modifier.width(6.dp))
-                  Text("Import Layout")
+                  Spacer(modifier = Modifier.width(AppDimens.Spacing6))
+                  Text("Import Layout", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
                 }
               }
             }
@@ -757,7 +441,7 @@ fun LauncherHomeScreen(
                   space = currentSpace,
                   placements = activePlacements,
                   folders = activeFolders,
-                  allApps = discoveryUiState.allApps,
+                  allApps = spaceScopedApps,
                   getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
                   onLaunchApp = onLaunchApp,
                   onOpenFolder = { folder -> activeFolderInDialog = folder },
@@ -899,5 +583,3 @@ fun LauncherHomeScreen(
     )
   }
 }
-
-

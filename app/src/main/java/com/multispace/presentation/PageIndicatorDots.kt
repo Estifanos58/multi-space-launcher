@@ -13,9 +13,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.multispace.ui.theme.AppDimens
 
 @Composable
 fun PageIndicatorDots(
@@ -29,16 +29,16 @@ fun PageIndicatorDots(
   Row(
     modifier = modifier
       .wrapContentSize()
-      .padding(vertical = 6.dp)
+      .padding(vertical = AppDimens.Spacing6)
       .testTag("page_indicator_dots"),
-    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8),
     verticalAlignment = Alignment.CenterVertically
   ) {
     for (i in 0 until pageCount) {
       val isSelected = i == currentPage
 
       val width by animateDpAsState(
-        targetValue = if (isSelected) 20.dp else 6.dp,
+        targetValue = if (isSelected) 22.dp else 6.dp,
         animationSpec = tween(durationMillis = 250),
         label = "dot_width"
       )
@@ -47,7 +47,7 @@ fun PageIndicatorDots(
         targetValue = if (isSelected) {
           MaterialTheme.colorScheme.primary
         } else {
-          MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+          MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
         },
         animationSpec = tween(durationMillis = 250),
         label = "dot_color"

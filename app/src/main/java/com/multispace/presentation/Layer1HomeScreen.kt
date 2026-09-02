@@ -1,6 +1,7 @@
 package com.multispace.presentation
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -40,6 +41,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.multispace.domain.model.*
+import com.multispace.ui.theme.AppDimens
+import com.multispace.ui.theme.QuantumViolet
+import com.multispace.ui.theme.ShapeRoundLg
+import com.multispace.ui.theme.ShapeRoundMd
+import com.multispace.ui.theme.ShapeRoundSm
+import com.multispace.ui.theme.ShapeRoundXs
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -61,20 +68,27 @@ fun Layer1HomeScreen(
 ) {
   val coroutineScope = rememberCoroutineScope()
   val appLookup = remember(allApps) {
-    allApps.associateBy { "${it.packageName}/${it.activityName}" }
+    val map = mutableMapOf<String, DiscoveredApp>()
+    for (app in allApps) {
+      map["${app.packageName}/${app.activityName}"] = app
+      map[app.packageName] = app
+    }
+    map
   }
   val folderLookup = remember(folders) {
     folders.associateBy { it.id }
   }
 
-  // Ensure robust fallback placements if space has apps but no placements generated yet
+  // Ensure robust fallback placements if space has apps but no placements generated yet,
+  // guaranteeing no apps are duplicated in Layer 1.
   val effectivePlacements = remember(placements, allApps, space) {
-    if (placements.isNotEmpty()) {
+    val rawList = if (placements.isNotEmpty()) {
       placements
     } else if (allApps.isNotEmpty()) {
+      val uniqueApps = allApps.distinctBy { it.packageName }
       val cols = space.gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
       val pageSize = (cols * 5).coerceAtLeast(1)
-      allApps.mapIndexed { idx, app ->
+      uniqueApps.mapIndexed { idx, app ->
         SpaceItemPlacement(
           id = "virtual_${app.packageName}_$idx",
           spaceId = space.id,
@@ -89,6 +103,20 @@ fun Layer1HomeScreen(
       }
     } else {
       emptyList()
+    }
+
+    val seenPackages = mutableSetOf<String>()
+    rawList.filter { placement ->
+      if (placement.itemType == SpaceItemPlacement.ITEM_TYPE_APP) {
+        val pkg = placement.packageName
+        if (!pkg.isNullOrBlank()) {
+          seenPackages.add(pkg)
+        } else {
+          true
+        }
+      } else {
+        true
+      }
     }
   }
 
@@ -110,7 +138,7 @@ fun Layer1HomeScreen(
   val iconSizeModifier = when (space.iconSize) {
     Space.ICON_SIZE_SMALL -> Modifier.size(44.dp)
     Space.ICON_SIZE_LARGE -> Modifier.size(62.dp)
-    else -> Modifier.size(54.dp)
+    else -> Modifier.size(52.dp)
   }
 
   fun handleStartDrag(placement: SpaceItemPlacement, startOffset: Offset) {
@@ -180,7 +208,7 @@ fun Layer1HomeScreen(
         onPositioned = { binBounds = it },
         modifier = Modifier
           .align(Alignment.CenterHorizontally)
-          .padding(top = 8.dp)
+          .padding(top = AppDimens.Spacing8)
       )
 
       // Main content: either Paged or Scrolling
@@ -191,10 +219,10 @@ fun Layer1HomeScreen(
           modifier = Modifier
             .weight(1f)
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing8)
             .testTag("layer1_scroll_grid"),
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          verticalArrangement = Arrangement.spacedBy(16.dp)
+          horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8),
+          verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16)
         ) {
           items(effectivePlacements, key = { it.id }) { placement ->
             Layer1ItemCell(
@@ -232,9 +260,9 @@ fun Layer1HomeScreen(
             columns = GridCells.Fixed(space.gridColumns),
             modifier = Modifier
               .fillMaxSize()
-              .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+              .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing8),
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8),
+            verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16)
           ) {
             items(pagePlacements, key = { it.id }) { placement ->
               Layer1ItemCell(
@@ -269,7 +297,7 @@ fun Layer1HomeScreen(
             },
             modifier = Modifier
               .align(Alignment.CenterHorizontally)
-              .padding(vertical = 4.dp)
+              .padding(vertical = AppDimens.Spacing4)
           )
         }
       }
@@ -291,10 +319,10 @@ fun Layer1HomeScreen(
             )
           }
           .size(60.dp)
-          .shadow(16.dp, RoundedCornerShape(16.dp))
-          .clip(RoundedCornerShape(16.dp))
-          .background(MaterialTheme.colorScheme.surfaceVariant)
-          .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp))
+          .shadow(AppDimens.ElevationHigh, ShapeRoundMd)
+          .clip(ShapeRoundMd)
+          .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+          .border(AppDimens.BorderThick, QuantumViolet, ShapeRoundMd)
           .zIndex(999f)
           .testTag("floating_dragged_item"),
         contentAlignment = Alignment.Center
@@ -303,8 +331,8 @@ fun Layer1HomeScreen(
           Icon(
             imageVector = Icons.Default.Folder,
             contentDescription = "Dragging Folder",
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(32.dp)
+            tint = QuantumViolet,
+            modifier = Modifier.size(AppDimens.IconLg)
           )
         } else if (bitmap != null) {
           Image(
@@ -316,7 +344,7 @@ fun Layer1HomeScreen(
           Text(
             text = app?.label?.take(1) ?: "?",
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
+            color = QuantumViolet,
             fontSize = 20.sp
           )
         }
@@ -355,10 +383,10 @@ private fun Layer1ItemCell(
       .onGloballyPositioned { coordinates ->
         onPositioned(coordinates.boundsInRoot())
       }
-      .clip(RoundedCornerShape(14.dp))
+      .clip(ShapeRoundMd)
       .then(
         if (isTargetHover) {
-          Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(14.dp))
+          Modifier.border(AppDimens.BorderThick, QuantumViolet, ShapeRoundMd)
         } else {
           Modifier
         }
@@ -386,17 +414,17 @@ private fun Layer1ItemCell(
           if (app != null) onLaunchApp(app)
         }
       }
-      .padding(4.dp)
+      .padding(AppDimens.Spacing4)
       .testTag(if (placement.isFolder) "layer1_folder_${placement.folderId}" else "layer1_app_${placement.packageName}")
   ) {
     if (placement.isFolder) {
       // Folder Preview Icon (2x2 mini grid)
       Box(
         modifier = iconSizeModifier
-          .clip(RoundedCornerShape(16.dp))
-          .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
-          .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
-          .padding(4.dp),
+          .clip(ShapeRoundMd)
+          .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f))
+          .border(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant, ShapeRoundMd)
+          .padding(AppDimens.Spacing4),
         contentAlignment = Alignment.Center
       ) {
         val previewItems = folder?.items?.take(4) ?: emptyList()
@@ -428,14 +456,14 @@ private fun Layer1ItemCell(
           Icon(
             imageVector = Icons.Default.Folder,
             contentDescription = "Folder",
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(24.dp)
+            tint = QuantumViolet,
+            modifier = Modifier.size(AppDimens.IconMd)
           )
         }
       }
 
       if (space.labelVisibility) {
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Spacing4))
         Text(
           text = folder?.name ?: "Folder",
           style = MaterialTheme.typography.bodySmall,
@@ -450,8 +478,8 @@ private fun Layer1ItemCell(
       // App Item
       Box(
         modifier = iconSizeModifier
-          .clip(RoundedCornerShape(14.dp))
-          .background(MaterialTheme.colorScheme.surfaceVariant),
+          .clip(ShapeRoundMd)
+          .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center
       ) {
         val bitmap = app?.let { getBitmap(it) }
@@ -465,14 +493,14 @@ private fun Layer1ItemCell(
           Text(
             text = app?.label?.take(1) ?: placement.packageName?.take(1)?.uppercase() ?: "?",
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
+            color = QuantumViolet,
             fontSize = 18.sp
           )
         }
       }
 
       if (space.labelVisibility) {
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Spacing4))
         Text(
           text = app?.label ?: placement.packageName?.substringAfterLast('.') ?: "",
           style = MaterialTheme.typography.bodySmall,
@@ -504,13 +532,13 @@ private fun MiniAppIcon(
       contentDescription = app.label,
       modifier = Modifier
         .size(16.dp)
-        .clip(RoundedCornerShape(4.dp))
+        .clip(ShapeRoundXs)
     )
   } else {
     Box(
       modifier = Modifier
         .size(16.dp)
-        .clip(RoundedCornerShape(4.dp))
+        .clip(ShapeRoundXs)
         .background(MaterialTheme.colorScheme.primaryContainer),
       contentAlignment = Alignment.Center
     ) {

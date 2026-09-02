@@ -11,49 +11,73 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
-private val DarkColorScheme =
+private val ModernDarkColorScheme =
   darkColorScheme(
-    primary = PrimaryContainerBadge,
-    onPrimary = PrimaryPurpleDark,
-    primaryContainer = PrimaryPurple,
-    onPrimaryContainer = PrimaryContainerLight,
-    secondary = LightSurfaceContainerHigh,
-    onSecondary = TextPrimary,
-    background = DarkTerminalSurface,
-    surface = DarkTerminalSurface,
-    onSurface = DarkTerminalText,
-    surfaceContainer = Color(0xFF2B2930),
-    surfaceVariant = Color(0xFF49454F),
-    onSurfaceVariant = Color(0xFFCAC4D0)
+    primary = QuantumVioletLight,
+    onPrimary = QuantumVioletDark,
+    primaryContainer = QuantumVioletDark,
+    onPrimaryContainer = QuantumVioletGlow,
+    secondary = CyberCyan,
+    onSecondary = Color.Black,
+    secondaryContainer = CyberCyanDark,
+    onSecondaryContainer = CyberCyanLight,
+    tertiary = EmeraldCore,
+    onTertiary = Color.Black,
+    tertiaryContainer = EmeraldCoreDark,
+    onTertiaryContainer = EmeraldCoreLight,
+    background = ObsidianBase,
+    onBackground = TextPrimaryDark,
+    surface = ObsidianSurface,
+    onSurface = TextPrimaryDark,
+    surfaceVariant = ObsidianSurfaceElevated,
+    onSurfaceVariant = TextSecondaryDark,
+    surfaceContainer = ObsidianSurfaceElevated,
+    surfaceContainerLow = ObsidianSurface,
+    surfaceContainerHigh = ObsidianSurfaceHigh,
+    surfaceContainerHighest = ObsidianSurfaceHighlight,
+    outline = ObsidianBorder,
+    outlineVariant = ObsidianBorderSubtle,
+    error = CrimsonNova,
+    onError = Color.White,
+    errorContainer = CrimsonNovaDark,
+    onErrorContainer = CrimsonNovaLight
   )
 
-private val LightColorScheme =
+private val ModernLightColorScheme =
   lightColorScheme(
-    primary = PrimaryPurple,
+    primary = QuantumViolet,
     onPrimary = Color.White,
-    primaryContainer = PrimaryContainerLight,
-    onPrimaryContainer = PrimaryPurpleDark,
-    secondary = PrimaryPurple,
+    primaryContainer = PrimaryContainerBadge,
+    onPrimaryContainer = QuantumVioletDark,
+    secondary = CyberCyanDark,
     onSecondary = Color.White,
-    secondaryContainer = PrimaryContainerBadge,
-    onSecondaryContainer = PrimaryPurpleDark,
-    background = LightBackground,
-    surface = LightSurface,
-    onBackground = TextPrimary,
-    onSurface = TextPrimary,
-    surfaceContainer = LightSurfaceContainer,
-    surfaceContainerLow = LightSurfaceContainerLow,
-    surfaceContainerHigh = LightSurfaceContainerHigh,
-    surfaceVariant = LightSurfaceContainer,
-    onSurfaceVariant = TextSecondary,
-    outline = Color(0xFF79747E),
-    outlineVariant = Color(0xFFCAC4D0)
+    secondaryContainer = Color(0xFFE0F7FA),
+    onSecondaryContainer = CyberCyanDark,
+    tertiary = EmeraldCoreDark,
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFD1FAE5),
+    onTertiaryContainer = EmeraldCoreDark,
+    background = CanvasLightBase,
+    onBackground = TextPrimaryLight,
+    surface = CanvasLightSurface,
+    onSurface = TextPrimaryLight,
+    surfaceVariant = CanvasLightSurfaceElevated,
+    onSurfaceVariant = TextSecondaryLight,
+    surfaceContainer = CanvasLightSurfaceElevated,
+    surfaceContainerLow = CanvasLightSurface,
+    surfaceContainerHigh = CanvasLightSurfaceHigh,
+    surfaceContainerHighest = Color(0xFFCBD5E1),
+    outline = CanvasLightBorder,
+    outlineVariant = CanvasLightBorderSubtle,
+    error = CrimsonNova,
+    onError = Color.White,
+    errorContainer = Color(0xFFFEE2E2),
+    onErrorContainer = CrimsonNovaDark
   )
 
 @Composable
 fun MyApplicationTheme(
   darkTheme: Boolean = isSystemInDarkTheme(),
-  // Dynamic color is available on Android 12+
   dynamicColor: Boolean = true,
   content: @Composable () -> Unit,
 ) {
@@ -63,10 +87,14 @@ fun MyApplicationTheme(
         val context = LocalContext.current
         if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
       }
-
-      darkTheme -> DarkColorScheme
-      else -> LightColorScheme
+      darkTheme -> ModernDarkColorScheme
+      else -> ModernLightColorScheme
     }
 
-  MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
+  MaterialTheme(
+    colorScheme = colorScheme,
+    typography = Typography,
+    shapes = AppShapes,
+    content = content
+  )
 }

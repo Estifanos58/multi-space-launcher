@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -22,6 +23,8 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.multispace.ui.theme.AppDimens
+import com.multispace.ui.theme.CrimsonNova
 
 @Composable
 fun RemovalBucketBar(
@@ -31,7 +34,7 @@ fun RemovalBucketBar(
   modifier: Modifier = Modifier
 ) {
   val scale by animateFloatAsState(
-    targetValue = if (isHovered) 1.2f else 1.0f,
+    targetValue = if (isHovered) 1.25f else 1.0f,
     animationSpec = spring(),
     label = "bin_scale"
   )
@@ -44,7 +47,7 @@ fun RemovalBucketBar(
   ) {
     Box(
       modifier = Modifier
-        .padding(top = 4.dp)
+        .padding(top = AppDimens.Spacing8)
         .onGloballyPositioned { coordinates ->
           onPositioned(coordinates.boundsInRoot())
         }
@@ -52,7 +55,12 @@ fun RemovalBucketBar(
         .size(54.dp)
         .clip(CircleShape)
         .background(
-          if (isHovered) Color(0xFFD32F2F) else MaterialTheme.colorScheme.errorContainer
+          if (isHovered) CrimsonNova else MaterialTheme.colorScheme.errorContainer
+        )
+        .border(
+          AppDimens.BorderMedium,
+          if (isHovered) Color.White.copy(alpha = 0.8f) else CrimsonNova.copy(alpha = 0.4f),
+          CircleShape
         )
         .testTag("removal_bucket_bar"),
       contentAlignment = Alignment.Center
@@ -62,10 +70,9 @@ fun RemovalBucketBar(
         contentDescription = "Remove from Home",
         tint = if (isHovered) Color.White else MaterialTheme.colorScheme.onErrorContainer,
         modifier = Modifier
-          .size(28.dp)
+          .size(AppDimens.IconLg)
           .testTag("removal_bin_icon")
       )
     }
   }
 }
-

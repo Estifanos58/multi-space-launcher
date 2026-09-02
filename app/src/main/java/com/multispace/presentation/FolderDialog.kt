@@ -11,8 +11,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +32,14 @@ import androidx.compose.ui.window.Dialog
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.SpaceFolder
 import com.multispace.domain.model.SpaceFolderItem
+import com.multispace.ui.components.ModernCard
+import com.multispace.ui.components.ModernDialogContainer
+import com.multispace.ui.components.ModernEmptyState
+import com.multispace.ui.theme.AppDimens
+import com.multispace.ui.theme.CrimsonNova
+import com.multispace.ui.theme.ShapeRoundLg
+import com.multispace.ui.theme.ShapeRoundMd
+import com.multispace.ui.theme.ShapeRoundSm
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -56,17 +65,22 @@ fun FolderDialog(
   Dialog(onDismissRequest = onDismiss) {
     Surface(
       modifier = Modifier
-        .fillMaxWidth(0.92f)
+        .fillMaxWidth(0.94f)
         .wrapContentHeight()
-        .clip(RoundedCornerShape(24.dp))
+        .clip(ShapeRoundLg)
         .testTag("folder_dialog"),
-      color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
-      tonalElevation = 8.dp
+      shape = ShapeRoundLg,
+      color = MaterialTheme.colorScheme.surface,
+      border = androidx.compose.foundation.BorderStroke(
+        AppDimens.BorderThin,
+        MaterialTheme.colorScheme.outlineVariant
+      ),
+      tonalElevation = AppDimens.ElevationHigh
     ) {
       Column(
         modifier = Modifier
           .fillMaxWidth()
-          .padding(20.dp),
+          .padding(AppDimens.Spacing20),
         horizontalAlignment = Alignment.CenterHorizontally
       ) {
         // Header Row
@@ -80,6 +94,7 @@ fun FolderDialog(
               value = folderNameInput,
               onValueChange = { folderNameInput = it },
               singleLine = true,
+              shape = ShapeRoundMd,
               textStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
               modifier = Modifier.weight(1f).testTag("folder_rename_input"),
               trailingIcon = {
@@ -89,7 +104,11 @@ fun FolderDialog(
                     isRenaming = false
                   }
                 }) {
-                  Text("Save", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                  Text(
+                    "Save",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                  )
                 }
               }
             )
@@ -98,10 +117,24 @@ fun FolderDialog(
               verticalAlignment = Alignment.CenterVertically,
               modifier = Modifier.weight(1f)
             ) {
+              Box(
+                modifier = Modifier
+                  .size(36.dp)
+                  .clip(ShapeRoundSm)
+                  .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+              ) {
+                Icon(
+                  imageVector = Icons.Default.Folder,
+                  contentDescription = null,
+                  tint = MaterialTheme.colorScheme.primary,
+                  modifier = Modifier.size(AppDimens.IconSm)
+                )
+              }
+              Spacer(modifier = Modifier.width(AppDimens.Spacing12))
               Text(
                 text = folder.name,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -117,71 +150,66 @@ fun FolderDialog(
             }
           }
 
-          Box {
-            IconButton(onClick = { showOptionsMenu = true }, modifier = Modifier.size(36.dp)) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Box {
+              IconButton(onClick = { showOptionsMenu = true }, modifier = Modifier.size(36.dp)) {
+                Icon(
+                  imageVector = Icons.Default.MoreVert,
+                  contentDescription = "Folder options",
+                  tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+              }
+              DropdownMenu(
+                expanded = showOptionsMenu,
+                onDismissRequest = { showOptionsMenu = false }
+              ) {
+                DropdownMenuItem(
+                  text = { Text("Rename Folder") },
+                  leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                  onClick = {
+                    showOptionsMenu = false
+                    isRenaming = true
+                  }
+                )
+                DropdownMenuItem(
+                  text = { Text("Delete Folder", color = CrimsonNova) },
+                  leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = CrimsonNova) },
+                  onClick = {
+                    showOptionsMenu = false
+                    onDeleteFolder()
+                    onDismiss()
+                  }
+                )
+              }
+            }
+
+            IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
               Icon(
-                imageVector = Icons.Default.MoreVert,
-                contentDescription = "Folder options",
+                imageVector = Icons.Default.Close,
+                contentDescription = "Close",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
               )
             }
-            DropdownMenu(
-              expanded = showOptionsMenu,
-              onDismissRequest = { showOptionsMenu = false }
-            ) {
-              DropdownMenuItem(
-                text = { Text("Rename Folder") },
-                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                onClick = {
-                  showOptionsMenu = false
-                  isRenaming = true
-                }
-              )
-              DropdownMenuItem(
-                text = { Text("Delete Folder", color = MaterialTheme.colorScheme.error) },
-                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                onClick = {
-                  showOptionsMenu = false
-                  onDeleteFolder()
-                  onDismiss()
-                }
-              )
-            }
-          }
-
-          IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
-            Icon(
-              imageVector = Icons.Default.Close,
-              contentDescription = "Close",
-              tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
           }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Spacing16))
 
         if (folder.items.isEmpty()) {
-          Box(
-            modifier = Modifier
-              .fillMaxWidth()
-              .height(120.dp),
-            contentAlignment = Alignment.Center
-          ) {
-            Text(
-              text = "Empty folder",
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-          }
+          ModernEmptyState(
+            icon = Icons.Default.Folder,
+            title = "Empty Folder",
+            description = "Drag and drop apps onto this folder on your Home screen to group them together."
+          )
         } else {
           LazyVerticalGrid(
             columns = GridCells.Fixed(3),
             modifier = Modifier
               .fillMaxWidth()
               .heightIn(max = 320.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(vertical = 8.dp)
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12),
+            verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16),
+            contentPadding = PaddingValues(vertical = AppDimens.Spacing8)
           ) {
             items(folder.items, key = { it.id }) { item ->
               val key = "${item.packageName}/${item.componentName}"
@@ -190,7 +218,7 @@ fun FolderDialog(
               Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                  .clip(RoundedCornerShape(12.dp))
+                  .clip(ShapeRoundMd)
                   .combinedClickable(
                     onClick = {
                       if (app != null) {
@@ -202,13 +230,13 @@ fun FolderDialog(
                       selectedItemForAction = item
                     }
                   )
-                  .padding(6.dp)
+                  .padding(AppDimens.Spacing6)
               ) {
                 Box(
                   modifier = Modifier
                     .size(52.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .clip(ShapeRoundMd)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                   contentAlignment = Alignment.Center
                 ) {
                   val bitmap = app?.let { getBitmap(it) }
@@ -228,7 +256,7 @@ fun FolderDialog(
                   }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(AppDimens.Spacing6))
                 Text(
                   text = app?.label ?: item.packageName.substringAfterLast('.'),
                   style = MaterialTheme.typography.bodySmall,
@@ -243,7 +271,7 @@ fun FolderDialog(
           }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Spacing12))
         Text(
           text = "Tip: Long-press an app to remove it from this folder",
           style = MaterialTheme.typography.labelSmall,
@@ -259,26 +287,24 @@ fun FolderDialog(
     val key = "${targetItem.packageName}/${targetItem.componentName}"
     val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == targetItem.packageName }
 
-    AlertDialog(
-      onDismissRequest = { selectedItemForAction = null },
-      title = { Text(app?.label ?: "App Item") },
-      text = { Text("Remove '${app?.label ?: targetItem.packageName}' from '${folder.name}'?") },
-      confirmButton = {
-        Button(
-          onClick = {
-            onRemoveItem(targetItem)
-            selectedItemForAction = null
-          },
-          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-        ) {
-          Text("Remove from Folder")
-        }
+    ModernDialogContainer(
+      title = "Folder Item",
+      subtitle = "Manage folder contents",
+      icon = Icons.Default.DeleteOutline,
+      iconTint = CrimsonNova,
+      confirmButtonText = "Remove",
+      confirmButtonColor = CrimsonNova,
+      onConfirm = {
+        onRemoveItem(targetItem)
+        selectedItemForAction = null
       },
-      dismissButton = {
-        TextButton(onClick = { selectedItemForAction = null }) {
-          Text("Cancel")
-        }
-      }
-    )
+      onDismissRequest = { selectedItemForAction = null }
+    ) {
+      Text(
+        text = "Remove '${app?.label ?: targetItem.packageName}' from '${folder.name}'?",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurface
+      )
+    }
   }
 }

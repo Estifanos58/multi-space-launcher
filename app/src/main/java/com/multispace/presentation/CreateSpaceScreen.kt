@@ -52,6 +52,8 @@ import com.multispace.domain.model.ImportReport
 import com.multispace.domain.model.LayoutPreset
 import com.multispace.domain.model.Space
 import com.multispace.platform.PinSecurityManager
+import androidx.compose.foundation.BorderStroke
+import com.multispace.ui.components.*
 import com.multispace.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -624,7 +626,7 @@ fun CreateSpaceScreen(
     CreateSpaceSubPage.MAIN_TABS -> {
       Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = LightBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
           Column {
             TopAppBar(
@@ -634,7 +636,7 @@ fun CreateSpaceScreen(
                     text = if (isEditMode) "Edit Space" else "Create New Space",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                   )
                   Text(
                     text = when (currentTab) {
@@ -644,7 +646,7 @@ fun CreateSpaceScreen(
                       else -> "Apps & Grid Layout"
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                   )
                 }
               },
@@ -658,24 +660,26 @@ fun CreateSpaceScreen(
                   Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = TextPrimary
+                    tint = MaterialTheme.colorScheme.onSurface
                   )
                 }
               },
-              colors = TopAppBarDefaults.topAppBarColors(containerColor = LightBackground)
+              colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
 
             // Primary Four-Tab Switcher
             TabRow(
               selectedTabIndex = currentTab,
-              containerColor = LightSurfaceContainerLow,
-              contentColor = PrimaryPurple,
+              containerColor = MaterialTheme.colorScheme.surfaceContainer,
+              contentColor = QuantumViolet,
               modifier = Modifier.fillMaxWidth()
             ) {
               Tab(
                 selected = currentTab == 0,
                 onClick = { currentTab = 0 },
                 modifier = Modifier.testTag("tab_basics_security"),
+                selectedContentColor = QuantumViolet,
+                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 text = {
                   Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -698,6 +702,8 @@ fun CreateSpaceScreen(
                   }
                 },
                 modifier = Modifier.testTag("tab_presets"),
+                selectedContentColor = QuantumViolet,
+                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 text = {
                   Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -720,6 +726,8 @@ fun CreateSpaceScreen(
                   }
                 },
                 modifier = Modifier.testTag("tab_wallpaper_theme"),
+                selectedContentColor = QuantumViolet,
+                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 text = {
                   Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -742,6 +750,8 @@ fun CreateSpaceScreen(
                   }
                 },
                 modifier = Modifier.testTag("tab_apps_layout"),
+                selectedContentColor = QuantumViolet,
+                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 text = {
                   Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -761,8 +771,9 @@ fun CreateSpaceScreen(
         },
         bottomBar = {
           Surface(
-            color = LightSurfaceContainer,
+            color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
+            border = BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.fillMaxWidth()
           ) {
             Row(
@@ -775,7 +786,7 @@ fun CreateSpaceScreen(
               if (currentTab == 0) {
                 OutlinedButton(
                   onClick = onNavigateBack,
-                  shape = RoundedCornerShape(12.dp),
+                  shape = ShapeRoundMd,
                   modifier = Modifier.weight(1f)
                 ) {
                   Text("Cancel")
@@ -786,8 +797,8 @@ fun CreateSpaceScreen(
                       currentTab = 1
                     }
                   },
-                  shape = RoundedCornerShape(12.dp),
-                  colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                  shape = ShapeRoundMd,
+                  colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                   modifier = Modifier
                     .weight(1.5f)
                     .testTag("btn_next_to_presets")
@@ -803,7 +814,7 @@ fun CreateSpaceScreen(
               } else if (currentTab == 1) {
                 OutlinedButton(
                   onClick = { currentTab = 0 },
-                  shape = RoundedCornerShape(12.dp),
+                  shape = ShapeRoundMd,
                   modifier = Modifier.weight(1f)
                 ) {
                   Icon(
@@ -816,8 +827,8 @@ fun CreateSpaceScreen(
                 }
                 Button(
                   onClick = { currentTab = 2 },
-                  shape = RoundedCornerShape(12.dp),
-                  colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                  shape = ShapeRoundMd,
+                  colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                   modifier = Modifier
                     .weight(1.5f)
                     .testTag("btn_next_to_wallpaper")
@@ -833,7 +844,7 @@ fun CreateSpaceScreen(
               } else if (currentTab == 2) {
                 OutlinedButton(
                   onClick = { currentTab = 1 },
-                  shape = RoundedCornerShape(12.dp),
+                  shape = ShapeRoundMd,
                   modifier = Modifier.weight(1f)
                 ) {
                   Icon(
@@ -846,8 +857,8 @@ fun CreateSpaceScreen(
                 }
                 Button(
                   onClick = { currentTab = 3 },
-                  shape = RoundedCornerShape(12.dp),
-                  colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                  shape = ShapeRoundMd,
+                  colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                   modifier = Modifier
                     .weight(1.5f)
                     .testTag("btn_next_to_apps")
@@ -863,7 +874,7 @@ fun CreateSpaceScreen(
               } else {
                 OutlinedButton(
                   onClick = { currentTab = 2 },
-                  shape = RoundedCornerShape(12.dp),
+                  shape = ShapeRoundMd,
                   modifier = Modifier.weight(1f)
                 ) {
                   Icon(
@@ -1074,15 +1085,15 @@ fun CreateSpaceScreen(
                     }
                   },
                   enabled = !isCreating,
-                  shape = RoundedCornerShape(12.dp),
-                  colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                  shape = ShapeRoundMd,
+                  colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                   modifier = Modifier
                     .weight(1.5f)
                     .testTag("btn_confirm_create_space")
                 ) {
                   if (isCreating) {
                     CircularProgressIndicator(
-                      color = Color.White,
+                      color = MaterialTheme.colorScheme.onPrimary,
                       modifier = Modifier.size(20.dp),
                       strokeWidth = 2.dp
                     )
@@ -1268,10 +1279,22 @@ fun CreateSpaceScreen(
                   }
                 },
                 onSelectAll = {
-                  selectedAppsSet = allApps.map { it.id }.toSet()
+                  selectedAppsSet = if (appSearchQuery.isNotBlank()) {
+                    val q = appSearchQuery.trim().lowercase()
+                    val filtered = allApps.filter { it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q) }
+                    selectedAppsSet + filtered.map { it.id }.toSet()
+                  } else {
+                    allApps.map { it.id }.toSet()
+                  }
                 },
                 onClearAll = {
-                  selectedAppsSet = emptySet()
+                  selectedAppsSet = if (appSearchQuery.isNotBlank()) {
+                    val q = appSearchQuery.trim().lowercase()
+                    val filtered = allApps.filter { it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q) }
+                    selectedAppsSet - filtered.map { it.id }.toSet()
+                  } else {
+                    emptySet()
+                  }
                 },
                 gridColumns = gridColumns,
                 onSelectGridColumns = { gridColumns = it },
@@ -1484,9 +1507,7 @@ private fun Tab1BasicsAndSecurity(
   ) {
     // 1. Space Name Section
     item {
-      Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = LightSurfaceContainerLow),
+      ModernCard(
         modifier = Modifier.fillMaxWidth()
       ) {
         Column(
@@ -1495,11 +1516,9 @@ private fun Tab1BasicsAndSecurity(
             .padding(16.dp),
           verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-          Text(
-            text = "Space Identity",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = TextPrimary
+          ModernSectionHeader(
+            title = "Space Identity",
+            subtitle = "Choose a descriptive name for your space"
           )
 
           OutlinedTextField(
@@ -1509,20 +1528,20 @@ private fun Tab1BasicsAndSecurity(
             placeholder = { Text("e.g. Work, Personal, Games") },
             singleLine = true,
             isError = spaceNameError != null,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
-            shape = RoundedCornerShape(12.dp),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold),
+            shape = ShapeRoundMd,
             colors = OutlinedTextFieldDefaults.colors(
-              focusedTextColor = TextPrimary,
-              unfocusedTextColor = TextPrimary,
-              focusedContainerColor = LightSurfaceContainerLowest,
-              unfocusedContainerColor = LightSurfaceContainerLowest,
-              focusedBorderColor = PrimaryPurple,
-              unfocusedBorderColor = Color(0xFFCAC4D0),
-              focusedLabelColor = PrimaryPurple,
-              unfocusedLabelColor = TextSecondary,
-              focusedPlaceholderColor = TextMuted,
-              unfocusedPlaceholderColor = TextMuted,
-              cursorColor = PrimaryPurple
+              focusedTextColor = MaterialTheme.colorScheme.onSurface,
+              unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+              focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+              unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+              focusedBorderColor = QuantumViolet,
+              unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+              focusedLabelColor = QuantumViolet,
+              unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+              focusedPlaceholderColor = MaterialTheme.colorScheme.outline,
+              unfocusedPlaceholderColor = MaterialTheme.colorScheme.outline,
+              cursorColor = QuantumViolet
             ),
             modifier = Modifier
               .fillMaxWidth()
@@ -1531,7 +1550,7 @@ private fun Tab1BasicsAndSecurity(
               Icon(
                 imageVector = Icons.Default.Label,
                 contentDescription = null,
-                tint = PrimaryPurpleDark
+                tint = QuantumViolet
               )
             }
           )
@@ -1539,7 +1558,7 @@ private fun Tab1BasicsAndSecurity(
           if (spaceNameError != null) {
             Text(
               text = spaceNameError,
-              color = Color(0xFFC62828),
+              color = CrimsonNova,
               style = MaterialTheme.typography.bodySmall,
               fontWeight = FontWeight.Medium
             )
@@ -1565,9 +1584,7 @@ private fun Tab1BasicsAndSecurity(
 
     // 2. Space Credentials & Security Section
     item {
-      Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = LightSurfaceContainerLow),
+      ModernCard(
         modifier = Modifier.fillMaxWidth()
       ) {
         Column(
@@ -1581,23 +1598,14 @@ private fun Tab1BasicsAndSecurity(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
           ) {
-            Column {
-              Text(
-                text = "Space Security & Credentials",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-              )
-              Text(
-                text = "Protect this Space with a PIN or Pattern Lock",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
-              )
-            }
+            ModernSectionHeader(
+              title = "Space Security & Credentials",
+              subtitle = "Protect this Space with a PIN or Pattern Lock"
+            )
             Icon(
               imageVector = Icons.Default.Lock,
               contentDescription = null,
-              tint = PrimaryPurpleDark
+              tint = QuantumViolet
             )
           }
 
@@ -1615,9 +1623,9 @@ private fun Tab1BasicsAndSecurity(
             options.forEach { (opt, meta) ->
               val isSelected = credentialOption == opt
               Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = if (isSelected) PrimaryContainerLight else LightSurfaceContainerHigh,
-                border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, PrimaryPurple) else null,
+                shape = ShapeRoundMd,
+                color = if (isSelected) QuantumViolet.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = if (isSelected) BorderStroke(2.dp, QuantumViolet) else BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier
                   .weight(1f)
                   .clickable { onCredentialOptionChange(opt) }
@@ -1633,14 +1641,14 @@ private fun Tab1BasicsAndSecurity(
                   Icon(
                     imageVector = meta.second,
                     contentDescription = null,
-                    tint = if (isSelected) PrimaryPurpleDark else TextSecondary,
+                    tint = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                   )
                   Text(
                     text = meta.first,
                     fontSize = 12.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isSelected) PrimaryPurpleDark else TextPrimary
+                    color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurface
                   )
                 }
               }
@@ -1653,7 +1661,7 @@ private fun Tab1BasicsAndSecurity(
               Text(
                 text = "No password required. Anyone can switch into this Space.",
                 style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
               )
             }
 
@@ -1661,14 +1669,15 @@ private fun Tab1BasicsAndSecurity(
               Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (editingSpace != null && editingSpace.isPinProtected) {
                   Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFE8F5E9),
+                    shape = ShapeRoundSm,
+                    color = EmeraldCore.copy(alpha = 0.12f),
+                    border = BorderStroke(AppDimens.BorderThin, EmeraldCore.copy(alpha = 0.3f)),
                     modifier = Modifier.fillMaxWidth()
                   ) {
                     Text(
                       text = "🔒 Currently protected by PIN. Enter new digits below to change, or leave blank to keep your current PIN.",
                       fontSize = 12.sp,
-                      color = Color(0xFF2E7D32),
+                      color = EmeraldCore,
                       modifier = Modifier.padding(10.dp)
                     )
                   }
@@ -1676,23 +1685,23 @@ private fun Tab1BasicsAndSecurity(
 
                 OutlinedTextField(
                   value = pinValue,
-                  onValueChange = onPinValueChange,
+                  onPinValueChange,
                   label = { Text(if (editingSpace != null && editingSpace.isPinProtected) "New PIN (leave blank to keep)" else "PIN (4-8 digits)") },
                   visualTransformation = if (showPinText) VisualTransformation.None else PasswordVisualTransformation(),
                   keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                   singleLine = true,
-                  textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
-                  shape = RoundedCornerShape(12.dp),
+                  textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold),
+                  shape = ShapeRoundMd,
                   colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
-                    focusedContainerColor = LightSurfaceContainerLowest,
-                    unfocusedContainerColor = LightSurfaceContainerLowest,
-                    focusedBorderColor = PrimaryPurple,
-                    unfocusedBorderColor = Color(0xFFCAC4D0),
-                    focusedLabelColor = PrimaryPurple,
-                    unfocusedLabelColor = TextSecondary,
-                    cursorColor = PrimaryPurple
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    focusedBorderColor = QuantumViolet,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    focusedLabelColor = QuantumViolet,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    cursorColor = QuantumViolet
                   ),
                   modifier = Modifier
                     .fillMaxWidth()
@@ -1701,7 +1710,8 @@ private fun Tab1BasicsAndSecurity(
                     IconButton(onClick = onToggleShowPin) {
                       Icon(
                         imageVector = if (showPinText) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = "Toggle PIN visibility"
+                        contentDescription = "Toggle PIN visibility",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                       )
                     }
                   }
@@ -1714,18 +1724,18 @@ private fun Tab1BasicsAndSecurity(
                   visualTransformation = if (showPinText) VisualTransformation.None else PasswordVisualTransformation(),
                   keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                   singleLine = true,
-                  textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
-                  shape = RoundedCornerShape(12.dp),
+                  textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold),
+                  shape = ShapeRoundMd,
                   colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
-                    focusedContainerColor = LightSurfaceContainerLowest,
-                    unfocusedContainerColor = LightSurfaceContainerLowest,
-                    focusedBorderColor = PrimaryPurple,
-                    unfocusedBorderColor = Color(0xFFCAC4D0),
-                    focusedLabelColor = PrimaryPurple,
-                    unfocusedLabelColor = TextSecondary,
-                    cursorColor = PrimaryPurple
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    focusedBorderColor = QuantumViolet,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    focusedLabelColor = QuantumViolet,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    cursorColor = QuantumViolet
                   ),
                   modifier = Modifier
                     .fillMaxWidth()
@@ -1735,7 +1745,7 @@ private fun Tab1BasicsAndSecurity(
                 if (pinError != null) {
                   Text(
                     text = pinError,
-                    color = Color(0xFFC62828),
+                    color = CrimsonNova,
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium
                   )
@@ -1747,8 +1757,9 @@ private fun Tab1BasicsAndSecurity(
               Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (confirmedPatternString != null) {
                   Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFE8F5E9),
+                    shape = ShapeRoundMd,
+                    color = EmeraldCore.copy(alpha = 0.12f),
+                    border = BorderStroke(AppDimens.BorderThin, EmeraldCore.copy(alpha = 0.3f)),
                     modifier = Modifier.fillMaxWidth()
                   ) {
                     Row(
@@ -1765,32 +1776,33 @@ private fun Tab1BasicsAndSecurity(
                         Icon(
                           imageVector = Icons.Default.CheckCircle,
                           contentDescription = null,
-                          tint = Color(0xFF2E7D32),
+                          tint = EmeraldCore,
                           modifier = Modifier.size(24.dp)
                         )
                         Column {
                           Text(
                             text = "New Pattern Configured",
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF2E7D32),
+                            color = EmeraldCore,
                             fontSize = 13.sp
                           )
                           Text(
                             text = "${patternRows}×${patternCols} grid (${patternRows * patternCols} dots) verified",
-                            color = Color(0xFF2E7D32).copy(alpha = 0.8f),
+                            color = EmeraldCore.copy(alpha = 0.8f),
                             fontSize = 11.sp
                           )
                         }
                       }
                       TextButton(onClick = onOpenPatternConfig) {
-                        Text("Change", fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                        Text("Change", fontWeight = FontWeight.Bold, color = EmeraldCore)
                       }
                     }
                   }
                 } else if (editingSpace != null && editingSpace.isPatternProtected) {
                   Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFE8F5E9),
+                    shape = ShapeRoundMd,
+                    color = EmeraldCore.copy(alpha = 0.12f),
+                    border = BorderStroke(AppDimens.BorderThin, EmeraldCore.copy(alpha = 0.3f)),
                     modifier = Modifier.fillMaxWidth()
                   ) {
                     Row(
@@ -1807,33 +1819,33 @@ private fun Tab1BasicsAndSecurity(
                         Icon(
                           imageVector = Icons.Default.CheckCircle,
                           contentDescription = null,
-                          tint = Color(0xFF2E7D32),
+                          tint = EmeraldCore,
                           modifier = Modifier.size(24.dp)
                         )
                         Column {
                           Text(
                             text = "Existing Pattern Lock Active",
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF2E7D32),
+                            color = EmeraldCore,
                             fontSize = 13.sp
                           )
                           Text(
                             text = "${patternRows}×${patternCols} grid pattern active. Tap 'Change' to record a new pattern.",
-                            color = Color(0xFF2E7D32).copy(alpha = 0.8f),
+                            color = EmeraldCore.copy(alpha = 0.8f),
                             fontSize = 11.sp
                           )
                         }
                       }
                       TextButton(onClick = onOpenPatternConfig) {
-                        Text("Change", fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                        Text("Change", fontWeight = FontWeight.Bold, color = EmeraldCore)
                       }
                     }
                   }
                 } else {
                   Button(
                     onClick = onOpenPatternConfig,
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                    shape = ShapeRoundMd,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     modifier = Modifier
                       .fillMaxWidth()
                       .testTag("btn_configure_pattern")
@@ -1851,7 +1863,7 @@ private fun Tab1BasicsAndSecurity(
                 if (pinError != null) {
                   Text(
                     text = pinError,
-                    color = Color(0xFFC62828),
+                    color = CrimsonNova,
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium
                   )
@@ -1891,17 +1903,13 @@ private fun Tab2LayoutPresets(
   LazyColumn(
     modifier = Modifier
       .fillMaxSize()
-      .background(LightBackground)
       .padding(horizontal = 16.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp),
     contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp)
   ) {
     item {
       // Explanatory Header Card
-      Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = LightSurfaceContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+      ModernCard(
         modifier = Modifier.fillMaxWidth()
       ) {
         Row(
@@ -1912,14 +1920,14 @@ private fun Tab2LayoutPresets(
           Box(
             modifier = Modifier
               .size(48.dp)
-              .clip(RoundedCornerShape(12.dp))
-              .background(PrimaryPurple.copy(alpha = 0.12f)),
+              .clip(ShapeRoundSm)
+              .background(QuantumViolet.copy(alpha = 0.15f)),
             contentAlignment = Alignment.Center
           ) {
             Icon(
               imageVector = Icons.Default.DashboardCustomize,
               contentDescription = null,
-              tint = PrimaryPurple,
+              tint = QuantumViolet,
               modifier = Modifier.size(28.dp)
             )
           }
@@ -1928,12 +1936,12 @@ private fun Tab2LayoutPresets(
               text = "Space Layout Paradigm",
               style = MaterialTheme.typography.titleMedium,
               fontWeight = FontWeight.Bold,
-              color = TextPrimary
+              color = MaterialTheme.colorScheme.onSurface
             )
             Text(
               text = "Select how apps and drawers are organized in this space. Picture previews show the real layout behavior.",
               style = MaterialTheme.typography.bodySmall,
-              color = TextSecondary
+              color = MaterialTheme.colorScheme.onSurfaceVariant
             )
           }
         }
@@ -1942,10 +1950,7 @@ private fun Tab2LayoutPresets(
 
     // Import Android Layout Feature Card
     item {
-      Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = PrimaryContainerLight),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+      ModernCard(
         modifier = Modifier
           .fillMaxWidth()
           .testTag("card_import_layout_presets")
@@ -1965,7 +1970,7 @@ private fun Tab2LayoutPresets(
               modifier = Modifier
                 .size(44.dp)
                 .clip(CircleShape)
-                .background(PrimaryPurpleDark),
+                .background(QuantumViolet),
               contentAlignment = Alignment.Center
             ) {
               Icon(
@@ -1980,20 +1985,20 @@ private fun Tab2LayoutPresets(
                 text = "Import Android Layout",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
               )
               Text(
                 text = "Auto-detect default system apps (Phone, Messages, Browser, Camera, Settings), dock setup, and organize apps into home workspace pages.",
                 style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
               )
             }
           }
 
           Button(
             onClick = onOpenImportLayout,
-            shape = RoundedCornerShape(10.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+            shape = ShapeRoundMd,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             modifier = Modifier
               .fillMaxWidth()
               .testTag("btn_import_layout_presets_tab")
@@ -2015,9 +2020,7 @@ private fun Tab2LayoutPresets(
 
     // Active Behavioral Settings & Independent Mode Customization Card
     item {
-      Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = LightSurfaceContainerLow),
+      ModernCard(
         modifier = Modifier.fillMaxWidth()
       ) {
         Column(
@@ -2031,23 +2034,14 @@ private fun Tab2LayoutPresets(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
           ) {
-            Column {
-              Text(
-                text = "Behavioral Properties",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-              )
-              Text(
-                text = "Customize workspace & drawer modes independently",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
-              )
-            }
+            ModernSectionHeader(
+              title = "Behavioral Properties",
+              subtitle = "Customize workspace & drawer modes independently"
+            )
             Icon(
               imageVector = Icons.Default.Tune,
               contentDescription = null,
-              tint = PrimaryPurpleDark,
+              tint = QuantumViolet,
               modifier = Modifier.size(20.dp)
             )
           }
@@ -2098,7 +2092,7 @@ private fun Tab2LayoutPresets(
             )
           }
 
-          HorizontalDivider(color = Color.Black.copy(alpha = 0.06f))
+          HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
           // 1. Layer 1 Display Mode (Workspace)
           Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2106,7 +2100,7 @@ private fun Tab2LayoutPresets(
               text = "Layer 1 Workspace Display Mode",
               style = MaterialTheme.typography.labelMedium,
               fontWeight = FontWeight.Bold,
-              color = TextPrimary
+              color = MaterialTheme.colorScheme.onSurface
             )
             Row(
               modifier = Modifier.fillMaxWidth(),
@@ -2135,8 +2129,9 @@ private fun Tab2LayoutPresets(
 
           // 2. Use Layer 2 (App Drawer) Toggle
           Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = if (useLayer2) PrimaryPurple.copy(alpha = 0.06f) else LightSurfaceContainerHigh,
+            shape = ShapeRoundSm,
+            color = if (useLayer2) QuantumViolet.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+            border = BorderStroke(AppDimens.BorderThin, if (useLayer2) QuantumViolet.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.fillMaxWidth()
           ) {
             Row(
@@ -2151,12 +2146,12 @@ private fun Tab2LayoutPresets(
                   text = "Enable Layer 2 (All-Apps Drawer)",
                   style = MaterialTheme.typography.bodyMedium,
                   fontWeight = FontWeight.Bold,
-                  color = TextPrimary
+                  color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                   text = if (useLayer2) "Secondary app library drawer is active" else "Disabled: All space apps stay on Home workspace",
                   style = MaterialTheme.typography.bodySmall,
-                  color = TextSecondary
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
               }
               Switch(
@@ -2174,7 +2169,7 @@ private fun Tab2LayoutPresets(
                 text = "Layer 2 Drawer Display Mode",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
               )
               Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2207,7 +2202,7 @@ private fun Tab2LayoutPresets(
                 text = "Layer 2 Drawer Access Mode",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
               )
               Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2241,7 +2236,7 @@ private fun Tab2LayoutPresets(
               text = "Dock Bar Capacity ($dockCapacity apps)",
               style = MaterialTheme.typography.labelMedium,
               fontWeight = FontWeight.Bold,
-              color = TextPrimary
+              color = MaterialTheme.colorScheme.onSurface
             )
             Row(
               modifier = Modifier.fillMaxWidth(),
@@ -2267,7 +2262,7 @@ private fun Tab2LayoutPresets(
         text = "Layout Presets (${presets.size})",
         style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.Bold,
-        color = TextPrimary,
+        color = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
       )
     }
@@ -2423,9 +2418,7 @@ private fun Tab2WallpaperAndTheme(
 
     // Theme for Apps Section
     item {
-      Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = LightSurfaceContainerLow),
+      ModernCard(
         modifier = Modifier.fillMaxWidth()
       ) {
         Column(
@@ -2439,23 +2432,14 @@ private fun Tab2WallpaperAndTheme(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
           ) {
-            Column {
-              Text(
-                text = "Theme for Apps",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-              )
-              Text(
-                text = "Select visual color theme & palette for applications in this Space",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
-              )
-            }
+            ModernSectionHeader(
+              title = "Theme for Apps",
+              subtitle = "Select visual color theme & palette for applications in this Space"
+            )
             Icon(
               imageVector = Icons.Default.Palette,
               contentDescription = null,
-              tint = PrimaryPurpleDark
+              tint = QuantumViolet
             )
           }
 
@@ -2464,9 +2448,9 @@ private fun Tab2WallpaperAndTheme(
             PRESET_APP_THEMES.forEach { theme ->
               val isSelected = selectedAppTheme == theme.id
               Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = if (isSelected) PrimaryContainerLight else LightSurfaceContainerHigh,
-                border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, PrimaryPurple) else null,
+                shape = ShapeRoundMd,
+                color = if (isSelected) QuantumViolet.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = if (isSelected) BorderStroke(2.dp, QuantumViolet) else BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier
                   .fillMaxWidth()
                   .clickable { onSelectAppTheme(theme.id) }
@@ -2483,9 +2467,9 @@ private fun Tab2WallpaperAndTheme(
                   Box(
                     modifier = Modifier
                       .size(38.dp)
-                      .clip(RoundedCornerShape(10.dp))
+                      .clip(ShapeRoundSm)
                       .background(theme.iconBackgroundColor)
-                      .border(1.dp, theme.primaryColor.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
+                      .border(1.dp, theme.primaryColor.copy(alpha = 0.5f), ShapeRoundSm),
                     contentAlignment = Alignment.Center
                   ) {
                     Icon(
@@ -2501,12 +2485,12 @@ private fun Tab2WallpaperAndTheme(
                       text = theme.name,
                       style = MaterialTheme.typography.bodyMedium,
                       fontWeight = FontWeight.Bold,
-                      color = if (isSelected) PrimaryPurpleDark else TextPrimary
+                      color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                       text = theme.description,
                       style = MaterialTheme.typography.bodySmall,
-                      color = TextSecondary
+                      color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                   }
 
@@ -2529,7 +2513,7 @@ private fun Tab2WallpaperAndTheme(
                   Icon(
                     imageVector = if (isSelected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
                     contentDescription = null,
-                    tint = if (isSelected) PrimaryPurple else TextSecondary,
+                    tint = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                   )
                 }
@@ -2566,9 +2550,7 @@ private fun WallpaperSectionCard(
 ) {
   val context = LocalContext.current
 
-  Card(
-    shape = RoundedCornerShape(16.dp),
-    colors = CardDefaults.cardColors(containerColor = LightSurfaceContainerLow),
+  ModernCard(
     modifier = Modifier.fillMaxWidth()
   ) {
     Column(
@@ -2582,23 +2564,14 @@ private fun WallpaperSectionCard(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
       ) {
-        Column {
-          Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = TextPrimary
-          )
-          Text(
-            text = description,
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary
-          )
-        }
+        ModernSectionHeader(
+          title = title,
+          subtitle = description
+        )
         Icon(
           imageVector = icon,
           contentDescription = null,
-          tint = PrimaryPurpleDark
+          tint = QuantumViolet
         )
       }
 
@@ -2607,7 +2580,7 @@ private fun WallpaperSectionCard(
         modifier = Modifier
           .fillMaxWidth()
           .height(110.dp)
-          .clip(RoundedCornerShape(14.dp))
+          .clip(ShapeRoundMd)
           .background(
             when (category) {
               "gradients" -> {
@@ -2621,7 +2594,7 @@ private fun WallpaperSectionCard(
               else -> Brush.verticalGradient(listOf(Color(selectedBgColor), Color(selectedBgColor)))
             }
           )
-          .border(1.dp, Color.Black.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+          .border(BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant), ShapeRoundMd)
           .clickable(enabled = category == "photo" && customImageUri != null && onOpenEditor != null) {
             onOpenEditor?.invoke()
           },
@@ -2662,7 +2635,7 @@ private fun WallpaperSectionCard(
             Box(
               modifier = Modifier
                 .size(32.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(ShapeRoundSm)
                 .background(Color.White.copy(alpha = 0.85f)),
               contentAlignment = Alignment.Center
             ) {
@@ -2674,7 +2647,7 @@ private fun WallpaperSectionCard(
                   else -> Icons.Default.Folder
                 },
                 contentDescription = null,
-                tint = PrimaryPurpleDark,
+                tint = QuantumViolet,
                 modifier = Modifier.size(16.dp)
               )
             }
@@ -2718,19 +2691,19 @@ private fun WallpaperSectionCard(
               Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                  .clip(RoundedCornerShape(10.dp))
+                  .clip(ShapeRoundSm)
                   .clickable { onSelectGradient(grad.id) }
                   .padding(4.dp)
               ) {
                 Box(
                   modifier = Modifier
                     .size(width = 68.dp, height = 44.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(ShapeRoundSm)
                     .background(Brush.verticalGradient(grad.colors))
                     .border(
                       width = if (isSelected) 3.dp else 1.dp,
-                      color = if (isSelected) PrimaryPurple else Color.White.copy(alpha = 0.2f),
-                      shape = RoundedCornerShape(8.dp)
+                      color = if (isSelected) QuantumViolet else Color.White.copy(alpha = 0.2f),
+                      shape = ShapeRoundSm
                     ),
                   contentAlignment = Alignment.Center
                 ) {
@@ -2748,7 +2721,7 @@ private fun WallpaperSectionCard(
                   text = grad.name,
                   fontSize = 10.sp,
                   fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                  color = if (isSelected) PrimaryPurpleDark else TextSecondary,
+                  color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurfaceVariant,
                   maxLines = 1
                 )
               }
@@ -2768,7 +2741,7 @@ private fun WallpaperSectionCard(
               Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                  .clip(RoundedCornerShape(8.dp))
+                  .clip(ShapeRoundSm)
                   .clickable { onSelectBgColor(colorVal) }
                   .padding(4.dp)
               ) {
@@ -2779,7 +2752,7 @@ private fun WallpaperSectionCard(
                     .background(Color(colorVal))
                     .border(
                       width = if (isSelected) 3.dp else 1.dp,
-                      color = if (isSelected) PrimaryPurple else Color.Black.copy(alpha = 0.1f),
+                      color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.outlineVariant,
                       shape = CircleShape
                     ),
                   contentAlignment = Alignment.Center
@@ -2798,7 +2771,7 @@ private fun WallpaperSectionCard(
                   text = colorName,
                   fontSize = 10.sp,
                   fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                  color = if (isSelected) PrimaryPurpleDark else TextSecondary,
+                  color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurfaceVariant,
                   maxLines = 1
                 )
               }
@@ -2815,8 +2788,8 @@ private fun WallpaperSectionCard(
               if (onOpenEditor != null) {
                 Button(
                   onClick = onOpenEditor,
-                  shape = RoundedCornerShape(8.dp),
-                  colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                  shape = ShapeRoundSm,
+                  colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                   modifier = Modifier
                     .fillMaxWidth()
                     .testTag("btn_edit_${testTagPrefix}_preview")
@@ -2837,7 +2810,7 @@ private fun WallpaperSectionCard(
               ) {
                 OutlinedButton(
                   onClick = onPickCustomPhoto,
-                  shape = RoundedCornerShape(8.dp),
+                  shape = ShapeRoundSm,
                   modifier = Modifier.weight(1f)
                 ) {
                   Icon(
@@ -2850,8 +2823,8 @@ private fun WallpaperSectionCard(
                 }
                 OutlinedButton(
                   onClick = onRemoveCustomPhoto,
-                  shape = RoundedCornerShape(8.dp),
-                  colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFC62828)),
+                  shape = ShapeRoundSm,
+                  colors = ButtonDefaults.outlinedButtonColors(contentColor = CrimsonNova),
                   modifier = Modifier.weight(1f)
                 ) {
                   Icon(
@@ -2866,8 +2839,8 @@ private fun WallpaperSectionCard(
             } else {
               Button(
                 onClick = onPickCustomPhoto,
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                shape = ShapeRoundMd,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 modifier = Modifier
                   .fillMaxWidth()
                   .testTag("btn_pick_${testTagPrefix}_photo")
@@ -2919,14 +2892,12 @@ private fun Tab3AppsAndLayout(
     modifier = Modifier
       .fillMaxSize()
       .padding(horizontal = 16.dp),
-    verticalArrangement = Arrangement.spacedBy(16.dp),
-    contentPadding = PaddingValues(vertical = 16.dp)
+    verticalArrangement = Arrangement.spacedBy(12.dp),
+    contentPadding = PaddingValues(vertical = 12.dp)
   ) {
     // 1. Grid Format Selection Section
     item {
-      Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = LightSurfaceContainerLow),
+      ModernCard(
         modifier = Modifier.fillMaxWidth()
       ) {
         Column(
@@ -2945,12 +2916,12 @@ private fun Tab3AppsAndLayout(
                 text = "Grid Layout Format",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
               )
               Text(
-                text = "Currently: $gridColumns Columns · $iconSize Icons",
+                text = "$gridColumns Columns · $iconSize Icons",
                 style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
               )
             }
 
@@ -2961,11 +2932,11 @@ private fun Tab3AppsAndLayout(
               Icon(
                 imageVector = Icons.Default.Tune,
                 contentDescription = null,
-                tint = PrimaryPurpleDark,
+                tint = QuantumViolet,
                 modifier = Modifier.size(16.dp)
               )
               Spacer(modifier = Modifier.width(4.dp))
-              Text("Custom...", color = PrimaryPurpleDark, fontWeight = FontWeight.Bold)
+              Text("Custom...", color = QuantumViolet, fontWeight = FontWeight.Bold)
             }
           }
 
@@ -2984,9 +2955,9 @@ private fun Tab3AppsAndLayout(
             presets.forEach { (cols, label) ->
               val isSelected = gridColumns == cols
               Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = if (isSelected) PrimaryContainerLight else LightSurfaceContainerHigh,
-                border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, PrimaryPurple) else null,
+                shape = ShapeRoundMd,
+                color = if (isSelected) QuantumViolet.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = if (isSelected) BorderStroke(2.dp, QuantumViolet) else BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier
                   .weight(1f)
                   .clickable { onSelectGridColumns(cols) }
@@ -3007,7 +2978,7 @@ private fun Tab3AppsAndLayout(
                       else -> Icons.Default.Window
                     },
                     contentDescription = null,
-                    tint = if (isSelected) PrimaryPurpleDark else TextSecondary,
+                    tint = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                   )
                   Text(
@@ -3015,7 +2986,7 @@ private fun Tab3AppsAndLayout(
                     fontSize = 11.sp,
                     lineHeight = 13.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isSelected) PrimaryPurpleDark else TextPrimary,
+                    color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center
                   )
                 }
@@ -3026,11 +2997,9 @@ private fun Tab3AppsAndLayout(
       }
     }
 
-    // 2. App Membership Selection Section
+    // 2. Search & Bulk Selection Header
     item {
-      Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = LightSurfaceContainerLow),
+      ModernCard(
         modifier = Modifier.fillMaxWidth()
       ) {
         Column(
@@ -3046,57 +3015,67 @@ private fun Tab3AppsAndLayout(
           ) {
             Column {
               Text(
-                text = "Include Applications",
+                text = "Applications Membership",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
               )
               Text(
-                text = "${selectedApps.size} of ${allApps.size} selected",
+                text = "${selectedApps.size} of ${allApps.size} apps included",
                 style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
               )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-              TextButton(onClick = onSelectAll) {
-                Text("Select All", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-              }
-              TextButton(onClick = onClearAll) {
-                Text("Clear", fontSize = 12.sp, color = TextSecondary)
-              }
+            Surface(
+              shape = CircleShape,
+              color = QuantumViolet.copy(alpha = 0.12f),
+              border = BorderStroke(1.dp, QuantumViolet.copy(alpha = 0.3f))
+            ) {
+              Text(
+                text = "${selectedApps.size} Active",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = QuantumViolet,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+              )
             }
           }
 
+          // Search Field
           OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchQueryChange,
             placeholder = { Text("Search installed applications...") },
             singleLine = true,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary),
-            shape = RoundedCornerShape(12.dp),
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+            shape = ShapeRoundMd,
             colors = OutlinedTextFieldDefaults.colors(
-              focusedTextColor = TextPrimary,
-              unfocusedTextColor = TextPrimary,
-              focusedContainerColor = LightSurfaceContainerLowest,
-              unfocusedContainerColor = LightSurfaceContainerLowest,
-              focusedBorderColor = PrimaryPurple,
-              unfocusedBorderColor = Color(0xFFCAC4D0),
-              focusedPlaceholderColor = TextMuted,
-              unfocusedPlaceholderColor = TextMuted,
-              cursorColor = PrimaryPurple
+              focusedTextColor = MaterialTheme.colorScheme.onSurface,
+              unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+              focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+              unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+              focusedBorderColor = QuantumViolet,
+              unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+              focusedPlaceholderColor = MaterialTheme.colorScheme.outline,
+              unfocusedPlaceholderColor = MaterialTheme.colorScheme.outline,
+              cursorColor = QuantumViolet
             ),
             leadingIcon = {
               Icon(
                 imageVector = Icons.Default.Search,
                 contentDescription = "Search",
-                tint = TextSecondary
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
               )
             },
             trailingIcon = {
               if (searchQuery.isNotEmpty()) {
                 IconButton(onClick = { onSearchQueryChange("") }) {
-                  Icon(imageVector = Icons.Default.Close, contentDescription = "Clear search", tint = TextSecondary)
+                  Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Clear search",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                  )
                 }
               }
             },
@@ -3105,9 +3084,65 @@ private fun Tab3AppsAndLayout(
               .testTag("input_search_space_apps")
           )
 
-          HorizontalDivider(color = LightSurfaceContainerHigh)
+          // Prominent Bulk Selection Action Bar
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+          ) {
+            OutlinedButton(
+              onClick = onSelectAll,
+              shape = ShapeRoundMd,
+              border = BorderStroke(1.dp, QuantumViolet),
+              colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = QuantumViolet
+              ),
+              modifier = Modifier
+                .weight(1f)
+                .testTag("btn_select_all_apps")
+            ) {
+              Icon(
+                imageVector = Icons.Default.DoneAll,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp)
+              )
+              Spacer(modifier = Modifier.width(6.dp))
+              Text("Select All", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
 
-          // Applications List
+            OutlinedButton(
+              onClick = onClearAll,
+              shape = ShapeRoundMd,
+              border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+              colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+              ),
+              modifier = Modifier
+                .weight(1f)
+                .testTag("btn_unselect_all_apps")
+            ) {
+              Icon(
+                imageVector = Icons.Default.ClearAll,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp)
+              )
+              Spacer(modifier = Modifier.width(6.dp))
+              Text("Unselect All", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Applications List Container
+    item {
+      ModernCard(
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Column(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+        ) {
           if (filteredApps.isEmpty()) {
             Box(
               modifier = Modifier
@@ -3118,61 +3153,68 @@ private fun Tab3AppsAndLayout(
               Text(
                 text = "No applications matching search query.",
                 style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
               )
             }
           } else {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-              filteredApps.forEach { app ->
-                val isSelected = selectedApps.contains(app.id)
-                Surface(
-                  shape = RoundedCornerShape(10.dp),
-                  color = if (isSelected) PrimaryContainerLight.copy(alpha = 0.5f) else Color.Transparent,
+            filteredApps.forEachIndexed { index, app ->
+              val isSelected = selectedApps.contains(app.id)
+              Surface(
+                color = if (isSelected) QuantumViolet.copy(alpha = 0.08f) else Color.Transparent,
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .clickable { onToggleApp(app.id) }
+                  .testTag("app_toggle_row_${app.packageName}")
+              ) {
+                Row(
                   modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onToggleApp(app.id) }
-                    .padding(vertical = 2.dp)
-                    .testTag("app_toggle_row_${app.packageName}")
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                  Row(
-                    modifier = Modifier
-                      .fillMaxWidth()
-                      .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                  ) {
-                    AsyncAppIcon(
-                      app = app,
-                      getBitmap = getBitmap,
-                      contentDescription = app.label,
-                      modifier = Modifier.size(36.dp)
+                  AsyncAppIcon(
+                    app = app,
+                    getBitmap = getBitmap,
+                    contentDescription = app.label,
+                    modifier = Modifier.size(38.dp)
+                  )
+
+                  Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                      text = app.label,
+                      style = MaterialTheme.typography.bodyMedium,
+                      fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                      color = MaterialTheme.colorScheme.onSurface,
+                      maxLines = 1,
+                      overflow = TextOverflow.Ellipsis
                     )
-
-                    Column(modifier = Modifier.weight(1f)) {
-                      Text(
-                        text = app.label,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                      )
-                      Text(
-                        text = app.packageName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                      )
-                    }
-
-                    Checkbox(
-                      checked = isSelected,
-                      onCheckedChange = { onToggleApp(app.id) },
-                      colors = CheckboxDefaults.colors(checkedColor = PrimaryPurple)
+                    Text(
+                      text = app.packageName,
+                      style = MaterialTheme.typography.labelSmall,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      maxLines = 1,
+                      overflow = TextOverflow.Ellipsis
                     )
                   }
+
+                  Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleApp(app.id) },
+                    colors = CheckboxDefaults.colors(
+                      checkedColor = QuantumViolet,
+                      uncheckedColor = MaterialTheme.colorScheme.outline
+                    )
+                  )
                 }
+              }
+
+              if (index < filteredApps.size - 1) {
+                HorizontalDivider(
+                  color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                  thickness = 0.5.dp,
+                  modifier = Modifier.padding(horizontal = 14.dp)
+                )
               }
             }
           }

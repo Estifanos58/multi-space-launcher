@@ -1,6 +1,7 @@
 package com.multispace.presentation
 
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,17 +36,13 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
+import com.multispace.ui.components.ModernCard
+import com.multispace.ui.components.ModernSectionHeader
 import com.multispace.ui.theme.*
 
 /**
  * Dedicated Wallpaper Editor and Live Launcher Preview Screen.
- *
- * Workflow:
- * 1. Select / inspect image
- * 2. Configure display mode: Crop/Fill (ContentScale.Crop) vs Fit (ContentScale.Fit)
- * 3. Adjust Zoom, Position Offset (Pan & Pinch), and Scrim / Darkness overlay
- * 4. Toggle Live Launcher Preview overlay with apps, dock, and search/time widget
- * 5. Confirm to persist or Cancel to discard changes
+ * Modernized with obsidian glassmorphic visuals, phone preview frame, and tactile sliders.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,20 +75,20 @@ fun WallpaperEditorScreen(
 
   Scaffold(
     modifier = modifier.fillMaxSize(),
+    containerColor = MaterialTheme.colorScheme.background,
     topBar = {
       TopAppBar(
         title = {
           Column {
             Text(
-              text = "Wallpaper Editor",
-              style = MaterialTheme.typography.titleMedium,
-              fontWeight = FontWeight.Bold,
-              color = Color.White
+              text = "Wallpaper Studio",
+              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onSurface
             )
             Text(
               text = targetTitle,
               style = MaterialTheme.typography.labelSmall,
-              color = Color.White.copy(alpha = 0.8f)
+              color = MaterialTheme.colorScheme.onSurfaceVariant
             )
           }
         },
@@ -103,50 +100,53 @@ fun WallpaperEditorScreen(
             Icon(
               imageVector = Icons.AutoMirrored.Filled.ArrowBack,
               contentDescription = "Cancel",
-              tint = Color.White
+              tint = MaterialTheme.colorScheme.onSurface
             )
           }
         },
         actions = {
-          TextButton(
+          FilledTonalButton(
             onClick = onPickNewImage,
-            modifier = Modifier.testTag("btn_change_photo_in_editor")
+            shape = ShapeRoundMd,
+            contentPadding = PaddingValues(horizontal = AppDimens.Spacing12, vertical = AppDimens.Spacing6),
+            modifier = Modifier.padding(end = AppDimens.Spacing8).testTag("btn_change_photo_in_editor")
           ) {
             Icon(
               imageVector = Icons.Default.PhotoLibrary,
               contentDescription = null,
-              tint = Color.White,
-              modifier = Modifier.size(18.dp)
+              modifier = Modifier.size(AppDimens.IconSm)
             )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("Change Photo", color = Color.White, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.width(AppDimens.Spacing6))
+            Text("Select Photo", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
           }
         },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF1E1B4B))
+        colors = TopAppBarDefaults.topAppBarColors(
+          containerColor = MaterialTheme.colorScheme.surface
+        )
       )
     },
     bottomBar = {
       Surface(
-        color = Color(0xFF1E1B4B),
-        tonalElevation = 8.dp,
-        modifier = Modifier.fillMaxWidth()
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding()
       ) {
         Row(
           modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
-          horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(AppDimens.Spacing16),
+          horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12),
           verticalAlignment = Alignment.CenterVertically
         ) {
           OutlinedButton(
             onClick = onCancel,
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+            shape = ShapeRoundMd,
             modifier = Modifier
               .weight(1f)
+              .height(AppDimens.ButtonHeight)
               .testTag("btn_cancel_wallpaper_editor")
           ) {
-            Text("Cancel")
+            Text("Discard", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold))
           }
 
           Button(
@@ -157,19 +157,20 @@ fun WallpaperEditorScreen(
                 onCancel()
               }
             },
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+            shape = ShapeRoundMd,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             modifier = Modifier
               .weight(1.5f)
+              .height(AppDimens.ButtonHeight)
               .testTag("btn_apply_wallpaper_editor")
           ) {
             Icon(
               imageVector = Icons.Default.Check,
               contentDescription = null,
-              modifier = Modifier.size(18.dp)
+              modifier = Modifier.size(AppDimens.IconSm)
             )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Apply Wallpaper", fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.width(AppDimens.Spacing6))
+            Text("Apply Wallpaper", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
           }
         }
       }
@@ -178,16 +179,17 @@ fun WallpaperEditorScreen(
     Column(
       modifier = Modifier
         .fillMaxSize()
-        .background(Color(0xFF0F172A))
+        .background(MaterialTheme.colorScheme.background)
         .padding(paddingValues)
         .verticalScroll(rememberScrollState())
+        .padding(bottom = AppDimens.Spacing24)
     ) {
       // 1. Phone Canvas Live Preview with interactive pinch-to-zoom and pan
       Box(
         modifier = Modifier
           .fillMaxWidth()
           .height(390.dp)
-          .padding(16.dp),
+          .padding(AppDimens.Spacing16),
         contentAlignment = Alignment.Center
       ) {
         // Phone Bezel Frame
@@ -195,8 +197,8 @@ fun WallpaperEditorScreen(
           modifier = Modifier
             .width(220.dp)
             .fillMaxHeight()
-            .clip(RoundedCornerShape(24.dp))
-            .border(3.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(24.dp)),
+            .clip(ShapeRoundLg)
+            .border(3.dp, QuantumViolet.copy(alpha = 0.6f), ShapeRoundLg),
           color = Color.Black
         ) {
           Box(
@@ -232,12 +234,12 @@ fun WallpaperEditorScreen(
               Box(
                 modifier = Modifier
                   .fillMaxSize()
-                  .background(PrimaryPurpleDark),
+                  .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                 contentAlignment = Alignment.Center
               ) {
                 Text(
                   text = "No Image Selected",
-                  color = Color.White.copy(alpha = 0.7f),
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
                   fontSize = 12.sp
                 )
               }
@@ -257,7 +259,7 @@ fun WallpaperEditorScreen(
               Column(
                 modifier = Modifier
                   .fillMaxSize()
-                  .padding(horizontal = 8.dp, vertical = 10.dp),
+                  .padding(horizontal = AppDimens.Spacing8, vertical = AppDimens.Spacing10),
                 verticalArrangement = Arrangement.SpaceBetween
               ) {
                 // Top Status & Header
@@ -276,7 +278,7 @@ fun WallpaperEditorScreen(
                       fontWeight = FontWeight.Bold,
                       color = Color.White
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing4)) {
                       Icon(
                         imageVector = Icons.Default.Wifi,
                         contentDescription = null,
@@ -292,19 +294,19 @@ fun WallpaperEditorScreen(
                     }
                   }
 
-                  Spacer(modifier = Modifier.height(8.dp))
+                  Spacer(modifier = Modifier.height(AppDimens.Spacing8))
 
                   // Space Title Pill
                   Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color.Black.copy(alpha = 0.45f)
+                    shape = ShapeRoundSm,
+                    color = Color.Black.copy(alpha = 0.5f)
                   ) {
                     Text(
                       text = spaceName.ifBlank { "Home Space" },
                       fontSize = 10.sp,
                       fontWeight = FontWeight.Bold,
                       color = Color.White,
-                      modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                      modifier = Modifier.padding(horizontal = AppDimens.Spacing8, vertical = AppDimens.Spacing2)
                     )
                   }
                 }
@@ -313,7 +315,7 @@ fun WallpaperEditorScreen(
                 val previewApps = apps.take(gridColumns * 3)
                 Column(
                   modifier = Modifier.fillMaxWidth(),
-                  verticalArrangement = Arrangement.spacedBy(6.dp)
+                  verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing6)
                 ) {
                   val rows = previewApps.chunked(gridColumns)
                   rows.forEach { rowApps ->
@@ -333,20 +335,20 @@ fun WallpaperEditorScreen(
                               contentDescription = null,
                               modifier = Modifier
                                 .size(24.dp)
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(ShapeRoundXs)
                             )
                           } else {
                             Box(
                               modifier = Modifier
                                 .size(24.dp)
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(ShapeRoundXs)
                                 .background(Color.White.copy(alpha = 0.8f)),
                               contentAlignment = Alignment.Center
                             ) {
                               Icon(
                                 imageVector = Icons.Default.Apps,
                                 contentDescription = null,
-                                tint = Color(0xFF1E1B4B),
+                                tint = QuantumViolet,
                                 modifier = Modifier.size(14.dp)
                               )
                             }
@@ -367,16 +369,16 @@ fun WallpaperEditorScreen(
 
                 // Bottom Dock Mockup
                 Surface(
-                  shape = RoundedCornerShape(14.dp),
+                  shape = ShapeRoundMd,
                   color = Color.Black.copy(alpha = 0.5f),
                   modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .padding(horizontal = AppDimens.Spacing4, vertical = AppDimens.Spacing2)
                 ) {
                   Row(
                     modifier = Modifier
                       .fillMaxWidth()
-                      .padding(vertical = 4.dp, horizontal = 6.dp),
+                      .padding(vertical = AppDimens.Spacing4, horizontal = AppDimens.Spacing6),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                   ) {
@@ -389,13 +391,13 @@ fun WallpaperEditorScreen(
                           contentDescription = null,
                           modifier = Modifier
                             .size(20.dp)
-                            .clip(RoundedCornerShape(5.dp))
+                            .clip(ShapeRoundXs)
                         )
                       } else {
                         Box(
                           modifier = Modifier
                             .size(20.dp)
-                            .clip(RoundedCornerShape(5.dp))
+                            .clip(ShapeRoundXs)
                             .background(Color.White.copy(alpha = 0.8f))
                         )
                       }
@@ -409,29 +411,26 @@ fun WallpaperEditorScreen(
       }
 
       // 2. Editor Controls Section
-      Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1B4B)),
+      ModernCard(
         modifier = Modifier
           .fillMaxWidth()
-          .padding(horizontal = 16.dp, vertical = 8.dp)
+          .padding(horizontal = AppDimens.Spacing16),
+        shape = ShapeRoundLg
       ) {
         Column(
           modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
-          verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(AppDimens.Spacing16),
+          verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16)
         ) {
           Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
           ) {
-            Text(
-              text = "Scaling & Presentation Mode",
-              style = MaterialTheme.typography.titleSmall,
-              fontWeight = FontWeight.Bold,
-              color = Color.White
+            ModernSectionHeader(
+              title = "Frame & Presentation",
+              subtitle = "Configure viewport scale and fit mode"
             )
 
             TextButton(
@@ -443,16 +442,16 @@ fun WallpaperEditorScreen(
                 scaleMode = "crop"
               }
             ) {
-              Icon(Icons.Default.Refresh, contentDescription = null, tint = PrimaryPurpleLight, modifier = Modifier.size(16.dp))
-              Spacer(modifier = Modifier.width(4.dp))
-              Text("Reset", color = PrimaryPurpleLight, fontSize = 12.sp)
+              Icon(Icons.Default.Refresh, contentDescription = null, tint = QuantumViolet, modifier = Modifier.size(AppDimens.IconSm))
+              Spacer(modifier = Modifier.width(AppDimens.Spacing4))
+              Text("Reset", color = QuantumViolet, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
             }
           }
 
           // Scaling Mode Choice: Crop/Fill vs Fit
           Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
           ) {
             val modes = listOf(
               "crop" to ("Crop / Fill" to Icons.Default.CropFree),
@@ -462,9 +461,12 @@ fun WallpaperEditorScreen(
             modes.forEach { (modeKey, meta) ->
               val isSelected = scaleMode == modeKey
               Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = if (isSelected) PrimaryPurple else Color.White.copy(alpha = 0.1f),
-                border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, Color.White) else null,
+                shape = ShapeRoundMd,
+                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(
+                  if (isSelected) AppDimens.BorderThick else AppDimens.BorderThin,
+                  if (isSelected) QuantumViolet else MaterialTheme.colorScheme.outlineVariant
+                ),
                 modifier = Modifier
                   .weight(1f)
                   .clickable { scaleMode = modeKey }
@@ -473,22 +475,23 @@ fun WallpaperEditorScreen(
                 Row(
                   modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 10.dp, horizontal = 8.dp),
+                    .padding(vertical = AppDimens.Spacing10, horizontal = AppDimens.Spacing8),
                   verticalAlignment = Alignment.CenterVertically,
                   horizontalArrangement = Arrangement.Center
                 ) {
                   Icon(
                     imageVector = meta.second,
                     contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
+                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(AppDimens.IconSm)
                   )
-                  Spacer(modifier = Modifier.width(6.dp))
+                  Spacer(modifier = Modifier.width(AppDimens.Spacing6))
                   Text(
                     text = meta.first,
-                    fontSize = 12.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = Color.White
+                    style = MaterialTheme.typography.labelMedium.copy(
+                      fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                    ),
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                   )
                 }
               }
@@ -497,57 +500,57 @@ fun WallpaperEditorScreen(
 
           Text(
             text = "Tip: Pinch or drag the wallpaper preview above to freely position and frame your image.",
-            fontSize = 11.sp,
-            color = Color.White.copy(alpha = 0.65f)
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
           )
 
-          Divider(color = Color.White.copy(alpha = 0.15f))
+          HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
           // Zoom / Scale Slider
-          Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+          Column(verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing4)) {
             Row(
               modifier = Modifier.fillMaxWidth(),
               horizontalArrangement = Arrangement.SpaceBetween
             ) {
-              Text("Zoom Level", fontSize = 12.sp, color = Color.White)
-              Text("${(zoomLevel * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+              Text("Zoom Level", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+              Text("${(zoomLevel * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = QuantumViolet)
             }
             Slider(
               value = zoomLevel,
               onValueChange = { zoomLevel = it },
               valueRange = 1.0f..3.0f,
               colors = SliderDefaults.colors(
-                thumbColor = PrimaryPurple,
-                activeTrackColor = PrimaryPurpleLight,
-                inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+                thumbColor = QuantumViolet,
+                activeTrackColor = QuantumViolet,
+                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
               ),
               modifier = Modifier.testTag("slider_wallpaper_zoom")
             )
           }
 
           // Darkness / Scrim Slider
-          Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+          Column(verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing4)) {
             Row(
               modifier = Modifier.fillMaxWidth(),
               horizontalArrangement = Arrangement.SpaceBetween
             ) {
-              Text("Contrast Scrim (Dimming)", fontSize = 12.sp, color = Color.White)
-              Text("${(dimLevel * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+              Text("Contrast Scrim (Dimming)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+              Text("${(dimLevel * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = QuantumViolet)
             }
             Slider(
               value = dimLevel,
               onValueChange = { dimLevel = it },
               valueRange = 0.0f..0.8f,
               colors = SliderDefaults.colors(
-                thumbColor = PrimaryPurple,
-                activeTrackColor = PrimaryPurpleLight,
-                inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+                thumbColor = QuantumViolet,
+                activeTrackColor = QuantumViolet,
+                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
               ),
               modifier = Modifier.testTag("slider_wallpaper_dim")
             )
           }
 
-          Divider(color = Color.White.copy(alpha = 0.15f))
+          HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
           // Toggle Live Launcher Preview Overlay
           Row(
@@ -558,14 +561,13 @@ fun WallpaperEditorScreen(
             Column(modifier = Modifier.weight(1f)) {
               Text(
                 text = "Show Live Launcher UI",
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                color = Color.White
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
               )
               Text(
                 text = "Overlay mock apps, status bar, and dock to verify icon readability.",
-                fontSize = 11.sp,
-                color = Color.White.copy(alpha = 0.7f)
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
               )
             }
             Switch(

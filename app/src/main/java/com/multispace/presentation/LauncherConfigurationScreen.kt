@@ -28,6 +28,9 @@ import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
 import com.multispace.platform.RecentsController
 import com.multispace.platform.RecentsInvocationResult
+import com.multispace.ui.components.ModernCard
+import com.multispace.ui.components.ModernSectionHeader
+import com.multispace.ui.components.ModernStatusBadge
 import com.multispace.ui.theme.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -36,9 +39,8 @@ import java.util.Locale
 
 /**
  * Dedicated Configuration / Management Surface.
- * Opened when user launches the Multi-Space Launcher app normally from app drawer.
  * Houses Space Management, Space Creation, Renaming, Deletion, Membership assignment,
- * Launcher status, Catalog metrics, and Diagnostics navigation.
+ * Launcher status, Catalog metrics, and Diagnostics navigation with modern obsidian/glassmorphic aesthetics.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,21 +89,20 @@ fun LauncherConfigurationScreen(
 
   Scaffold(
     modifier = modifier.fillMaxSize(),
-    containerColor = LightBackground,
+    containerColor = MaterialTheme.colorScheme.background,
     topBar = {
       TopAppBar(
         title = {
           Column {
             Text(
-              text = "Multi-Space Configuration",
-              style = MaterialTheme.typography.titleMedium,
-              fontWeight = FontWeight.Bold,
-              color = TextPrimary
+              text = "Multi-Space Control",
+              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-              text = "Manage Spaces & App Memberships",
+              text = "Workspace Isolation & App Partitioning",
               style = MaterialTheme.typography.labelSmall,
-              color = TextSecondary
+              color = MaterialTheme.colorScheme.onSurfaceVariant
             )
           }
         },
@@ -113,27 +114,31 @@ fun LauncherConfigurationScreen(
             Icon(
               imageVector = Icons.Default.Lock,
               contentDescription = "Lock Device",
-              tint = TextSecondary,
-              modifier = Modifier.size(20.dp)
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.size(AppDimens.IconSm)
             )
           }
           FilledTonalButton(
             onClick = onOpenHomeSurface,
-            shape = RoundedCornerShape(8.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-            modifier = Modifier.padding(end = 8.dp).testTag("btn_switch_to_home")
+            shape = ShapeRoundMd,
+            contentPadding = PaddingValues(horizontal = AppDimens.Spacing12, vertical = AppDimens.Spacing6),
+            colors = ButtonDefaults.filledTonalButtonColors(
+              containerColor = MaterialTheme.colorScheme.primaryContainer,
+              contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ),
+            modifier = Modifier.padding(end = AppDimens.Spacing8).testTag("btn_switch_to_home")
           ) {
             Icon(
               imageVector = Icons.Default.Home,
               contentDescription = "Go to Launcher Home",
-              modifier = Modifier.size(18.dp)
+              modifier = Modifier.size(AppDimens.IconSm)
             )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Home View", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.width(AppDimens.Spacing6))
+            Text("Home View", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
           }
         },
         colors = TopAppBarDefaults.topAppBarColors(
-          containerColor = LightBackground
+          containerColor = MaterialTheme.colorScheme.surface
         )
       )
     },
@@ -143,121 +148,70 @@ fun LauncherConfigurationScreen(
       modifier = Modifier
         .fillMaxSize()
         .padding(paddingValues)
-        .padding(horizontal = 16.dp),
-      verticalArrangement = Arrangement.spacedBy(16.dp),
-      contentPadding = PaddingValues(vertical = 16.dp)
+        .padding(horizontal = AppDimens.Spacing12),
+      verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing12),
+      contentPadding = PaddingValues(vertical = AppDimens.Spacing12)
     ) {
-      // 1. Active Space Summary Card
+      // 1. Configured Spaces Management Section (with prominent Create New Space button)
       item {
-        Card(
-          shape = RoundedCornerShape(16.dp),
-          colors = CardDefaults.cardColors(containerColor = PrimaryContainerLight),
-          modifier = Modifier.fillMaxWidth()
-        ) {
-          Row(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-          ) {
-            Column(modifier = Modifier.weight(1f)) {
-              Text(
-                text = "CURRENT ACTIVE SPACE",
-                style = MaterialTheme.typography.labelSmall,
-                color = PrimaryPurpleDark,
-                fontWeight = FontWeight.Bold,
-                fontSize = 10.sp
-              )
-              Spacer(modifier = Modifier.height(4.dp))
-              Text(
-                text = activeSpace?.name ?: "Default",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.ExtraBold,
-                color = TextPrimary
-              )
-              Text(
-                text = "ID: ${activeSpace?.id ?: "space_default"}",
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
-                color = TextSecondary,
-                fontSize = 11.sp
-              )
-            }
-            Box(
-              modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(PrimaryPurpleDark),
-              contentAlignment = Alignment.Center
-            ) {
-              Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "Active",
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
-              )
-            }
-          }
-        }
-      }
-
-      // 2. Spaces Management Section
-      item {
-        Card(
-          shape = RoundedCornerShape(16.dp),
-          colors = CardDefaults.cardColors(containerColor = LightSurfaceContainerLow),
-          modifier = Modifier.fillMaxWidth()
+        ModernCard(
+          modifier = Modifier.fillMaxWidth(),
+          shape = ShapeRoundLg
         ) {
           Column(
             modifier = Modifier
               .fillMaxWidth()
-              .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+              .padding(AppDimens.Spacing16),
+            verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
           ) {
             Row(
               modifier = Modifier.fillMaxWidth(),
               horizontalArrangement = Arrangement.SpaceBetween,
               verticalAlignment = Alignment.CenterVertically
             ) {
-              Column {
-                Text(
-                  text = "Your Spaces",
-                  style = MaterialTheme.typography.titleMedium,
-                  fontWeight = FontWeight.Bold,
-                  color = TextPrimary
-                )
-                Text(
-                  text = "${spaces.size} space${if (spaces.size != 1) "s" else ""} configured",
-                  style = MaterialTheme.typography.labelSmall,
-                  color = TextSecondary
+              Column(modifier = Modifier.weight(1f)) {
+                ModernSectionHeader(
+                  title = "Configured Spaces",
+                  subtitle = "${spaces.size} space${if (spaces.size != 1) "s" else ""} • Active: ${activeSpace?.name ?: "Default"}"
                 )
               }
-              Button(
-                onClick = {
-                  if (onOpenCreateSpace != null) {
-                    onOpenCreateSpace()
-                  } else {
-                    showCreateDialog = true
-                  }
-                },
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                modifier = Modifier.testTag("btn_create_space")
-              ) {
-                Icon(
-                  imageVector = Icons.Default.Add,
-                  contentDescription = "Create Space",
-                  modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Create Space", fontSize = 13.sp)
-              }
+              ModernStatusBadge(
+                text = "${spaces.size} SPACES",
+                color = QuantumViolet
+              )
             }
 
-            HorizontalDivider(color = LightSurfaceContainerHigh)
+            // Prominent Create New Space Primary Button
+            Button(
+              onClick = {
+                if (onOpenCreateSpace != null) {
+                  onOpenCreateSpace()
+                } else {
+                  showCreateDialog = true
+                }
+              },
+              shape = ShapeRoundMd,
+              colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+              modifier = Modifier
+                .fillMaxWidth()
+                .height(AppDimens.ButtonHeight)
+                .testTag("btn_create_space")
+            ) {
+              Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "Create Space",
+                modifier = Modifier.size(AppDimens.IconSm)
+              )
+              Spacer(modifier = Modifier.width(AppDimens.Spacing8))
+              Text(
+                text = "Create New Space",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+              )
+            }
 
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            Column(verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)) {
               spaces.forEach { space ->
                 SpaceRowItem(
                   space = space,
@@ -288,24 +242,21 @@ fun LauncherConfigurationScreen(
         }
       }
 
-      // 3. Launcher Status & Diagnostics Navigation Card
+      // 2. Launcher Status & Diagnostics Navigation Card
       item {
-        Card(
-          shape = RoundedCornerShape(16.dp),
-          colors = CardDefaults.cardColors(containerColor = LightSurfaceContainerLow),
-          modifier = Modifier.fillMaxWidth()
+        ModernCard(
+          modifier = Modifier.fillMaxWidth(),
+          shape = ShapeRoundLg
         ) {
           Column(
             modifier = Modifier
               .fillMaxWidth()
-              .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+              .padding(AppDimens.Spacing16),
+            verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing10)
           ) {
-            Text(
-              text = "Launcher Environment",
-              style = MaterialTheme.typography.titleSmall,
-              fontWeight = FontWeight.Bold,
-              color = TextPrimary
+            ModernSectionHeader(
+              title = "Launcher Environment",
+              subtitle = "System integration and OS default handler status"
             )
 
             Row(
@@ -317,55 +268,43 @@ fun LauncherConfigurationScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                   Text(
                     text = "Default Home Launcher",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface
                   )
-                  Spacer(modifier = Modifier.width(6.dp))
-                  Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = if (isDefaultHome) Color(0xFFE8F5E9) else Color(0xFFFFF3E0)
-                  ) {
-                    Text(
-                      text = if (isDefaultHome) "ACTIVE DEFAULT" else "NOT DEFAULT",
-                      style = MaterialTheme.typography.labelSmall,
-                      fontWeight = FontWeight.Bold,
-                      color = if (isDefaultHome) Color(0xFF2E7D32) else Color(0xFFE65100),
-                      modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                      fontSize = 10.sp
-                    )
-                  }
+                  Spacer(modifier = Modifier.width(AppDimens.Spacing8))
+                  ModernStatusBadge(
+                    text = if (isDefaultHome) "ACTIVE DEFAULT" else "NOT DEFAULT",
+                    color = if (isDefaultHome) EmeraldCore else AmberPulse
+                  )
                 }
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(AppDimens.Spacing2))
                 Text(
                   text = if (isDefaultHome)
-                    "Home button opens your active Space. Launching the app directly opens this Configuration page."
+                    "Home button opens active Space."
                   else
                     "Set as default Home so pressing Home opens your active Space.",
                   style = MaterialTheme.typography.bodySmall,
-                  color = TextSecondary,
-                  fontSize = 12.sp
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
               }
-              Spacer(modifier = Modifier.width(8.dp))
+              Spacer(modifier = Modifier.width(AppDimens.Spacing8))
               Button(
                 onClick = onRequestSetDefaultHome,
-                shape = RoundedCornerShape(8.dp),
+                shape = ShapeRoundMd,
                 colors = ButtonDefaults.buttonColors(
-                  containerColor = if (isDefaultHome) LightSurfaceContainerHigh else PrimaryPurpleDark,
-                  contentColor = if (isDefaultHome) TextPrimary else Color.White
+                  containerColor = if (isDefaultHome) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.primary,
+                  contentColor = if (isDefaultHome) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary
                 ),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                contentPadding = PaddingValues(horizontal = AppDimens.Spacing12, vertical = AppDimens.Spacing6)
               ) {
                 Text(
                   text = if (isDefaultHome) "Change" else "Set Default",
-                  fontSize = 12.sp,
-                  fontWeight = FontWeight.Bold
+                  style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
                 )
               }
             }
 
-            HorizontalDivider(color = LightSurfaceContainerHigh)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             Row(
               modifier = Modifier.fillMaxWidth(),
@@ -375,14 +314,13 @@ fun LauncherConfigurationScreen(
               Column {
                 Text(
                   text = "Discovered Applications",
-                  style = MaterialTheme.typography.bodyMedium,
-                  fontWeight = FontWeight.Medium,
-                  color = TextPrimary
+                  style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                  color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                   text = "${discoveryUiState.allApps.size} apps (${discoveryUiState.userAppCount} user, ${discoveryUiState.systemAppCount} system)",
                   style = MaterialTheme.typography.labelSmall,
-                  color = TextSecondary
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
               }
               IconButton(
@@ -392,43 +330,46 @@ fun LauncherConfigurationScreen(
                 Icon(
                   imageVector = Icons.Default.Refresh,
                   contentDescription = "Refresh Catalog",
-                  tint = PrimaryPurpleDark
+                  tint = QuantumViolet
                 )
               }
             }
 
-            HorizontalDivider(color = LightSurfaceContainerHigh)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             OutlinedButton(
               onClick = onOpenDiagnostics,
-              shape = RoundedCornerShape(8.dp),
+              shape = ShapeRoundMd,
               modifier = Modifier.fillMaxWidth().testTag("btn_open_diagnostics")
             ) {
               Icon(
                 imageVector = Icons.Default.BugReport,
                 contentDescription = "Diagnostics",
-                modifier = Modifier.size(16.dp),
-                tint = TextSecondary
+                modifier = Modifier.size(AppDimens.IconSm),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
               )
-              Spacer(modifier = Modifier.width(8.dp))
-              Text("Open Diagnostics & Telemetry", color = TextPrimary, fontSize = 13.sp)
+              Spacer(modifier = Modifier.width(AppDimens.Spacing8))
+              Text(
+                "Open Diagnostics & Telemetry",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface
+              )
             }
           }
         }
       }
 
-      // 4. Native Recent Apps (Overview Bridge) Section
+      // 3. Native Recent Apps (Overview Bridge) Section
       item {
-        Card(
-          shape = RoundedCornerShape(16.dp),
-          colors = CardDefaults.cardColors(containerColor = LightSurfaceContainerLow),
-          modifier = Modifier.fillMaxWidth()
+        ModernCard(
+          modifier = Modifier.fillMaxWidth(),
+          shape = ShapeRoundLg
         ) {
           Column(
             modifier = Modifier
               .fillMaxWidth()
-              .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+              .padding(AppDimens.Spacing16),
+            verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
           ) {
             Row(
               modifier = Modifier.fillMaxWidth(),
@@ -436,72 +377,53 @@ fun LauncherConfigurationScreen(
               verticalAlignment = Alignment.CenterVertically
             ) {
               Column(modifier = Modifier.weight(1f)) {
-                Text(
-                  text = "Native Recent Apps Bridge",
-                  style = MaterialTheme.typography.titleSmall,
-                  fontWeight = FontWeight.Bold,
-                  color = TextPrimary
-                )
-                Text(
-                  text = "Triggers real Android OS Overview (task cards & thumbnails)",
-                  style = MaterialTheme.typography.labelSmall,
-                  color = TextSecondary
+                ModernSectionHeader(
+                  title = "Native Recent Apps Bridge",
+                  subtitle = "Triggers real Android OS Overview"
                 )
               }
-              Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = if (isAccessibilityConfigured) Color(0xFFE8F5E9) else Color(0xFFF1F5F9)
-              ) {
-                Text(
-                  text = if (isAccessibilityConfigured) "SERVICE ACTIVE" else "DISABLED (OPTIONAL)",
-                  style = MaterialTheme.typography.labelSmall,
-                  fontWeight = FontWeight.Bold,
-                  color = if (isAccessibilityConfigured) Color(0xFF2E7D32) else TextSecondary,
-                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                  fontSize = 10.sp
-                )
-              }
+              ModernStatusBadge(
+                text = if (isAccessibilityConfigured) "SERVICE ACTIVE" else "DISABLED (OPTIONAL)",
+                color = if (isAccessibilityConfigured) EmeraldCore else MaterialTheme.colorScheme.onSurfaceVariant
+              )
             }
 
             Text(
-              text = "On devices with proprietary Quickstep restrictions (e.g. Transsion/HiOS), third-party launchers cannot invoke system recents directly. This optional service allows Multi-Space to request Android\'s native Overview via GLOBAL_ACTION_RECENTS with zero screen reading or data collection.",
+              text = "On devices with proprietary Quickstep restrictions, third-party launchers cannot invoke system recents directly. This optional service allows Multi-Space to request Android's native Overview via GLOBAL_ACTION_RECENTS with zero screen reading or telemetry.",
               style = MaterialTheme.typography.bodySmall,
-              color = TextSecondary,
-              fontSize = 12.sp,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
               lineHeight = 16.sp
             )
 
             // Real-time Diagnostic Panel
             Surface(
-              shape = RoundedCornerShape(12.dp),
-              color = Color(0xFFF8FAFC),
-              border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+              shape = ShapeRoundMd,
+              color = MaterialTheme.colorScheme.surfaceContainer,
+              border = BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant),
               modifier = Modifier.fillMaxWidth()
             ) {
               Column(
                 modifier = Modifier
                   .fillMaxWidth()
-                  .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                  .padding(AppDimens.Spacing12),
+                verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing6)
               ) {
                 Text(
                   text = "DIAGNOSTIC STATUS (MSLauncher:RECENTS)",
-                  style = MaterialTheme.typography.labelSmall,
-                  fontWeight = FontWeight.Bold,
-                  color = PrimaryPurpleDark,
-                  fontSize = 10.sp
+                  style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                  color = QuantumViolet,
+                  letterSpacing = 1.sp
                 )
 
                 Row(
                   modifier = Modifier.fillMaxWidth(),
                   horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                  Text("Accessibility Service:", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 11.sp)
+                  Text("Accessibility Service:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                   Text(
                     text = if (recentsDiagnostic.isServiceConnected) "Connected (Bound)" else if (recentsDiagnostic.isEnabledInSettings) "Enabled in Settings (Not Bound)" else "Disabled",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = if (recentsDiagnostic.isServiceConnected) Color(0xFF2E7D32) else if (recentsDiagnostic.isEnabledInSettings) Color(0xFFE65100) else TextSecondary,
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                    color = if (recentsDiagnostic.isServiceConnected) EmeraldCore else if (recentsDiagnostic.isEnabledInSettings) AmberPulse else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp
                   )
                 }
@@ -510,16 +432,15 @@ fun LauncherConfigurationScreen(
                   modifier = Modifier.fillMaxWidth(),
                   horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                  Text("System Action Availability:", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 11.sp)
+                  Text("System Action Availability:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                   Text(
                     text = when (recentsDiagnostic.isRecentsActionAvailable) {
                       true -> "GLOBAL_ACTION_RECENTS available (${recentsDiagnostic.systemActionsCount} actions)"
                       false -> "GLOBAL_ACTION_RECENTS unavailable"
                       null -> if (recentsDiagnostic.isServiceConnected) "Available" else "Unknown (Service inactive)"
                     },
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = if (recentsDiagnostic.isRecentsActionAvailable == true || (recentsDiagnostic.isRecentsActionAvailable == null && recentsDiagnostic.isServiceConnected)) Color(0xFF2E7D32) else TextSecondary,
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                    color = if (recentsDiagnostic.isRecentsActionAvailable == true || (recentsDiagnostic.isRecentsActionAvailable == null && recentsDiagnostic.isServiceConnected)) EmeraldCore else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp
                   )
                 }
@@ -528,7 +449,7 @@ fun LauncherConfigurationScreen(
                   modifier = Modifier.fillMaxWidth(),
                   horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                  Text("Last Attempt:", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 11.sp)
+                  Text("Last Attempt:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                   Text(
                     text = when (recentsDiagnostic.lastInvocationResult) {
                       RecentsInvocationResult.SUCCESS -> "Success"
@@ -537,9 +458,8 @@ fun LauncherConfigurationScreen(
                       RecentsInvocationResult.ACTION_UNAVAILABLE -> "Failed (Action Unavailable)"
                       null -> "None"
                     },
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = if (recentsDiagnostic.lastInvocationResult == RecentsInvocationResult.SUCCESS) Color(0xFF2E7D32) else if (recentsDiagnostic.lastInvocationResult != null) Color(0xFFC62828) else TextSecondary,
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                    color = if (recentsDiagnostic.lastInvocationResult == RecentsInvocationResult.SUCCESS) EmeraldCore else if (recentsDiagnostic.lastInvocationResult != null) CrimsonNova else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp
                   )
                 }
@@ -548,16 +468,15 @@ fun LauncherConfigurationScreen(
                   modifier = Modifier.fillMaxWidth(),
                   horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                  Text("Last Result:", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 11.sp)
+                  Text("Last Result:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                   Text(
                     text = when (recentsDiagnostic.lastResult) {
                       true -> "performGlobalAction = true"
                       false -> "performGlobalAction = false"
                       null -> "Not invoked yet"
                     },
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = if (recentsDiagnostic.lastResult == true) Color(0xFF2E7D32) else if (recentsDiagnostic.lastResult == false) Color(0xFFC62828) else TextSecondary,
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                    color = if (recentsDiagnostic.lastResult == true) EmeraldCore else if (recentsDiagnostic.lastResult == false) CrimsonNova else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp
                   )
                 }
@@ -566,11 +485,11 @@ fun LauncherConfigurationScreen(
                   modifier = Modifier.fillMaxWidth(),
                   horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                  Text("Last Failure:", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 11.sp)
+                  Text("Last Failure:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                   Text(
                     text = recentsDiagnostic.lastFailureReason ?: "None",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (recentsDiagnostic.lastFailureReason != null) Color(0xFFC62828) else TextSecondary,
+                    color = if (recentsDiagnostic.lastFailureReason != null) CrimsonNova else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp
                   )
                 }
@@ -579,7 +498,7 @@ fun LauncherConfigurationScreen(
 
             Row(
               modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.spacedBy(8.dp)
+              horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
             ) {
               Button(
                 onClick = {
@@ -605,17 +524,17 @@ fun LauncherConfigurationScreen(
                     }
                   }
                 },
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurpleDark),
+                shape = ShapeRoundMd,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 modifier = Modifier.weight(1f).testTag("btn_test_native_recents")
               ) {
                 Icon(
                   imageVector = Icons.Default.GridView,
                   contentDescription = "Test Recents",
-                  modifier = Modifier.size(16.dp)
+                  modifier = Modifier.size(AppDimens.IconSm)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("TEST NATIVE RECENTS", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.width(AppDimens.Spacing6))
+                Text("TEST RECENTS", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
               }
 
               OutlinedButton(
@@ -626,13 +545,13 @@ fun LauncherConfigurationScreen(
                     showRecentsDisclosureDialog = true
                   }
                 },
-                shape = RoundedCornerShape(8.dp),
+                shape = ShapeRoundMd,
                 modifier = Modifier.testTag("btn_configure_accessibility")
               ) {
                 Text(
                   text = if (isAccessibilityConfigured) "Settings" else "Enable...",
-                  fontSize = 12.sp,
-                  color = TextPrimary
+                  style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                  color = MaterialTheme.colorScheme.onSurface
                 )
               }
             }
@@ -833,8 +752,12 @@ private fun SpaceRowItem(
   }
 
   Surface(
-    shape = RoundedCornerShape(14.dp),
-    color = if (isActive) PrimaryContainerLight else LightSurfaceContainerLow,
+    shape = ShapeRoundMd,
+    color = if (isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceContainer,
+    border = BorderStroke(
+      AppDimens.BorderThin,
+      if (isActive) QuantumViolet.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant
+    ),
     modifier = Modifier
       .fillMaxWidth()
       .testTag("config_space_item_${space.id}")
@@ -842,96 +765,66 @@ private fun SpaceRowItem(
     Column(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(14.dp),
-      verticalArrangement = Arrangement.spacedBy(10.dp)
+        .padding(AppDimens.Spacing16),
+      verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing10)
     ) {
       Row(
         modifier = Modifier
           .fillMaxWidth()
           .clickable { onSelectActive() },
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing10)
       ) {
         Icon(
           imageVector = if (isActive) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
           contentDescription = if (isActive) "Active Space" else "Inactive Space",
-          tint = if (isActive) PrimaryPurpleDark else TextMuted,
-          modifier = Modifier.size(22.dp)
+          tint = if (isActive) QuantumViolet else MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.size(AppDimens.IconMd)
         )
         Column(modifier = Modifier.weight(1f)) {
           Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
           ) {
             Text(
               text = space.name,
-              style = MaterialTheme.typography.titleMedium,
-              fontWeight = FontWeight.Bold,
-              color = TextPrimary
+              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onSurface
             )
             if (isActive) {
-              Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = PrimaryPurpleDark
-              ) {
-                Text(
-                  text = "ACTIVE",
-                  color = Color.White,
-                  fontSize = 10.sp,
-                  fontWeight = FontWeight.Bold,
-                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-              }
+              ModernStatusBadge(
+                text = "ACTIVE",
+                color = QuantumViolet
+              )
             }
             if (space.isProtected) {
               val isPattern = space.isPatternProtected || space.authPolicy == Space.AUTH_PATTERN
-              Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = Color(0xFF2E7D32)
-              ) {
-                Row(
-                  verticalAlignment = Alignment.CenterVertically,
-                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                  horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                  Icon(
-                    imageVector = if (isPattern) Icons.Default.Gesture else Icons.Default.Lock,
-                    contentDescription = "Protected",
-                    tint = Color.White,
-                    modifier = Modifier.size(10.dp)
-                  )
-                  Text(
-                    text = if (isPattern) "PATTERN" else "PIN",
-                    color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                  )
-                }
-              }
+              ModernStatusBadge(
+                text = if (isPattern) "PATTERN" else "PIN",
+                color = EmeraldCore
+              )
             }
           }
           Text(
             text = "ID: ${space.id} · Created: $formattedDate",
-            style = MaterialTheme.typography.labelSmall,
-            fontFamily = FontFamily.Monospace,
-            color = TextSecondary,
-            fontSize = 11.sp
+            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
           )
         }
       }
 
-      HorizontalDivider(color = LightSurfaceContainerHigh)
+      HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
       // Exactly two action buttons: Edit Space and Delete Space
       Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing10),
         verticalAlignment = Alignment.CenterVertically
       ) {
         OutlinedButton(
           onClick = onEdit,
-          shape = RoundedCornerShape(10.dp),
-          contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+          shape = ShapeRoundMd,
+          contentPadding = PaddingValues(horizontal = AppDimens.Spacing12, vertical = AppDimens.Spacing8),
           modifier = Modifier
             .weight(1f)
             .testTag("config_space_edit_${space.id}")
@@ -939,19 +832,19 @@ private fun SpaceRowItem(
           Icon(
             imageVector = Icons.Default.Edit,
             contentDescription = "Edit Space",
-            tint = PrimaryPurpleDark,
-            modifier = Modifier.size(16.dp)
+            tint = QuantumViolet,
+            modifier = Modifier.size(AppDimens.IconSm)
           )
-          Spacer(modifier = Modifier.width(6.dp))
-          Text("Edit", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = PrimaryPurpleDark)
+          Spacer(modifier = Modifier.width(AppDimens.Spacing6))
+          Text("Edit", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = QuantumViolet)
         }
 
         OutlinedButton(
           onClick = onDelete,
-          shape = RoundedCornerShape(10.dp),
-          contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+          shape = ShapeRoundMd,
+          contentPadding = PaddingValues(horizontal = AppDimens.Spacing12, vertical = AppDimens.Spacing8),
           colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = Color(0xFFC62828)
+            contentColor = CrimsonNova
           ),
           modifier = Modifier
             .weight(1f)
@@ -960,11 +853,11 @@ private fun SpaceRowItem(
           Icon(
             imageVector = Icons.Default.Delete,
             contentDescription = "Delete Space",
-            tint = Color(0xFFC62828),
-            modifier = Modifier.size(16.dp)
+            tint = CrimsonNova,
+            modifier = Modifier.size(AppDimens.IconSm)
           )
-          Spacer(modifier = Modifier.width(6.dp))
-          Text("Delete", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFC62828))
+          Spacer(modifier = Modifier.width(AppDimens.Spacing6))
+          Text("Delete", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = CrimsonNova)
         }
       }
     }
