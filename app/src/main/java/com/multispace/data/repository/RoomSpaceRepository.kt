@@ -967,21 +967,13 @@ class RoomSpaceRepository(
     targetPosition: Int
   ): Result<Unit> {
     return try {
-      // Ensure layer 1 placements exist in DB (bootstrapping from memberships if empty)
-      val allHome = getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
-        .map { SpaceItemPlacementEntity.fromDomain(it) }
-        .toMutableList()
-
-      val pkg = if (placementId.startsWith("virtual_")) {
-        placementId.removePrefix("virtual_").substringBeforeLast("_")
-      } else null
-
-      var itemIndex = allHome.indexOfFirst { it.id == placementId }
-      if (itemIndex == -1 && pkg != null) {
-        itemIndex = allHome.indexOfFirst { it.packageName == pkg }
-      }
-
+      val allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
+      val itemIndex = allHome.indexOfFirst { it.id == placementId }
       if (itemIndex == -1) {
+        val pkg = if (placementId.startsWith("virtual_")) {
+          placementId.removePrefix("virtual_").substringBeforeLast("_")
+        } else null
+
         val newId = "place_" + UUID.randomUUID().toString().replace("-", "").take(10)
         val newItem = SpaceItemPlacementEntity(
           id = newId,
@@ -997,15 +989,14 @@ class RoomSpaceRepository(
           .toMutableList()
         targetPageItems.add(targetPosition.coerceIn(0, targetPageItems.size), newItem)
         val reindexedTarget = targetPageItems.mapIndexed { idx, p -> p.copy(positionIndex = idx) }
-        allHome.removeAll { it.pageIndex == targetPage }
-        allHome.addAll(reindexedTarget)
-        layoutDao.insertPlacements(allHome)
+        layoutDao.insertPlacements(reindexedTarget)
         return Result.success(Unit)
       }
 
       val item = allHome.removeAt(itemIndex)
       val oldPage = item.pageIndex
       val updatedItem = item.copy(pageIndex = targetPage, positionIndex = targetPosition)
+      allHome.add(updatedItem)
 
       // Re-index target page
       val targetPageItems = allHome.filter { it.pageIndex == targetPage && it.id != updatedItem.id }
