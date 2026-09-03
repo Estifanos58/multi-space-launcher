@@ -14,6 +14,7 @@ import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.ImportReport
 import com.multispace.domain.model.LayoutPreset
+import com.multispace.domain.model.PlacementCascadeHelper
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceDockItem
 import com.multispace.domain.model.SpaceFolder
@@ -1074,32 +1075,20 @@ class RoomSpaceRepository(
       val sourcePage = itemToMove.pageIndex
       val sourcePos = itemToMove.positionIndex
 
-      // 3. Resolve collisions and swap or shift occupying items
-      val targetPageOthers = allHome.filter { it.pageIndex == targetPage && it.id != itemToMove.id }
-      val occupyingItem = targetPageOthers.firstOrNull { it.positionIndex == targetPosClamped }
-      val toInsert = mutableListOf<SpaceItemPlacementEntity>()
-
-      if (occupyingItem != null) {
-        if (sourcePage == targetPage) {
-          // Same-page clean swap: occupying item moves to the dragged item's original slot
-          val swappedOccupying = occupyingItem.copy(positionIndex = sourcePos)
-          toInsert.add(swappedOccupying)
-        } else {
-          // Cross-page drop on occupied slot: find first free slot on targetPage
-          val occupiedSlots = targetPageOthers.map { it.positionIndex }.toSet() + targetPosClamped
-          var freeSlot = 0
-          while (occupiedSlots.contains(freeSlot) && freeSlot < pageSize) {
-            freeSlot++
-          }
-          val shiftedOccupying = occupyingItem.copy(positionIndex = freeSlot)
-          toInsert.add(shiftedOccupying)
-        }
-      }
-
-      val updatedItem = itemToMove.copy(pageIndex = targetPage, positionIndex = targetPosClamped)
-      toInsert.add(updatedItem)
+      // 3. Resolve collisions and cascade-shift occupying items across pages until an empty slot is reached
+      val toInsert = PlacementCascadeHelper.cascadeInsertGeneric(
+        existingItems = allHome,
+        itemToInsert = itemToMove,
+        getId = { it.id },
+        getPage = { it.pageIndex },
+        getPosition = { it.positionIndex },
+        copyItem = { entity, page, pos -> entity.copy(pageIndex = page, positionIndex = pos) },
+        targetPage = targetPage,
+        targetPosition = targetPosClamped,
+        pageSize = pageSize
+      )
       layoutDao.insertPlacements(toInsert)
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Moved placement ${itemToMove.id} (${itemToMove.packageName}) from ($sourcePage, $sourcePos) to ($targetPage, $targetPosClamped)")
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Moved placement ${itemToMove.id} (${itemToMove.packageName}) from ($sourcePage, $sourcePos) to ($targetPage, $targetPosClamped) with ${toInsert.size - 1} shifted items")
       Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to move app to page $targetPage", e)

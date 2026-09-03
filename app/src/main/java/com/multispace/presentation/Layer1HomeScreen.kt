@@ -188,11 +188,13 @@ fun Layer1HomeScreen(
   var isTransitioningPage by remember { mutableStateOf(false) }
   var edgeDwellJob by remember { mutableStateOf<Job?>(null) }
 
-  val iconSizeModifier = when (space.iconSize) {
-    Space.ICON_SIZE_SMALL -> Modifier.size(44.dp)
-    Space.ICON_SIZE_LARGE -> Modifier.size(62.dp)
-    else -> Modifier.size(52.dp)
+  val iconDp = when (space.iconSize) {
+    Space.ICON_SIZE_SMALL -> 44.dp
+    Space.ICON_SIZE_LARGE -> 62.dp
+    else -> 52.dp
   }
+  val iconSizeModifier = Modifier.size(iconDp)
+  val labelHeight = if (space.labelVisibility) 20.dp else 0.dp
 
   val baseEdgeZonePx = with(density) { 80.dp.toPx() }
   val edgeZonePx = if (viewportWidth > 0f) {
@@ -323,7 +325,7 @@ fun Layer1HomeScreen(
     pendingEdgeDirection = EdgePagingDirection.NONE
     edgeDwellJob?.cancel()
     edgeDwellJob = null
-    updatePreviewTargetSlot()
+    previewTargetSlot = null
     AppLogger.i(AppLogger.Category.LAUNCHER, "DRAG_START item=${placement.packageName ?: placement.id} page=${placement.pageIndex}")
   }
 
@@ -401,38 +403,20 @@ fun Layer1HomeScreen(
         } else {
           val targetPage = pagerState.currentPage
           val targetPos = previewTargetSlot ?: dragged.positionIndex
+          val cols = space.gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
+          val pageSize = cols * 5
           AppLogger.i(AppLogger.Category.LAUNCHER, "DROP item=${dragged.packageName ?: dragged.id} from=(${dragged.pageIndex}, ${dragged.positionIndex}) to=($targetPage, $targetPos)")
           haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
 
-          // Optimistically update local placements so the app leaves original place and moves immediately
-          val updatedList = effectivePlacements.toMutableList()
-          val draggedIdx = updatedList.indexOfFirst { it.id == dragged.id }
-          if (draggedIdx != -1) {
-            val draggedItem = updatedList.removeAt(draggedIdx)
-            val occupyingIdx = updatedList.indexOfFirst { it.pageIndex == targetPage && it.positionIndex == targetPos }
-
-            if (occupyingIdx != -1) {
-              val occupying = updatedList[occupyingIdx]
-              if (draggedItem.pageIndex == targetPage) {
-                // Clean same-page swap: occupying item moves to the dragged item's original slot
-                updatedList[occupyingIdx] = occupying.copy(positionIndex = draggedItem.positionIndex)
-              } else {
-                // Cross-page drop on occupied slot: find first free slot on targetPage
-                val cols = space.gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
-                val pageSize = cols * 5
-                val occupiedSlots = updatedList.filter { it.pageIndex == targetPage }.map { it.positionIndex }.toSet() + targetPos
-                var freeSlot = 0
-                while (occupiedSlots.contains(freeSlot) && freeSlot < pageSize) {
-                  freeSlot++
-                }
-                updatedList[occupyingIdx] = occupying.copy(positionIndex = freeSlot)
-              }
-            }
-
-            // Insert dragged item at its new target position
-            updatedList.add(draggedItem.copy(pageIndex = targetPage, positionIndex = targetPos))
-            localPlacements = updatedList
-          }
+          // Optimistically update local placements with cascading ripple logic
+          val updatedList = PlacementCascadeHelper.computeFullPlacementsAfterDrop(
+            allCurrentPlacements = effectivePlacements,
+            itemToInsert = dragged,
+            targetPage = targetPage,
+            targetPosition = targetPos,
+            pageSize = pageSize
+          )
+          localPlacements = updatedList
 
           onMovePlacement(dragged.id, targetPage, targetPos)
         }
@@ -523,16 +507,19 @@ fun Layer1HomeScreen(
     Column(modifier = Modifier.fillMaxSize()) {
       // Main content: either Paged or Scrolling
       if (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL) {
+        val scrollHorizontalPadding = 16.dp
+        val appSpacing = 8.dp
+
         // Vertical continuous scrolling layout
         LazyVerticalGrid(
           columns = GridCells.Fixed(space.gridColumns),
           modifier = Modifier
             .weight(1f)
             .fillMaxSize()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .padding(horizontal = scrollHorizontalPadding, vertical = 8.dp)
             .testTag("layer1_scroll_grid"),
-          horizontalArrangement = Arrangement.spacedBy(4.dp),
-          verticalArrangement = Arrangement.spacedBy(6.dp)
+          horizontalArrangement = Arrangement.spacedBy(appSpacing),
+          verticalArrangement = Arrangement.spacedBy(appSpacing)
         ) {
           items(effectivePlacements, key = { it.id }) { placement ->
             Layer1ItemCell(
@@ -573,27 +560,30 @@ fun Layer1HomeScreen(
             rawPagePlacements
           }
 
-          val previewSlotsMap = remember(otherPlacements, isDragging, isCurrentPage, isOverBin, previewTargetSlot) {
+          val previewSlotsMap = remember(effectivePlacements, otherPlacements, isDragging, isCurrentPage, isOverBin, previewTargetSlot, draggedPlacement) {
             if (isDragging && isCurrentPage && !isOverBin && previewTargetSlot != null && draggedPlacement != null) {
               val target = previewTargetSlot!!
               val dragged = draggedPlacement!!
-              val occupying = otherPlacements.firstOrNull { it.positionIndex == target }
+              val pageSize = cols * rows
+              val allExceptDragged = effectivePlacements.filter { it.id != dragged.id }
+              val cascaded = PlacementCascadeHelper.cascadeInsert(
+                existingPlacements = allExceptDragged,
+                itemToInsert = dragged,
+                targetPage = page,
+                targetPosition = target,
+                pageSize = pageSize
+              )
+              // Only items belonging to current page, excluding the dragged item itself (rendered as DropTargetPreviewSlot)
+              val shiftedOnPage = cascaded.filter { it.id != dragged.id && it.pageIndex == page }.associateBy { it.positionIndex }
+              val shiftedIds = cascaded.map { it.id }.toSet()
               val map = mutableMapOf<Int, SpaceItemPlacement>()
               for (p in otherPlacements) {
-                if (occupying != null && p.id == occupying.id) {
-                  if (dragged.pageIndex == page) {
-                    map[dragged.positionIndex] = p.copy(positionIndex = dragged.positionIndex)
-                  } else {
-                    val occupied = otherPlacements.map { it.positionIndex }.toSet() + target
-                    var free = 0
-                    while (occupied.contains(free)) {
-                      free++
-                    }
-                    map[free] = p.copy(positionIndex = free)
-                  }
-                } else {
+                if (!shiftedIds.contains(p.id)) {
                   map[p.positionIndex] = p
                 }
+              }
+              for ((pos, p) in shiftedOnPage) {
+                map[pos] = p
               }
               map
             } else {
@@ -601,23 +591,28 @@ fun Layer1HomeScreen(
             }
           }
 
+          val appSpacing = 8.dp
+          val gridHorizontalPadding = 16.dp
+          val cellHeight = iconDp + labelHeight + 16.dp
+
           Column(
             modifier = Modifier
               .fillMaxSize()
-              .padding(horizontal = 8.dp, vertical = 4.dp)
+              .padding(horizontal = gridHorizontalPadding, vertical = 8.dp)
               .onGloballyPositioned { coordinates ->
                 if (isCurrentPage && rootCoordinates != null) {
                   val localOffset = rootCoordinates!!.localPositionOf(coordinates, Offset.Zero)
                   pageGridBounds = Rect(localOffset, coordinates.size.toSize())
                 }
-              }
+              },
+            verticalArrangement = Arrangement.spacedBy(appSpacing, Alignment.Top)
           ) {
             for (r in 0 until rows) {
               Row(
                 modifier = Modifier
-                  .weight(1f)
-                  .fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                  .fillMaxWidth()
+                  .height(cellHeight),
+                horizontalArrangement = Arrangement.spacedBy(appSpacing)
               ) {
                 for (c in 0 until cols) {
                   val slotIndex = r * cols + c
