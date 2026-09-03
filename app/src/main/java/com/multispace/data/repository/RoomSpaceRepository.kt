@@ -942,7 +942,20 @@ class RoomSpaceRepository(
 
   override suspend fun removePlacement(placementId: String): Result<Unit> {
     return try {
-      layoutDao.deletePlacementById(placementId)
+      if (placementId.startsWith("virtual:") || placementId.startsWith("virtual_")) {
+        val pkg = when {
+          placementId.startsWith("virtual:") -> placementId.removePrefix("virtual:").substringBefore(":")
+          else -> {
+            val withoutPrefix = placementId.removePrefix("virtual_")
+            val lastUnderscore = withoutPrefix.lastIndexOf('_')
+            val secondLast = if (lastUnderscore != -1) withoutPrefix.lastIndexOf('_', lastUnderscore - 1) else -1
+            if (secondLast != -1) withoutPrefix.substring(0, secondLast) else withoutPrefix
+          }
+        }
+        layoutDao.deletePlacementsForPackage(pkg)
+      } else {
+        layoutDao.deletePlacementById(placementId)
+      }
       Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to remove placement: $placementId", e)
@@ -967,46 +980,84 @@ class RoomSpaceRepository(
     targetPosition: Int
   ): Result<Unit> {
     return try {
-      var allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
       val space = spaceDao.getSpaceById(spaceId)
       val cols = space?.gridColumns ?: Space.DEFAULT_GRID_COLUMNS
       val pageSize = cols * 5
       val targetPosClamped = targetPosition.coerceIn(0, pageSize - 1)
 
-      // Ensure database is bootstrapped from memberships if currently empty
-      if (allHome.isEmpty()) {
-        val memberships = membershipDao.getMembershipsForSpace(spaceId).distinctBy { it.packageName }
-        if (memberships.isNotEmpty()) {
-          val bootstrapped = memberships.mapIndexed { idx, m ->
-            SpaceItemPlacementEntity(
-              id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
-              spaceId = spaceId,
-              layer = SpaceItemPlacement.LAYER_HOME,
-              pageIndex = idx / pageSize,
-              positionIndex = idx % pageSize,
-              itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-              packageName = m.packageName,
-              componentName = m.componentName,
-              userHandleId = m.userHandleId
-            )
-          }
-          layoutDao.insertPlacements(bootstrapped)
-          allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
+      var allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
+
+      // 1. Ensure all memberships have persistent placements in database
+      val memberships = membershipDao.getMembershipsForSpace(spaceId).distinctBy { it.packageName }
+      val placedPkgs = allHome.mapNotNull { it.packageName }.toSet()
+      val missingMemberships = memberships.filter { !placedPkgs.contains(it.packageName) }
+
+      if (missingMemberships.isNotEmpty()) {
+        val occupiedPerPage = mutableMapOf<Int, MutableSet<Int>>()
+        for (p in allHome) {
+          occupiedPerPage.getOrPut(p.pageIndex) { mutableSetOf() }.add(p.positionIndex)
         }
+        var curPage = 0
+        var curPos = 0
+        val bootstrapped = mutableListOf<SpaceItemPlacementEntity>()
+        for (m in missingMemberships) {
+          var occupied = occupiedPerPage.getOrPut(curPage) { mutableSetOf() }
+          while (occupied.contains(curPos) && curPos < pageSize) {
+            curPos++
+          }
+          if (curPos >= pageSize) {
+            curPage++
+            curPos = 0
+            occupied = occupiedPerPage.getOrPut(curPage) { mutableSetOf() }
+            while (occupied.contains(curPos) && curPos < pageSize) {
+              curPos++
+            }
+          }
+          val entity = SpaceItemPlacementEntity(
+            id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+            spaceId = spaceId,
+            layer = SpaceItemPlacement.LAYER_HOME,
+            pageIndex = curPage,
+            positionIndex = curPos,
+            itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+            packageName = m.packageName,
+            componentName = m.componentName,
+            userHandleId = m.userHandleId
+          )
+          bootstrapped.add(entity)
+          allHome.add(entity)
+          occupied.add(curPos)
+          curPos++
+        }
+        layoutDao.insertPlacements(bootstrapped)
       }
 
-      val pkg = if (placementId.startsWith("virtual_")) {
-        placementId.removePrefix("virtual_").substringBeforeLast("_")
-      } else null
+      // 2. Resolve the target item to move
+      val pkgFromVirtual = when {
+        placementId.startsWith("virtual:") -> {
+          placementId.removePrefix("virtual:").substringBefore(":")
+        }
+        placementId.startsWith("virtual_") -> {
+          val withoutPrefix = placementId.removePrefix("virtual_")
+          val lastUnderscore = withoutPrefix.lastIndexOf('_')
+          val secondLast = if (lastUnderscore != -1) withoutPrefix.lastIndexOf('_', lastUnderscore - 1) else -1
+          if (secondLast != -1) withoutPrefix.substring(0, secondLast) else withoutPrefix
+        }
+        else -> null
+      }
 
       var itemIndex = allHome.indexOfFirst { it.id == placementId }
-      if (itemIndex == -1 && pkg != null) {
-        itemIndex = allHome.indexOfFirst { it.packageName == pkg }
+      if (itemIndex == -1 && pkgFromVirtual != null) {
+        itemIndex = allHome.indexOfFirst { it.packageName == pkgFromVirtual }
+      }
+      if (itemIndex == -1 && pkgFromVirtual != null) {
+        itemIndex = allHome.indexOfFirst { it.packageName?.contains(pkgFromVirtual) == true || pkgFromVirtual.contains(it.packageName ?: "---") }
       }
 
       val itemToMove = if (itemIndex != -1) {
         allHome.removeAt(itemIndex)
       } else {
+        val matchedMember = memberships.firstOrNull { it.packageName == pkgFromVirtual }
         SpaceItemPlacementEntity(
           id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
           spaceId = spaceId,
@@ -1014,24 +1065,30 @@ class RoomSpaceRepository(
           pageIndex = targetPage,
           positionIndex = targetPosClamped,
           itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-          packageName = pkg
+          packageName = pkgFromVirtual,
+          componentName = matchedMember?.componentName,
+          userHandleId = matchedMember?.userHandleId ?: 0L
         )
       }
 
-      val targetPageOthers = allHome.filter { it.pageIndex == targetPage }.toMutableList()
+      val sourcePage = itemToMove.pageIndex
+      val sourcePos = itemToMove.positionIndex
+
+      // 3. Resolve collisions and swap or shift occupying items
+      val targetPageOthers = allHome.filter { it.pageIndex == targetPage && it.id != itemToMove.id }
       val occupyingItem = targetPageOthers.firstOrNull { it.positionIndex == targetPosClamped }
       val toInsert = mutableListOf<SpaceItemPlacementEntity>()
 
       if (occupyingItem != null) {
-        if (itemToMove.pageIndex == targetPage) {
+        if (sourcePage == targetPage) {
           // Same-page clean swap: occupying item moves to the dragged item's original slot
-          val swappedOccupying = occupyingItem.copy(positionIndex = itemToMove.positionIndex)
+          val swappedOccupying = occupyingItem.copy(positionIndex = sourcePos)
           toInsert.add(swappedOccupying)
         } else {
           // Cross-page drop on occupied slot: find first free slot on targetPage
           val occupiedSlots = targetPageOthers.map { it.positionIndex }.toSet() + targetPosClamped
           var freeSlot = 0
-          while (occupiedSlots.contains(freeSlot)) {
+          while (occupiedSlots.contains(freeSlot) && freeSlot < pageSize) {
             freeSlot++
           }
           val shiftedOccupying = occupyingItem.copy(positionIndex = freeSlot)
@@ -1042,7 +1099,7 @@ class RoomSpaceRepository(
       val updatedItem = itemToMove.copy(pageIndex = targetPage, positionIndex = targetPosClamped)
       toInsert.add(updatedItem)
       layoutDao.insertPlacements(toInsert)
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Moved placement ${itemToMove.id} ($pkg) to page $targetPage, pos $targetPosClamped")
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Moved placement ${itemToMove.id} (${itemToMove.packageName}) from ($sourcePage, $sourcePos) to ($targetPage, $targetPosClamped)")
       Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to move app to page $targetPage", e)

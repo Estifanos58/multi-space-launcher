@@ -166,20 +166,20 @@ fun Layer2LibraryScreen(
               .padding(AppDimens.Spacing4)
               .testTag("layer2_app_${app.packageName}")
           ) {
-            Box(
-              modifier = iconSizeModifier
-                .clip(ShapeRoundMd)
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-              contentAlignment = Alignment.Center
-            ) {
-              val bitmap = getBitmap(app)
-              if (bitmap != null) {
-                Image(
-                  bitmap = bitmap.asImageBitmap(),
-                  contentDescription = app.label,
-                  modifier = Modifier.fillMaxSize()
-                )
-              } else {
+            val bitmap = getBitmap(app)
+            if (bitmap != null) {
+              Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = app.label,
+                modifier = iconSizeModifier
+              )
+            } else {
+              Box(
+                modifier = iconSizeModifier
+                  .clip(ShapeRoundMd)
+                  .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                contentAlignment = Alignment.Center
+              ) {
                 Text(
                   text = app.label.take(1).uppercase(),
                   fontWeight = FontWeight.Bold,

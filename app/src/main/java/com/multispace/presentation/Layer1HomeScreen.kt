@@ -101,16 +101,18 @@ fun Layer1HomeScreen(
 
   // Ensure robust fallback placements if space has apps but no placements generated yet,
   // guaranteeing no apps are duplicated or lost in Layer 1.
-  val effectivePlacements = remember(placements, allApps, space) {
+  var localPlacements by remember(placements) { mutableStateOf(placements) }
+
+  val effectivePlacements = remember(localPlacements, allApps, space) {
     val cols = space.gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
     val pageSize = (cols * 5).coerceAtLeast(1)
 
-    val existingPlacedApps = placements.filter { it.itemType == SpaceItemPlacement.ITEM_TYPE_APP }
+    val existingPlacedApps = localPlacements.filter { it.itemType == SpaceItemPlacement.ITEM_TYPE_APP }
     val placedPkgSet = existingPlacedApps.mapNotNull { it.packageName }.toSet()
 
     val unplacedApps = allApps.distinctBy { it.packageName }.filter { app -> !placedPkgSet.contains(app.packageName) }
 
-    val fullList = placements.toMutableList()
+    val fullList = localPlacements.toMutableList()
     if (unplacedApps.isNotEmpty()) {
       val occupiedPerPage = mutableMapOf<Int, MutableSet<Int>>()
       for (p in fullList) {
@@ -133,7 +135,7 @@ fun Layer1HomeScreen(
           }
         }
         val newPlacement = SpaceItemPlacement(
-          id = "virtual_${app.packageName}_${curPage}_$curPos",
+          id = "virtual:${app.packageName}:$curPage:$curPos",
           spaceId = space.id,
           layer = SpaceItemPlacement.LAYER_HOME,
           pageIndex = curPage,
@@ -394,12 +396,44 @@ fun Layer1HomeScreen(
       if (dragged != null) {
         if (isOverBin) {
           AppLogger.i(AppLogger.Category.LAUNCHER, "DROP removal item=${dragged.id}")
+          localPlacements = effectivePlacements.filter { it.id != dragged.id }
           onRemovePlacement(dragged.id)
         } else {
           val targetPage = pagerState.currentPage
           val targetPos = previewTargetSlot ?: dragged.positionIndex
-          AppLogger.i(AppLogger.Category.LAUNCHER, "DROP item=${dragged.packageName ?: dragged.id} page=$targetPage pos=$targetPos")
+          AppLogger.i(AppLogger.Category.LAUNCHER, "DROP item=${dragged.packageName ?: dragged.id} from=(${dragged.pageIndex}, ${dragged.positionIndex}) to=($targetPage, $targetPos)")
           haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+
+          // Optimistically update local placements so the app leaves original place and moves immediately
+          val updatedList = effectivePlacements.toMutableList()
+          val draggedIdx = updatedList.indexOfFirst { it.id == dragged.id }
+          if (draggedIdx != -1) {
+            val draggedItem = updatedList.removeAt(draggedIdx)
+            val occupyingIdx = updatedList.indexOfFirst { it.pageIndex == targetPage && it.positionIndex == targetPos }
+
+            if (occupyingIdx != -1) {
+              val occupying = updatedList[occupyingIdx]
+              if (draggedItem.pageIndex == targetPage) {
+                // Clean same-page swap: occupying item moves to the dragged item's original slot
+                updatedList[occupyingIdx] = occupying.copy(positionIndex = draggedItem.positionIndex)
+              } else {
+                // Cross-page drop on occupied slot: find first free slot on targetPage
+                val cols = space.gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
+                val pageSize = cols * 5
+                val occupiedSlots = updatedList.filter { it.pageIndex == targetPage }.map { it.positionIndex }.toSet() + targetPos
+                var freeSlot = 0
+                while (occupiedSlots.contains(freeSlot) && freeSlot < pageSize) {
+                  freeSlot++
+                }
+                updatedList[occupyingIdx] = occupying.copy(positionIndex = freeSlot)
+              }
+            }
+
+            // Insert dragged item at its new target position
+            updatedList.add(draggedItem.copy(pageIndex = targetPage, positionIndex = targetPos))
+            localPlacements = updatedList
+          }
+
           onMovePlacement(dragged.id, targetPage, targetPos)
         }
       }
@@ -734,12 +768,8 @@ fun Layer1HomeScreen(
           .graphicsLayer {
             scaleX = dragScale
             scaleY = dragScale
-            shadowElevation = 20.dp.toPx()
-            shape = ShapeRoundMd
-            clip = true
+            shadowElevation = 16.dp.toPx()
           }
-          .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f))
-          .border(2.dp, QuantumViolet, ShapeRoundMd)
           .zIndex(999f)
           .testTag("floating_dragged_item"),
         contentAlignment = Alignment.Center
@@ -758,12 +788,20 @@ fun Layer1HomeScreen(
             modifier = Modifier.fillMaxSize()
           )
         } else {
-          Text(
-            text = app?.label?.take(1) ?: "?",
-            fontWeight = FontWeight.Bold,
-            color = QuantumViolet,
-            fontSize = 20.sp
-          )
+          Box(
+            modifier = Modifier
+              .fillMaxSize()
+              .clip(ShapeRoundMd)
+              .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            contentAlignment = Alignment.Center
+          ) {
+            Text(
+              text = app?.label?.take(1) ?: "?",
+              fontWeight = FontWeight.Bold,
+              color = QuantumViolet,
+              fontSize = 20.sp
+            )
+          }
         }
       }
     }
@@ -779,38 +817,20 @@ private fun DropTargetPreviewSlot(
   iconSizeModifier: Modifier,
   modifier: Modifier = Modifier
 ) {
-  val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-  val glowAlpha by infiniteTransition.animateFloat(
-    initialValue = 0.14f,
-    targetValue = 0.28f,
-    animationSpec = infiniteRepeatable(
-      animation = tween(700, easing = LinearEasing),
-      repeatMode = RepeatMode.Reverse
-    ),
-    label = "glowAlpha"
-  )
-
   val key = "${dragged.packageName}/${dragged.componentName}"
   val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == dragged.packageName }
   val bitmap = app?.let { getBitmap(it) }
 
   Box(
-    modifier = modifier
-      .fillMaxSize()
-      .padding(2.dp)
-      .clip(ShapeRoundMd)
-      .background(QuantumViolet.copy(alpha = glowAlpha))
-      .border(AppDimens.BorderThick, QuantumViolet, ShapeRoundMd),
+    modifier = modifier.fillMaxSize(),
     contentAlignment = Alignment.Center
   ) {
     Column(
       horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement = Arrangement.Center,
-      modifier = Modifier.padding(2.dp)
+      verticalArrangement = Arrangement.Center
     ) {
       Box(
-        modifier = iconSizeModifier
-          .clip(ShapeRoundMd),
+        modifier = iconSizeModifier,
         contentAlignment = Alignment.Center
       ) {
         if (dragged.isFolder) {
@@ -824,7 +844,7 @@ private fun DropTargetPreviewSlot(
           Image(
             bitmap = bitmap.asImageBitmap(),
             contentDescription = null,
-            alpha = 0.5f,
+            alpha = 0.45f,
             modifier = Modifier.fillMaxSize()
           )
         } else {
@@ -836,16 +856,6 @@ private fun DropTargetPreviewSlot(
           )
         }
       }
-
-      Spacer(modifier = Modifier.height(2.dp))
-      Text(
-        text = "Place here",
-        style = MaterialTheme.typography.labelSmall,
-        fontSize = 10.sp,
-        fontWeight = FontWeight.SemiBold,
-        color = QuantumViolet,
-        maxLines = 1
-      )
     }
   }
 }
@@ -857,31 +867,16 @@ private fun EmptyGridCell(
   modifier: Modifier = Modifier
 ) {
   Box(
-    modifier = modifier
-      .fillMaxSize()
-      .padding(2.dp),
+    modifier = modifier.fillMaxSize(),
     contentAlignment = Alignment.Center
   ) {
     if (isDragging) {
       Box(
         modifier = Modifier
-          .fillMaxSize()
-          .clip(ShapeRoundMd)
-          .background(QuantumViolet.copy(alpha = 0.04f))
-          .border(
-            width = 1.dp,
-            color = QuantumViolet.copy(alpha = 0.15f),
-            shape = ShapeRoundMd
-          ),
-        contentAlignment = Alignment.Center
-      ) {
-        Box(
-          modifier = Modifier
-            .size(6.dp)
-            .clip(CircleShape)
-            .background(QuantumViolet.copy(alpha = 0.25f))
-        )
-      }
+          .size(6.dp)
+          .clip(CircleShape)
+          .background(QuantumViolet.copy(alpha = 0.25f))
+      )
     }
   }
 }
@@ -910,23 +905,15 @@ private fun Layer1ItemCell(
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.Center,
     modifier = Modifier
-      .fillMaxSize()
+      .wrapContentSize()
       .onGloballyPositioned { coordinates ->
         rootCoordinates?.let { root ->
           val localOffset = root.localPositionOf(coordinates, Offset.Zero)
           onPositioned(Rect(localOffset, coordinates.size.toSize()))
         } ?: onPositioned(coordinates.boundsInRoot())
       }
-      .clip(ShapeRoundMd)
-      .then(
-        if (isTargetHover) {
-          Modifier.border(AppDimens.BorderThick, QuantumViolet, ShapeRoundMd)
-        } else {
-          Modifier
-        }
-      )
       .graphicsLayer {
-        alpha = if (isBeingDragged) 0.25f else 1.0f
+        alpha = if (isBeingDragged) 0.0f else 1.0f
         scaleX = if (isTargetHover) 1.08f else 1.0f
         scaleY = if (isTargetHover) 1.08f else 1.0f
       }
@@ -937,7 +924,6 @@ private fun Layer1ItemCell(
           if (app != null) onLaunchApp(app)
         }
       }
-      .padding(horizontal = 2.dp, vertical = 2.dp)
       .testTag(if (placement.isFolder) "layer1_folder_${placement.folderId}" else "layer1_app_${placement.packageName}")
   ) {
     if (placement.isFolder) {
@@ -998,21 +984,21 @@ private fun Layer1ItemCell(
         )
       }
     } else {
-      // App Item
-      Box(
-        modifier = iconSizeModifier
-          .clip(ShapeRoundMd)
-          .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-        contentAlignment = Alignment.Center
-      ) {
-        val bitmap = app?.let { getBitmap(it) }
-        if (bitmap != null) {
-          Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = app.label,
-            modifier = Modifier.fillMaxSize()
-          )
-        } else {
+      // App Item - apps only take the space their icon takes! No border padding, no card background!
+      val bitmap = app?.let { getBitmap(it) }
+      if (bitmap != null) {
+        Image(
+          bitmap = bitmap.asImageBitmap(),
+          contentDescription = app.label,
+          modifier = iconSizeModifier
+        )
+      } else {
+        Box(
+          modifier = iconSizeModifier
+            .clip(ShapeRoundMd)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+          contentAlignment = Alignment.Center
+        ) {
           Text(
             text = app?.label?.take(1) ?: placement.packageName?.take(1)?.uppercase() ?: "?",
             fontWeight = FontWeight.Bold,
