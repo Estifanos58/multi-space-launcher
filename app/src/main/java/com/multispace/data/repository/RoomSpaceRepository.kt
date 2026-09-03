@@ -969,6 +969,8 @@ class RoomSpaceRepository(
     return try {
       val allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
       val itemIndex = allHome.indexOfFirst { it.id == placementId }
+      val targetPosClamped = targetPosition.coerceAtLeast(0)
+
       if (itemIndex == -1) {
         val pkg = if (placementId.startsWith("virtual_")) {
           placementId.removePrefix("virtual_").substringBeforeLast("_")
@@ -980,43 +982,56 @@ class RoomSpaceRepository(
           spaceId = spaceId,
           layer = SpaceItemPlacement.LAYER_HOME,
           pageIndex = targetPage,
-          positionIndex = targetPosition,
+          positionIndex = targetPosClamped,
           itemType = SpaceItemPlacement.ITEM_TYPE_APP,
           packageName = pkg
         )
-        val targetPageItems = allHome.filter { it.pageIndex == targetPage }
-          .sortedBy { it.positionIndex }
-          .toMutableList()
-        targetPageItems.add(targetPosition.coerceIn(0, targetPageItems.size), newItem)
-        val reindexedTarget = targetPageItems.mapIndexed { idx, p -> p.copy(positionIndex = idx) }
-        layoutDao.insertPlacements(reindexedTarget)
+        val targetPageOthers = allHome.filter { it.pageIndex == targetPage }.sortedBy { it.positionIndex }
+        val toInsert = mutableListOf<SpaceItemPlacementEntity>()
+        var shiftSlot = targetPosClamped
+        val hasCollision = targetPageOthers.any { it.positionIndex == targetPosClamped }
+
+        for (other in targetPageOthers) {
+          if (hasCollision && other.positionIndex >= shiftSlot) {
+            if (other.positionIndex == shiftSlot) {
+              shiftSlot = other.positionIndex + 1
+              toInsert.add(other.copy(positionIndex = shiftSlot))
+            } else {
+              toInsert.add(other)
+            }
+          } else {
+            toInsert.add(other)
+          }
+        }
+        toInsert.add(newItem)
+        layoutDao.insertPlacements(toInsert)
         return Result.success(Unit)
       }
 
       val item = allHome.removeAt(itemIndex)
       val oldPage = item.pageIndex
-      val updatedItem = item.copy(pageIndex = targetPage, positionIndex = targetPosition)
-      allHome.add(updatedItem)
+      val updatedItem = item.copy(pageIndex = targetPage, positionIndex = targetPosClamped)
 
-      // Re-index target page
-      val targetPageItems = allHome.filter { it.pageIndex == targetPage && it.id != updatedItem.id }
-        .sortedBy { it.positionIndex }
-        .toMutableList()
-      targetPageItems.add(targetPosition.coerceIn(0, targetPageItems.size), updatedItem)
+      val targetPageOthers = allHome.filter { it.pageIndex == targetPage }.sortedBy { it.positionIndex }
+      val toInsert = mutableListOf<SpaceItemPlacementEntity>()
+      var shiftSlot = targetPosClamped
+      val hasCollision = targetPageOthers.any { it.positionIndex == targetPosClamped }
 
-      val reindexedTarget = targetPageItems.mapIndexed { idx, p -> p.copy(positionIndex = idx) }
-      val toInsert = reindexedTarget.toMutableList()
-
-      // Re-index source page if targetPage != oldPage
-      if (oldPage != targetPage) {
-        val reindexedSource = allHome.filter { it.pageIndex == oldPage && it.id != item.id }
-          .sortedBy { it.positionIndex }
-          .mapIndexed { idx, p -> p.copy(positionIndex = idx) }
-        toInsert.addAll(reindexedSource)
+      for (other in targetPageOthers) {
+        if (hasCollision && other.positionIndex >= shiftSlot) {
+          if (other.positionIndex == shiftSlot) {
+            shiftSlot = other.positionIndex + 1
+            toInsert.add(other.copy(positionIndex = shiftSlot))
+          } else {
+            toInsert.add(other)
+          }
+        } else {
+          toInsert.add(other)
+        }
       }
-
+      toInsert.add(updatedItem)
       layoutDao.insertPlacements(toInsert)
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Moved placement $placementId to page $targetPage, pos $targetPosition")
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Moved placement $placementId to page $targetPage, pos $targetPosClamped")
       Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to move app to page $targetPage", e)

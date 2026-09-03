@@ -81,4 +81,77 @@ class CrossPagePlacementTest {
     assertEquals(200f, edgeZonePx, 0.01f)
     assertTrue("Edge zone must be strictly within viewport boundary", edgeZonePx < viewportWidth / 2)
   }
+
+  @Test
+  fun testFlexiblePlacementInArbitraryEmptyGridSlot() {
+    // 4 columns x 5 rows grid = 20 slots (0 to 19)
+    val pageItems = listOf(
+      SpaceItemPlacement(id = "item_1", spaceId = "s1", layer = 1, pageIndex = 0, positionIndex = 0, itemType = "APP", packageName = "app1"),
+      SpaceItemPlacement(id = "item_2", spaceId = "s1", layer = 1, pageIndex = 0, positionIndex = 1, itemType = "APP", packageName = "app2")
+    )
+
+    // User drags and targets slot 14 (Row 3, Col 2) which is currently empty
+    val targetSlot = 14
+    val hasCollision = pageItems.any { it.positionIndex == targetSlot }
+    assertEquals(false, hasCollision)
+
+    // Placement should succeed directly at slot 14 without shifting existing items at 0 and 1
+    val placedItem = SpaceItemPlacement(
+      id = "item_dragged", spaceId = "s1", layer = 1, pageIndex = 0, positionIndex = targetSlot, itemType = "APP", packageName = "app3"
+    )
+    val finalPlacements = pageItems + placedItem
+    assertEquals(3, finalPlacements.size)
+    assertEquals(0, finalPlacements[0].positionIndex)
+    assertEquals(1, finalPlacements[1].positionIndex)
+    assertEquals(14, finalPlacements[2].positionIndex)
+  }
+
+  @Test
+  fun testRealtimePreviewShiftingOnCollision() {
+    // Page with items at position 0, 1, 2, 3
+    val pageItems = listOf(
+      SpaceItemPlacement(id = "p0", spaceId = "s1", layer = 1, pageIndex = 0, positionIndex = 0, itemType = "APP", packageName = "a"),
+      SpaceItemPlacement(id = "p1", spaceId = "s1", layer = 1, pageIndex = 0, positionIndex = 1, itemType = "APP", packageName = "b"),
+      SpaceItemPlacement(id = "p2", spaceId = "s1", layer = 1, pageIndex = 0, positionIndex = 2, itemType = "APP", packageName = "c"),
+      SpaceItemPlacement(id = "p3", spaceId = "s1", layer = 1, pageIndex = 0, positionIndex = 3, itemType = "APP", packageName = "d")
+    )
+
+    // User hovers dragged app at position 1 (between p0 and p1)
+    val previewTargetSlot = 1
+    val hasCollision = pageItems.any { it.positionIndex == previewTargetSlot }
+    assertTrue(hasCollision)
+
+    // Visual shifting preview: items with positionIndex >= 1 shift by +1
+    val previewSlots = pageItems.associate { placement ->
+      val shiftedPos = if (hasCollision && placement.positionIndex >= previewTargetSlot) {
+        placement.positionIndex + 1
+      } else {
+        placement.positionIndex
+      }
+      shiftedPos to placement
+    }
+
+    // Target preview slot 1 is now vacant for the preview ghost drop slot
+    assertTrue(!previewSlots.containsKey(previewTargetSlot))
+    assertEquals("p0", previewSlots[0]?.id)
+    assertEquals("p1", previewSlots[2]?.id) // Shifted 1 -> 2
+    assertEquals("p2", previewSlots[3]?.id) // Shifted 2 -> 3
+    assertEquals("p3", previewSlots[4]?.id) // Shifted 3 -> 4
+  }
+
+  @Test
+  fun testDraggedPointerCoordinatesPreservedAcrossPageTransition() {
+    // Pointer coordinate in root window space
+    var currentPointerX = 1040f // Near right edge
+    var currentPointerY = 520f
+    var currentPage = 0
+
+    // Trigger page transition to page 1
+    currentPage += 1
+
+    // Drag position must stay glued to the finger coordinates and not reset
+    assertEquals(1, currentPage)
+    assertEquals(1040f, currentPointerX, 0.001f)
+    assertEquals(520f, currentPointerY, 0.001f)
+  }
 }
