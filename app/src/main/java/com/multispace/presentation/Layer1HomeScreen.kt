@@ -1,7 +1,7 @@
 package com.multispace.presentation
 
 import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -63,6 +63,100 @@ private const val PAGE_TRANSITION_DURATION_MS = 280
 
 private enum class EdgePagingDirection {
   NONE, LEFT, RIGHT
+}
+
+private sealed interface GridDisplayItem {
+  data class AppOrFolder(val placement: SpaceItemPlacement) : GridDisplayItem
+  data object DropPlaceholder : GridDisplayItem
+  data class DraggedAnchor(val placement: SpaceItemPlacement) : GridDisplayItem
+}
+
+private fun calculateTargetPosition(
+  pointerPos: Offset,
+  gridBounds: Rect?,
+  columns: Int,
+  itemCount: Int,
+  density: Float
+): Int {
+  if (gridBounds == null || gridBounds.width <= 0f || gridBounds.height <= 0f) {
+    return itemCount
+  }
+  if (itemCount <= 0) {
+    return 0
+  }
+
+  val hSpacingPx = 8f * density
+  val vSpacingPx = 16f * density
+
+  val relX = (pointerPos.x - gridBounds.left).coerceIn(0f, gridBounds.width)
+  val relY = (pointerPos.y - gridBounds.top).coerceAtLeast(0f)
+
+  val colWidth = ((gridBounds.width - (columns - 1) * hSpacingPx) / columns).coerceAtLeast(1f)
+  val colStep = colWidth + hSpacingPx
+
+  val rowHeight = 84f * density
+  val rowStep = rowHeight + vSpacingPx
+
+  val col = (relX / colStep).toInt().coerceIn(0, columns - 1)
+  val row = (relY / rowStep).toInt().coerceAtLeast(0)
+
+  val calculatedIndex = row * columns + col
+  return calculatedIndex.coerceIn(0, itemCount)
+}
+
+@Composable
+private fun DropPlaceholderCell(
+  space: Space,
+  iconSizeModifier: Modifier
+) {
+  val infiniteTransition = rememberInfiniteTransition(label = "placeholder_glow")
+  val pulseAlpha by infiniteTransition.animateFloat(
+    initialValue = 0.4f,
+    targetValue = 0.9f,
+    animationSpec = infiniteRepeatable(
+      animation = tween(850, easing = EaseInOutCubic),
+      repeatMode = RepeatMode.Reverse
+    ),
+    label = "pulse_alpha"
+  )
+
+  Column(
+    horizontalAlignment = Alignment.CenterHorizontally,
+    modifier = Modifier
+      .fillMaxWidth()
+      .padding(AppDimens.Spacing4)
+      .testTag("drop_placeholder_cell")
+  ) {
+    Box(
+      modifier = iconSizeModifier
+        .clip(ShapeRoundMd)
+        .background(QuantumViolet.copy(alpha = 0.14f * pulseAlpha))
+        .border(
+          width = 2.dp,
+          color = QuantumViolet.copy(alpha = pulseAlpha),
+          shape = ShapeRoundMd
+        ),
+      contentAlignment = Alignment.Center
+    ) {
+      Box(
+        modifier = Modifier
+          .size(12.dp)
+          .clip(CircleShape)
+          .background(QuantumViolet.copy(alpha = pulseAlpha))
+      )
+    }
+
+    if (space.labelVisibility) {
+      Spacer(modifier = Modifier.height(AppDimens.Spacing4))
+      Box(
+        modifier = Modifier
+          .height(14.dp)
+          .width(44.dp)
+          .clip(RoundedCornerShape(4.dp))
+          .background(QuantumViolet.copy(alpha = 0.14f * pulseAlpha))
+      )
+    }
+  }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -145,16 +239,19 @@ fun Layer1HomeScreen(
   var currentPointerPos by remember { mutableStateOf(Offset.Zero) }
   var binBounds by remember { mutableStateOf<Rect?>(null) }
   var isOverBin by remember { mutableStateOf(false) }
+  var previewTargetPosition by remember { mutableIntStateOf(0) }
 
   // Viewport dimensions for edge zone calculation
   var viewportWidth by remember { mutableFloatStateOf(0f) }
   var viewportHeight by remember { mutableFloatStateOf(0f) }
 
   val cellBounds = remember { mutableStateMapOf<String, Rect>() }
+  val pageGridBounds = remember { mutableStateMapOf<Int, Rect>() }
 
   // Page management with dynamic trailing page expansion
+  var highestActivePage by remember { mutableIntStateOf(0) }
   val maxPageInPlacements = effectivePlacements.maxOfOrNull { it.pageIndex } ?: 0
-  val basePageCount = (maxPageInPlacements + 1).coerceAtLeast(1)
+  val basePageCount = maxOf(maxPageInPlacements + 1, highestActivePage + 1).coerceAtLeast(1)
   var extraPagesCount by remember { mutableIntStateOf(0) }
   val totalPageCount = (basePageCount + extraPagesCount).coerceAtLeast(1)
 
@@ -178,6 +275,22 @@ fun Layer1HomeScreen(
     baseEdgeZonePx
   }
 
+  fun updatePreviewForPage(page: Int) {
+    val gridBounds = pageGridBounds[page]
+    val remainingCount = if (draggedPlacement?.pageIndex == page) {
+      effectivePlacements.count { it.pageIndex == page && it.id != draggedPlacement?.id }
+    } else {
+      effectivePlacements.count { it.pageIndex == page }
+    }
+    previewTargetPosition = calculateTargetPosition(
+      pointerPos = currentPointerPos,
+      gridBounds = gridBounds,
+      columns = space.gridColumns,
+      itemCount = remainingCount,
+      density = density.density
+    )
+  }
+
   fun performPageTransition(direction: EdgePagingDirection) {
     if (!isDragging || isTransitioningPage || pagerState.isScrollInProgress) return
 
@@ -191,6 +304,7 @@ fun Layer1HomeScreen(
           pagerState.animateScrollToPage(targetPage, animationSpec = tween(PAGE_TRANSITION_DURATION_MS))
           haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
           AppLogger.i(AppLogger.Category.LAUNCHER, "PAGE_TRANSITION_COMPLETE page=$targetPage")
+          updatePreviewForPage(targetPage)
         } finally {
           isTransitioningPage = false
           pendingEdgeDirection = EdgePagingDirection.NONE
@@ -213,11 +327,14 @@ fun Layer1HomeScreen(
           if (fromPage >= totalPageCount - 1) {
             AppLogger.i(AppLogger.Category.LAUNCHER, "PAGE_CREATE index=$targetPage")
             extraPagesCount++
+            highestActivePage = maxOf(highestActivePage, targetPage)
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
           }
           AppLogger.i(AppLogger.Category.LAUNCHER, "PAGE_TRANSITION_START from=$fromPage to=$targetPage")
           pagerState.animateScrollToPage(targetPage, animationSpec = tween(PAGE_TRANSITION_DURATION_MS))
           haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
           AppLogger.i(AppLogger.Category.LAUNCHER, "PAGE_TRANSITION_COMPLETE page=$targetPage")
+          updatePreviewForPage(targetPage)
         } finally {
           isTransitioningPage = false
           pendingEdgeDirection = EdgePagingDirection.NONE
@@ -239,11 +356,13 @@ fun Layer1HomeScreen(
     isDragging = true
     val cell = cellBounds[placement.id]
     currentPointerPos = if (cell != null) cell.topLeft + startOffset else startOffset
+    previewTargetPosition = placement.positionIndex
     isOverBin = false
     targetHoverPlacement = null
     pendingEdgeDirection = EdgePagingDirection.NONE
     edgeDwellJob?.cancel()
     edgeDwellJob = null
+    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
     AppLogger.i(AppLogger.Category.LAUNCHER, "DRAG_START item=${placement.packageName ?: placement.id} page=${placement.pageIndex}")
   }
 
@@ -262,8 +381,13 @@ fun Layer1HomeScreen(
       return
     }
 
-    // Hover target detection on currently active page
     val currentActivePage = pagerState.currentPage
+    highestActivePage = maxOf(highestActivePage, currentActivePage)
+
+    // Calculate live preview target position on current active page
+    updatePreviewForPage(currentActivePage)
+
+    // Hover target detection for folder creation
     targetHoverPlacement = cellBounds.entries.firstOrNull { (id, rect) ->
       if (id == draggedPlacement?.id) return@firstOrNull false
       val p = effectivePlacements.firstOrNull { it.id == id }
@@ -322,6 +446,7 @@ fun Layer1HomeScreen(
         if (isOverBin) {
           AppLogger.i(AppLogger.Category.LAUNCHER, "DROP removal item=${dragged.id}")
           onRemovePlacement(dragged.id)
+          haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         } else if (targetHoverPlacement != null) {
           val target = targetHoverPlacement!!
           if (!target.isFolder && !dragged.isFolder) {
@@ -332,18 +457,21 @@ fun Layer1HomeScreen(
             if (srcApp != null && tgtApp != null) {
               AppLogger.i(AppLogger.Category.LAUNCHER, "DROP create folder from ${srcApp.packageName} and ${tgtApp.packageName}")
               onCreateFolderFromApps(srcApp, tgtApp, dragged.id, target.id)
+              haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             }
           } else {
             AppLogger.i(AppLogger.Category.LAUNCHER, "DROP hover move item=${dragged.id} page=${target.pageIndex} pos=${target.positionIndex}")
             onMovePlacement(dragged.id, target.pageIndex, target.positionIndex)
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
           }
         } else {
           // Drop onto empty space or target page
-          val targetPage = pagerState.currentPage
-          val pagePlacements = effectivePlacements.filter { it.pageIndex == targetPage && it.id != dragged.id }
-          val targetPos = pagePlacements.size
+          val targetPage = if (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL) 0 else pagerState.currentPage
+          val targetPos = previewTargetPosition
+          highestActivePage = maxOf(highestActivePage, targetPage)
           AppLogger.i(AppLogger.Category.LAUNCHER, "DROP item=${dragged.packageName ?: dragged.id} page=$targetPage pos=$targetPos")
           onMovePlacement(dragged.id, targetPage, targetPos)
+          haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
       }
     } finally {
@@ -379,52 +507,155 @@ fun Layer1HomeScreen(
     Column(modifier = Modifier.fillMaxSize()) {
       // Main content: either Paged or Scrolling
       if (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL) {
-        // Vertical continuous scrolling layout
+        // Vertical continuous scrolling layout with live placement preview
+        val isCurrentDrag = isDragging && !isOverBin
+        val visiblePlacements = if (isDragging && draggedPlacement != null) {
+          effectivePlacements.filter { it.id != draggedPlacement!!.id }
+        } else {
+          effectivePlacements
+        }
+
+        val displayItems = remember(effectivePlacements, isDragging, draggedPlacement, isCurrentDrag, previewTargetPosition) {
+          if (!isDragging || draggedPlacement == null) {
+            effectivePlacements.map { GridDisplayItem.AppOrFolder(it) }
+          } else {
+            val list = mutableListOf<GridDisplayItem>()
+            val targetPos = previewTargetPosition.coerceIn(0, visiblePlacements.size)
+
+            for (i in 0 until visiblePlacements.size) {
+              if (isCurrentDrag && i == targetPos) {
+                list.add(GridDisplayItem.DropPlaceholder)
+              }
+              list.add(GridDisplayItem.AppOrFolder(visiblePlacements[i]))
+            }
+            if (isCurrentDrag && targetPos >= visiblePlacements.size) {
+              list.add(GridDisplayItem.DropPlaceholder)
+            }
+            if (draggedPlacement != null) {
+              list.add(GridDisplayItem.DraggedAnchor(draggedPlacement!!))
+            }
+            list
+          }
+        }
+
         LazyVerticalGrid(
           columns = GridCells.Fixed(space.gridColumns),
           modifier = Modifier
             .weight(1f)
             .fillMaxWidth()
             .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing8)
+            .onGloballyPositioned { coords ->
+              pageGridBounds[0] = coords.boundsInRoot()
+            }
             .testTag("layer1_scroll_grid"),
           horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8),
           verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16)
         ) {
-          items(effectivePlacements, key = { it.id }) { placement ->
-            Layer1ItemCell(
-              placement = placement,
-              space = space,
-              appLookup = appLookup,
-              folderLookup = folderLookup,
-              allApps = allApps,
-              iconSizeModifier = iconSizeModifier,
-              getBitmap = getBitmap,
-              onLaunchApp = onLaunchApp,
-              onOpenFolder = onOpenFolder,
-              onPositioned = { rect -> cellBounds[placement.id] = rect },
-              onStartDrag = { offset -> handleStartDrag(placement, offset) },
-              onDrag = { delta -> handleDragDelta(delta) },
-              onEndDrag = { handleEndDrag() },
-              onCancelDrag = { handleCancelDrag() },
-              isBeingDragged = isDragging && draggedPlacement?.id == placement.id,
-              isTargetHover = targetHoverPlacement?.id == placement.id
-            )
+          items(
+            items = displayItems,
+            key = { item ->
+              when (item) {
+                is GridDisplayItem.AppOrFolder -> item.placement.id
+                is GridDisplayItem.DropPlaceholder -> "__drag_drop_placeholder__"
+                is GridDisplayItem.DraggedAnchor -> item.placement.id
+              }
+            }
+          ) { item ->
+            Box(modifier = Modifier.animateItem()) {
+              when (item) {
+                is GridDisplayItem.AppOrFolder -> {
+                  Layer1ItemCell(
+                    placement = item.placement,
+                    space = space,
+                    appLookup = appLookup,
+                    folderLookup = folderLookup,
+                    allApps = allApps,
+                    iconSizeModifier = iconSizeModifier,
+                    getBitmap = getBitmap,
+                    onLaunchApp = onLaunchApp,
+                    onOpenFolder = onOpenFolder,
+                    onPositioned = { rect -> cellBounds[item.placement.id] = rect },
+                    onStartDrag = { offset -> handleStartDrag(item.placement, offset) },
+                    onDrag = { delta -> handleDragDelta(delta) },
+                    onEndDrag = { handleEndDrag() },
+                    onCancelDrag = { handleCancelDrag() },
+                    isBeingDragged = false,
+                    isTargetHover = targetHoverPlacement?.id == item.placement.id
+                  )
+                }
+                is GridDisplayItem.DropPlaceholder -> {
+                  DropPlaceholderCell(space = space, iconSizeModifier = iconSizeModifier)
+                }
+                is GridDisplayItem.DraggedAnchor -> {
+                  Layer1ItemCell(
+                    placement = item.placement,
+                    space = space,
+                    appLookup = appLookup,
+                    folderLookup = folderLookup,
+                    allApps = allApps,
+                    iconSizeModifier = iconSizeModifier,
+                    getBitmap = getBitmap,
+                    onLaunchApp = onLaunchApp,
+                    onOpenFolder = onOpenFolder,
+                    onPositioned = { rect -> cellBounds[item.placement.id] = rect },
+                    onStartDrag = { offset -> handleStartDrag(item.placement, offset) },
+                    onDrag = { delta -> handleDragDelta(delta) },
+                    onEndDrag = { handleEndDrag() },
+                    onCancelDrag = { handleCancelDrag() },
+                    isBeingDragged = true,
+                    isTargetHover = false
+                  )
+                }
+              }
+            }
           }
         }
       } else {
-        // Horizontal paged layout (Default)
+        // Horizontal paged layout with edge-paging and dynamic trailing page support
         HorizontalPager(
           state = pagerState,
           userScrollEnabled = !isDragging,
+          beyondViewportPageCount = totalPageCount.coerceIn(1, 10),
           modifier = Modifier
             .weight(1f)
             .fillMaxWidth()
             .testTag("layer1_horizontal_pager")
         ) { page ->
           val pagePlacements = effectivePlacements.filter { it.pageIndex == page }.sortedBy { it.positionIndex }
+          val isCurrentDragPage = isDragging && pagerState.currentPage == page && !isOverBin
+          val isSourcePage = isDragging && draggedPlacement?.pageIndex == page
+          val visiblePlacements = if (isSourcePage) {
+            pagePlacements.filter { it.id != draggedPlacement?.id }
+          } else {
+            pagePlacements
+          }
 
-          if (pagePlacements.isEmpty()) {
-            // Empty placeholder page for newly created trailing pages
+          val displayItems = remember(pagePlacements, isDragging, draggedPlacement, isCurrentDragPage, isSourcePage, previewTargetPosition) {
+            if (!isDragging || draggedPlacement == null) {
+              pagePlacements.map { GridDisplayItem.AppOrFolder(it) }
+            } else {
+              val list = mutableListOf<GridDisplayItem>()
+              val targetPos = previewTargetPosition.coerceIn(0, visiblePlacements.size)
+
+              for (i in 0 until visiblePlacements.size) {
+                if (isCurrentDragPage && i == targetPos) {
+                  list.add(GridDisplayItem.DropPlaceholder)
+                }
+                list.add(GridDisplayItem.AppOrFolder(visiblePlacements[i]))
+              }
+              if (isCurrentDragPage && targetPos >= visiblePlacements.size) {
+                list.add(GridDisplayItem.DropPlaceholder)
+              }
+              // Retain source item's anchor in its origin page to preserve continuous pointer gesture
+              if (isSourcePage && draggedPlacement != null) {
+                list.add(GridDisplayItem.DraggedAnchor(draggedPlacement!!))
+              }
+              list
+            }
+          }
+
+          if (displayItems.isEmpty()) {
+            // Empty placeholder page for trailing pages when not actively dragged over
             Box(
               modifier = Modifier
                 .fillMaxSize()
@@ -443,29 +674,70 @@ fun Layer1HomeScreen(
               columns = GridCells.Fixed(space.gridColumns),
               modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing8),
+                .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing8)
+                .onGloballyPositioned { coords ->
+                  pageGridBounds[page] = coords.boundsInRoot()
+                },
               horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8),
               verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16)
             ) {
-              items(pagePlacements, key = { it.id }) { placement ->
-                Layer1ItemCell(
-                  placement = placement,
-                  space = space,
-                  appLookup = appLookup,
-                  folderLookup = folderLookup,
-                  allApps = allApps,
-                  iconSizeModifier = iconSizeModifier,
-                  getBitmap = getBitmap,
-                  onLaunchApp = onLaunchApp,
-                  onOpenFolder = onOpenFolder,
-                  onPositioned = { rect -> cellBounds[placement.id] = rect },
-                  onStartDrag = { offset -> handleStartDrag(placement, offset) },
-                  onDrag = { delta -> handleDragDelta(delta) },
-                  onEndDrag = { handleEndDrag() },
-                  onCancelDrag = { handleCancelDrag() },
-                  isBeingDragged = isDragging && draggedPlacement?.id == placement.id,
-                  isTargetHover = targetHoverPlacement?.id == placement.id
-                )
+              items(
+                items = displayItems,
+                key = { item ->
+                  when (item) {
+                    is GridDisplayItem.AppOrFolder -> item.placement.id
+                    is GridDisplayItem.DropPlaceholder -> "__drag_drop_placeholder__"
+                    is GridDisplayItem.DraggedAnchor -> item.placement.id
+                  }
+                }
+              ) { item ->
+                Box(modifier = Modifier.animateItem()) {
+                  when (item) {
+                    is GridDisplayItem.AppOrFolder -> {
+                      Layer1ItemCell(
+                        placement = item.placement,
+                        space = space,
+                        appLookup = appLookup,
+                        folderLookup = folderLookup,
+                        allApps = allApps,
+                        iconSizeModifier = iconSizeModifier,
+                        getBitmap = getBitmap,
+                        onLaunchApp = onLaunchApp,
+                        onOpenFolder = onOpenFolder,
+                        onPositioned = { rect -> cellBounds[item.placement.id] = rect },
+                        onStartDrag = { offset -> handleStartDrag(item.placement, offset) },
+                        onDrag = { delta -> handleDragDelta(delta) },
+                        onEndDrag = { handleEndDrag() },
+                        onCancelDrag = { handleCancelDrag() },
+                        isBeingDragged = false,
+                        isTargetHover = targetHoverPlacement?.id == item.placement.id
+                      )
+                    }
+                    is GridDisplayItem.DropPlaceholder -> {
+                      DropPlaceholderCell(space = space, iconSizeModifier = iconSizeModifier)
+                    }
+                    is GridDisplayItem.DraggedAnchor -> {
+                      Layer1ItemCell(
+                        placement = item.placement,
+                        space = space,
+                        appLookup = appLookup,
+                        folderLookup = folderLookup,
+                        allApps = allApps,
+                        iconSizeModifier = iconSizeModifier,
+                        getBitmap = getBitmap,
+                        onLaunchApp = onLaunchApp,
+                        onOpenFolder = onOpenFolder,
+                        onPositioned = { rect -> cellBounds[item.placement.id] = rect },
+                        onStartDrag = { offset -> handleStartDrag(item.placement, offset) },
+                        onDrag = { delta -> handleDragDelta(delta) },
+                        onEndDrag = { handleEndDrag() },
+                        onCancelDrag = { handleCancelDrag() },
+                        isBeingDragged = true,
+                        isTargetHover = false
+                      )
+                    }
+                  }
+                }
               }
             }
           }
@@ -550,8 +822,14 @@ fun Layer1HomeScreen(
               (currentPointerPos.y - 30.dp.toPx()).roundToInt()
             )
           }
+          .graphicsLayer {
+            scaleX = 1.12f
+            scaleY = 1.12f
+            shadowElevation = 16.dp.toPx()
+            shape = ShapeRoundMd
+            clip = false
+          }
           .size(60.dp)
-          .shadow(AppDimens.ElevationHigh, ShapeRoundMd)
           .clip(ShapeRoundMd)
           .background(MaterialTheme.colorScheme.surfaceContainerHigh)
           .border(AppDimens.BorderThick, QuantumViolet, ShapeRoundMd)
@@ -624,7 +902,7 @@ private fun Layer1ItemCell(
         }
       )
       .graphicsLayer {
-        alpha = if (isBeingDragged) 0.3f else 1.0f
+        alpha = if (isBeingDragged) 0f else 1.0f
         scaleX = if (isTargetHover) 1.08f else 1.0f
         scaleY = if (isTargetHover) 1.08f else 1.0f
       }
