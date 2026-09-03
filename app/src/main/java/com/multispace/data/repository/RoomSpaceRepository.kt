@@ -978,13 +978,18 @@ class RoomSpaceRepository(
     spaceId: String,
     placementId: String,
     targetPage: Int,
-    targetPosition: Int
+    targetPosition: Int,
+    pageSize: Int?
   ): Result<Unit> {
     return try {
       val space = spaceDao.getSpaceById(spaceId)
       val cols = space?.gridColumns ?: Space.DEFAULT_GRID_COLUMNS
-      val pageSize = cols * 5
-      val targetPosClamped = targetPosition.coerceIn(0, pageSize - 1)
+      val effectivePageSize = if (pageSize != null && pageSize > 0) {
+        pageSize
+      } else {
+        maxOf(cols * 10, targetPosition + 1)
+      }
+      val targetPosClamped = targetPosition.coerceIn(0, effectivePageSize - 1)
 
       var allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
 
@@ -1003,14 +1008,14 @@ class RoomSpaceRepository(
         val bootstrapped = mutableListOf<SpaceItemPlacementEntity>()
         for (m in missingMemberships) {
           var occupied = occupiedPerPage.getOrPut(curPage) { mutableSetOf() }
-          while (occupied.contains(curPos) && curPos < pageSize) {
+          while (occupied.contains(curPos) && curPos < effectivePageSize) {
             curPos++
           }
-          if (curPos >= pageSize) {
+          if (curPos >= effectivePageSize) {
             curPage++
             curPos = 0
             occupied = occupiedPerPage.getOrPut(curPage) { mutableSetOf() }
-            while (occupied.contains(curPos) && curPos < pageSize) {
+            while (occupied.contains(curPos) && curPos < effectivePageSize) {
               curPos++
             }
           }
@@ -1085,10 +1090,14 @@ class RoomSpaceRepository(
         copyItem = { entity, page, pos -> entity.copy(pageIndex = page, positionIndex = pos) },
         targetPage = targetPage,
         targetPosition = targetPosClamped,
-        pageSize = pageSize
+        pageSize = effectivePageSize
       )
       layoutDao.insertPlacements(toInsert)
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Moved placement ${itemToMove.id} (${itemToMove.packageName}) from ($sourcePage, $sourcePos) to ($targetPage, $targetPosClamped) with ${toInsert.size - 1} shifted items")
+      val persistedItem = toInsert.firstOrNull { it.id == itemToMove.id }
+      AppLogger.i(
+        AppLogger.Category.LAUNCHER,
+        "PERSISTED_PLACEMENT: id=${persistedItem?.id} pkg=${persistedItem?.packageName} targetPage=$targetPage targetPos=$targetPosClamped gridRows=${effectivePageSize / cols} pageSize=$effectivePageSize persistedPage=${persistedItem?.pageIndex} persistedPos=${persistedItem?.positionIndex} from=($sourcePage, $sourcePos) shiftedCount=${toInsert.size - 1}"
+      )
       Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to move app to page $targetPage", e)

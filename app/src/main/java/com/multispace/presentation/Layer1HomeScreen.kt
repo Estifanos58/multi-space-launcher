@@ -67,6 +67,12 @@ private enum class EdgePagingDirection {
   NONE, LEFT, RIGHT
 }
 
+private enum class EdgeTriggerState {
+  IDLE,
+  ARMED,
+  CONSUMED
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Layer1HomeScreen(
@@ -80,85 +86,109 @@ fun Layer1HomeScreen(
   onRemovePlacement: (String) -> Unit,
   onCreateFolderFromApps: (sourceApp: DiscoveredApp, targetApp: DiscoveredApp, sourcePlacementId: String?, targetPlacementId: String?) -> Unit,
   onAddAppToHome: (DiscoveredApp, Int) -> Unit,
-  onMovePlacement: (placementId: String, targetPage: Int, targetPos: Int) -> Unit = { _, _, _ -> },
+  onMovePlacement: (placementId: String, targetPage: Int, targetPos: Int, pageSize: Int) -> Unit = { _, _, _, _ -> },
   modifier: Modifier = Modifier
 ) {
-  val coroutineScope = rememberCoroutineScope()
-  val density = LocalDensity.current
-  val haptic = LocalHapticFeedback.current
+  BoxWithConstraints(
+    modifier = modifier.fillMaxSize()
+  ) {
+    val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
 
-  val appLookup = remember(allApps) {
-    val map = mutableMapOf<String, DiscoveredApp>()
-    for (app in allApps) {
-      map["${app.packageName}/${app.activityName}"] = app
-      map[app.packageName] = app
-    }
-    map
-  }
-  val folderLookup = remember(folders) {
-    folders.associateBy { it.id }
-  }
-
-  // Ensure robust fallback placements if space has apps but no placements generated yet,
-  // guaranteeing no apps are duplicated or lost in Layer 1.
-  var localPlacements by remember(placements) { mutableStateOf(placements) }
-
-  val effectivePlacements = remember(localPlacements, allApps, space) {
-    val cols = space.gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
-    val pageSize = (cols * 5).coerceAtLeast(1)
-
-    val existingPlacedApps = localPlacements.filter { it.itemType == SpaceItemPlacement.ITEM_TYPE_APP }
-    val placedPkgSet = existingPlacedApps.mapNotNull { it.packageName }.toSet()
-
-    val unplacedApps = allApps.distinctBy { it.packageName }.filter { app -> !placedPkgSet.contains(app.packageName) }
-
-    val fullList = localPlacements.toMutableList()
-    if (unplacedApps.isNotEmpty()) {
-      val occupiedPerPage = mutableMapOf<Int, MutableSet<Int>>()
-      for (p in fullList) {
-        occupiedPerPage.getOrPut(p.pageIndex) { mutableSetOf() }.add(p.positionIndex)
+    val appLookup = remember(allApps) {
+      val map = mutableMapOf<String, DiscoveredApp>()
+      for (app in allApps) {
+        map["${app.packageName}/${app.activityName}"] = app
+        map[app.packageName] = app
       }
+      map
+    }
+    val folderLookup = remember(folders) {
+      folders.associateBy { it.id }
+    }
 
-      var curPage = 0
-      var curPos = 0
-      for (app in unplacedApps) {
-        var occupied = occupiedPerPage.getOrPut(curPage) { mutableSetOf() }
-        while (occupied.contains(curPos) && curPos < pageSize) {
-          curPos++
+    // Grid sizing and dynamic row calculation based on full screen height
+    val iconDp = when (space.iconSize) {
+      Space.ICON_SIZE_SMALL -> 44.dp
+      Space.ICON_SIZE_LARGE -> 62.dp
+      else -> 52.dp
+    }
+    val iconSizeModifier = Modifier.size(iconDp)
+    val labelHeight = if (space.labelVisibility) 20.dp else 0.dp
+    val cellHeight = iconDp + labelHeight + 16.dp
+    val appSpacing = 8.dp
+    val gridHorizontalPadding = 16.dp
+    val gridVerticalPadding = 8.dp
+    val rowPitchDp = cellHeight + appSpacing
+    val rowPitchPx = with(density) { rowPitchDp.toPx() }
+
+    val cols = space.gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
+    val reservedVerticalSpace = 32.dp // Accommodate page vertical padding (16dp total) and potential page indicator dots
+    val availableGridHeightDp = (maxHeight - reservedVerticalSpace).coerceAtLeast(cellHeight)
+    val gridRows = ((availableGridHeightDp + appSpacing) / rowPitchDp).toInt().coerceAtLeast(1)
+    val pageSize = (cols * gridRows).coerceAtLeast(1)
+
+    // Ensure robust fallback placements if space has apps but no placements generated yet,
+    // guaranteeing no apps are duplicated or lost in Layer 1.
+    var localPlacements by remember(placements) { mutableStateOf(placements) }
+
+    val effectivePlacements = remember(localPlacements, allApps, space, pageSize) {
+      val existingPlacedApps = localPlacements.filter { it.itemType == SpaceItemPlacement.ITEM_TYPE_APP }
+      val placedPkgSet = existingPlacedApps.mapNotNull { it.packageName }.toSet()
+
+      val unplacedApps = allApps.distinctBy { it.packageName }.filter { app -> !placedPkgSet.contains(app.packageName) }
+
+      val fullList = localPlacements.toMutableList()
+      if (unplacedApps.isNotEmpty()) {
+        val occupiedPerPage = mutableMapOf<Int, MutableSet<Int>>()
+        for (p in fullList) {
+          occupiedPerPage.getOrPut(p.pageIndex) { mutableSetOf() }.add(p.positionIndex)
         }
-        if (curPos >= pageSize) {
-          curPage++
-          curPos = 0
-          occupied = occupiedPerPage.getOrPut(curPage) { mutableSetOf() }
+
+        var curPage = 0
+        var curPos = 0
+        for (app in unplacedApps) {
+          var occupied = occupiedPerPage.getOrPut(curPage) { mutableSetOf() }
           while (occupied.contains(curPos) && curPos < pageSize) {
             curPos++
           }
+          if (curPos >= pageSize) {
+            curPage++
+            curPos = 0
+            occupied = occupiedPerPage.getOrPut(curPage) { mutableSetOf() }
+            while (occupied.contains(curPos) && curPos < pageSize) {
+              curPos++
+            }
+          }
+          val newPlacement = SpaceItemPlacement(
+            id = "virtual:${app.packageName}",
+            spaceId = space.id,
+            layer = SpaceItemPlacement.LAYER_HOME,
+            pageIndex = curPage,
+            positionIndex = curPos,
+            itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+            packageName = app.packageName,
+            componentName = app.activityName,
+            userHandleId = app.userHandleId
+          )
+          fullList.add(newPlacement)
+          occupied.add(curPos)
+          curPos++
         }
-        val newPlacement = SpaceItemPlacement(
-          id = "virtual:${app.packageName}:$curPage:$curPos",
-          spaceId = space.id,
-          layer = SpaceItemPlacement.LAYER_HOME,
-          pageIndex = curPage,
-          positionIndex = curPos,
-          itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-          packageName = app.packageName,
-          componentName = app.activityName,
-          userHandleId = app.userHandleId
-        )
-        fullList.add(newPlacement)
-        occupied.add(curPos)
-        curPos++
       }
+      fullList
     }
-    fullList
-  }
 
   // Active dragging state
+  // Coordinate note: All coordinates (currentPointerPos, slotBounds, cellBounds, pageGridBounds, binBounds)
+  // are measured in the root Box coordinate space to ensure single-source-of-truth geometry.
   var draggedPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
   var targetHoverPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
   var previewTargetSlot by remember { mutableStateOf<Int?>(null) }
   var isDragging by remember { mutableStateOf(false) }
   var currentPointerPos by remember { mutableStateOf(Offset.Zero) }
+  var touchOffsetWithinItem by remember { mutableStateOf(Offset.Zero) }
   var binBounds by remember { mutableStateOf<Rect?>(null) }
   var isOverBin by remember { mutableStateOf(false) }
 
@@ -183,18 +213,11 @@ fun Layer1HomeScreen(
     slotBounds.clear()
   }
 
-  // Edge paging state machine
-  var pendingEdgeDirection by remember { mutableStateOf(EdgePagingDirection.NONE) }
+  // Edge paging state machine (IDLE -> ARMED -> CONSUMED)
+  var edgeTriggerState by remember { mutableStateOf(EdgeTriggerState.IDLE) }
+  var activeEdgeZone by remember { mutableStateOf(EdgePagingDirection.NONE) }
   var isTransitioningPage by remember { mutableStateOf(false) }
   var edgeDwellJob by remember { mutableStateOf<Job?>(null) }
-
-  val iconDp = when (space.iconSize) {
-    Space.ICON_SIZE_SMALL -> 44.dp
-    Space.ICON_SIZE_LARGE -> 62.dp
-    else -> 52.dp
-  }
-  val iconSizeModifier = Modifier.size(iconDp)
-  val labelHeight = if (space.labelVisibility) 20.dp else 0.dp
 
   val baseEdgeZonePx = with(density) { 80.dp.toPx() }
   val edgeZonePx = if (viewportWidth > 0f) {
@@ -204,59 +227,50 @@ fun Layer1HomeScreen(
   }
 
   fun updatePreviewTargetSlot() {
-    val cols = space.gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
-    val rows = 5
-    val totalSlots = cols * rows
+    val totalSlots = cols * gridRows
+    if (viewportWidth <= 0f || viewportHeight <= 0f) return
 
-    // 1. Direct hit check on accurately measured slot bounds
+    // Check direct hit on measured slot bounds first
     val directHit = slotBounds.entries.firstOrNull { (slot, rect) ->
       slot < totalSlots && rect.contains(currentPointerPos)
     }?.key
 
-    if (directHit != null) {
-      if (previewTargetSlot != directHit) {
-        previewTargetSlot = directHit
-        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-      }
-      return
-    }
-
-    // 2. Proximity check to closest slot center
-    if (slotBounds.isNotEmpty()) {
-      val closest = slotBounds.entries
-        .filter { it.key < totalSlots }
-        .minByOrNull { (_, rect) ->
-          val dx = rect.center.x - currentPointerPos.x
-          val dy = rect.center.y - currentPointerPos.y
-          dx * dx + dy * dy
-        }?.key
-
-      if (closest != null) {
-        if (previewTargetSlot != closest) {
-          previewTargetSlot = closest
-          haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        }
-        return
-      }
-    }
-
-    // 3. Fallback to page grid calculation
-    val bounds = pageGridBounds
-    if (bounds != null && bounds.width > 0f && bounds.height > 0f) {
-      val colWidth = bounds.width / cols
-      val rowHeight = bounds.height / rows
-      val clampedX = currentPointerPos.x.coerceIn(bounds.left, bounds.right - 1f)
-      val clampedY = currentPointerPos.y.coerceIn(bounds.top, bounds.bottom - 1f)
-      val c = ((clampedX - bounds.left) / colWidth).toInt().coerceIn(0, cols - 1)
-      val r = ((clampedY - bounds.top) / rowHeight).toInt().coerceIn(0, rows - 1)
-      val calculated = (r * cols + c).coerceIn(0, totalSlots - 1)
-      if (previewTargetSlot != calculated) {
-        previewTargetSlot = calculated
-      }
+    val candidateSlot: Int = if (directHit != null) {
+      directHit
     } else {
-      if (previewTargetSlot == null) {
-        previewTargetSlot = 0
+      val bounds = pageGridBounds
+      if (bounds != null && bounds.width > 0f) {
+        val colWidth = (bounds.width / cols).coerceAtLeast(1f)
+        val c = when {
+          currentPointerPos.x <= bounds.left -> 0
+          currentPointerPos.x >= bounds.right -> cols - 1
+          else -> ((currentPointerPos.x - bounds.left) / colWidth).toInt().coerceIn(0, cols - 1)
+        }
+
+        val r = when {
+          currentPointerPos.y <= bounds.top -> 0
+          else -> {
+            val relativeY = currentPointerPos.y - bounds.top
+            (relativeY / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
+          }
+        }
+
+        (r * cols + c).coerceIn(0, totalSlots - 1)
+      } else {
+        val colWidth = (viewportWidth / cols).coerceAtLeast(1f)
+        val c = (currentPointerPos.x / colWidth).toInt().coerceIn(0, cols - 1)
+        val r = (currentPointerPos.y / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
+        (r * cols + c).coerceIn(0, totalSlots - 1)
       }
+    }
+
+    if (previewTargetSlot != candidateSlot) {
+      previewTargetSlot = candidateSlot
+      AppLogger.i(
+        AppLogger.Category.LAUNCHER,
+        "PREVIEW_TARGET: pointerY=${currentPointerPos.y} previewTargetSlot=$candidateSlot targetPage=${pagerState.currentPage} targetPos=$candidateSlot gridRows=$gridRows pageSize=$pageSize draggedPlacement.pageIndex=${draggedPlacement?.pageIndex} draggedPlacement.positionIndex=${draggedPlacement?.positionIndex}"
+      )
+      haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
   }
 
@@ -269,21 +283,17 @@ fun Layer1HomeScreen(
       val targetPage = fromPage - 1
       coroutineScope.launch {
         try {
-          AppLogger.i(AppLogger.Category.LAUNCHER, "PAGE_TRANSITION_START from=$fromPage to=$targetPage")
+          AppLogger.i(AppLogger.Category.LAUNCHER, "PAGE_TRANSITION_START from=$fromPage to=$targetPage direction=LEFT")
           pagerState.animateScrollToPage(targetPage, animationSpec = tween(PAGE_TRANSITION_DURATION_MS))
           haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
           AppLogger.i(AppLogger.Category.LAUNCHER, "PAGE_TRANSITION_COMPLETE page=$targetPage")
         } finally {
           isTransitioningPage = false
-          pendingEdgeDirection = EdgePagingDirection.NONE
+          // Edge trigger becomes CONSUMED: finger staying at edge will not trigger another transition
+          edgeTriggerState = EdgeTriggerState.CONSUMED
+          AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_TRIGGER_CONSUMED direction=LEFT page=$targetPage")
+          edgeDwellJob = null
           updatePreviewTargetSlot()
-          if (isDragging && currentPointerPos.x in 0f..edgeZonePx && targetPage > 0) {
-            pendingEdgeDirection = EdgePagingDirection.LEFT
-            edgeDwellJob = coroutineScope.launch {
-              delay(EDGE_DWELL_DELAY_MS)
-              performPageTransition(EdgePagingDirection.LEFT)
-            }
-          }
         }
       }
     } else if (direction == EdgePagingDirection.RIGHT) {
@@ -296,21 +306,17 @@ fun Layer1HomeScreen(
             AppLogger.i(AppLogger.Category.LAUNCHER, "PAGE_CREATE index=$targetPage")
             extraPagesCount++
           }
-          AppLogger.i(AppLogger.Category.LAUNCHER, "PAGE_TRANSITION_START from=$fromPage to=$targetPage")
+          AppLogger.i(AppLogger.Category.LAUNCHER, "PAGE_TRANSITION_START from=$fromPage to=$targetPage direction=RIGHT")
           pagerState.animateScrollToPage(targetPage, animationSpec = tween(PAGE_TRANSITION_DURATION_MS))
           haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
           AppLogger.i(AppLogger.Category.LAUNCHER, "PAGE_TRANSITION_COMPLETE page=$targetPage")
         } finally {
           isTransitioningPage = false
-          pendingEdgeDirection = EdgePagingDirection.NONE
+          // Edge trigger becomes CONSUMED: finger staying at edge will not trigger another transition or page creation
+          edgeTriggerState = EdgeTriggerState.CONSUMED
+          AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_TRIGGER_CONSUMED direction=RIGHT page=$targetPage")
+          edgeDwellJob = null
           updatePreviewTargetSlot()
-          if (isDragging && currentPointerPos.x in (viewportWidth - edgeZonePx)..viewportWidth) {
-            pendingEdgeDirection = EdgePagingDirection.RIGHT
-            edgeDwellJob = coroutineScope.launch {
-              delay(EDGE_DWELL_DELAY_MS)
-              performPageTransition(EdgePagingDirection.RIGHT)
-            }
-          }
         }
       }
     }
@@ -322,11 +328,27 @@ fun Layer1HomeScreen(
     currentPointerPos = startOffset
     isOverBin = false
     targetHoverPlacement = null
-    pendingEdgeDirection = EdgePagingDirection.NONE
+    activeEdgeZone = EdgePagingDirection.NONE
+    edgeTriggerState = EdgeTriggerState.IDLE
     edgeDwellJob?.cancel()
     edgeDwellJob = null
-    previewTargetSlot = null
-    AppLogger.i(AppLogger.Category.LAUNCHER, "DRAG_START item=${placement.packageName ?: placement.id} page=${placement.pageIndex}")
+    previewTargetSlot = placement.positionIndex
+
+    // Preserve finger-to-icon offset to eliminate visual jumping when drag starts
+    val itemRect = cellBounds[placement.id] ?: slotBounds[placement.positionIndex]
+    touchOffsetWithinItem = if (itemRect != null) {
+      Offset(
+        (startOffset.x - itemRect.left).coerceIn(0f, itemRect.width),
+        (startOffset.y - itemRect.top).coerceIn(0f, itemRect.height)
+      )
+    } else {
+      with(density) { Offset(iconDp.toPx() / 2f, iconDp.toPx() / 2f) }
+    }
+
+    AppLogger.i(
+      AppLogger.Category.LAUNCHER,
+      "DRAG_START item=${placement.id} pkg=${placement.packageName ?: "folder"} page=${placement.pageIndex} slot=${placement.positionIndex} touchOffset=$touchOffsetWithinItem"
+    )
   }
 
   fun handleDragMove(newPos: Offset) {
@@ -337,51 +359,86 @@ fun Layer1HomeScreen(
     if (overBin) {
       targetHoverPlacement = null
       previewTargetSlot = null
-      if (pendingEdgeDirection != EdgePagingDirection.NONE) {
-        pendingEdgeDirection = EdgePagingDirection.NONE
+      if (activeEdgeZone != EdgePagingDirection.NONE) {
+        AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_DWELL_CANCEL direction=$activeEdgeZone reason=over_bin")
         edgeDwellJob?.cancel()
         edgeDwellJob = null
+        activeEdgeZone = EdgePagingDirection.NONE
+        edgeTriggerState = EdgeTriggerState.IDLE
       }
       return
     }
 
     updatePreviewTargetSlot()
 
-    // Edge auto-paging detection (horizontal pager mode only)
+    // Robust edge paging state machine (horizontal pager mode only)
     if (space.layer1DisplayMode != Space.DISPLAY_MODE_SCROLL && viewportWidth > 0f && !isTransitioningPage && !pagerState.isScrollInProgress) {
-      if (currentPointerPos.x in 0f..edgeZonePx) {
-        if (pagerState.currentPage > 0) {
-          if (pendingEdgeDirection != EdgePagingDirection.LEFT) {
-            pendingEdgeDirection = EdgePagingDirection.LEFT
-            AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_ENTER direction=LEFT page=${pagerState.currentPage}")
+      val inLeftEdge = currentPointerPos.x in 0f..edgeZonePx
+      val inRightEdge = currentPointerPos.x in (viewportWidth - edgeZonePx)..viewportWidth
+
+      when {
+        inLeftEdge -> {
+          if (activeEdgeZone != EdgePagingDirection.LEFT) {
+            // Newly entered left edge zone
+            activeEdgeZone = EdgePagingDirection.LEFT
             edgeDwellJob?.cancel()
-            edgeDwellJob = coroutineScope.launch {
-              delay(EDGE_DWELL_DELAY_MS)
-              performPageTransition(EdgePagingDirection.LEFT)
+            AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_ENTER direction=LEFT page=${pagerState.currentPage} x=${currentPointerPos.x}")
+            if (pagerState.currentPage > 0) {
+              edgeTriggerState = EdgeTriggerState.ARMED
+              AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_DWELL_START direction=LEFT page=${pagerState.currentPage} delayMs=$EDGE_DWELL_DELAY_MS")
+              edgeDwellJob = coroutineScope.launch {
+                delay(EDGE_DWELL_DELAY_MS)
+                performPageTransition(EdgePagingDirection.LEFT)
+              }
+            } else {
+              edgeTriggerState = EdgeTriggerState.IDLE
+              edgeDwellJob = null
+            }
+          } else {
+            // Already in left edge zone: if CONSUMED, do nothing!
+            if (edgeTriggerState == EdgeTriggerState.IDLE && pagerState.currentPage > 0) {
+              edgeTriggerState = EdgeTriggerState.ARMED
+              AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_DWELL_START direction=LEFT page=${pagerState.currentPage} delayMs=$EDGE_DWELL_DELAY_MS")
+              edgeDwellJob = coroutineScope.launch {
+                delay(EDGE_DWELL_DELAY_MS)
+                performPageTransition(EdgePagingDirection.LEFT)
+              }
             }
           }
-        } else {
-          if (pendingEdgeDirection != EdgePagingDirection.NONE) {
-            pendingEdgeDirection = EdgePagingDirection.NONE
+        }
+        inRightEdge -> {
+          if (activeEdgeZone != EdgePagingDirection.RIGHT) {
+            // Newly entered right edge zone
+            activeEdgeZone = EdgePagingDirection.RIGHT
+            edgeDwellJob?.cancel()
+            AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_ENTER direction=RIGHT page=${pagerState.currentPage} x=${currentPointerPos.x}")
+            edgeTriggerState = EdgeTriggerState.ARMED
+            AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_DWELL_START direction=RIGHT page=${pagerState.currentPage} delayMs=$EDGE_DWELL_DELAY_MS")
+            edgeDwellJob = coroutineScope.launch {
+              delay(EDGE_DWELL_DELAY_MS)
+              performPageTransition(EdgePagingDirection.RIGHT)
+            }
+          } else {
+            // Already in right edge zone: if CONSUMED, do nothing!
+            if (edgeTriggerState == EdgeTriggerState.IDLE) {
+              edgeTriggerState = EdgeTriggerState.ARMED
+              AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_DWELL_START direction=RIGHT page=${pagerState.currentPage} delayMs=$EDGE_DWELL_DELAY_MS")
+              edgeDwellJob = coroutineScope.launch {
+                delay(EDGE_DWELL_DELAY_MS)
+                performPageTransition(EdgePagingDirection.RIGHT)
+              }
+            }
+          }
+        }
+        else -> {
+          // In central area (outside both edge zones): reset trigger state
+          if (activeEdgeZone != EdgePagingDirection.NONE) {
+            AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_TRIGGER_RESET previousZone=$activeEdgeZone")
             edgeDwellJob?.cancel()
             edgeDwellJob = null
+            activeEdgeZone = EdgePagingDirection.NONE
+            edgeTriggerState = EdgeTriggerState.IDLE
           }
-        }
-      } else if (currentPointerPos.x in (viewportWidth - edgeZonePx)..viewportWidth) {
-        if (pendingEdgeDirection != EdgePagingDirection.RIGHT) {
-          pendingEdgeDirection = EdgePagingDirection.RIGHT
-          AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_ENTER direction=RIGHT page=${pagerState.currentPage}")
-          edgeDwellJob?.cancel()
-          edgeDwellJob = coroutineScope.launch {
-            delay(EDGE_DWELL_DELAY_MS)
-            performPageTransition(EdgePagingDirection.RIGHT)
-          }
-        }
-      } else {
-        if (pendingEdgeDirection != EdgePagingDirection.NONE) {
-          pendingEdgeDirection = EdgePagingDirection.NONE
-          edgeDwellJob?.cancel()
-          edgeDwellJob = null
         }
       }
     }
@@ -391,21 +448,23 @@ fun Layer1HomeScreen(
     edgeDwellJob?.cancel()
     edgeDwellJob = null
     isTransitioningPage = false
-    pendingEdgeDirection = EdgePagingDirection.NONE
+    activeEdgeZone = EdgePagingDirection.NONE
+    edgeTriggerState = EdgeTriggerState.IDLE
 
     try {
       val dragged = draggedPlacement
       if (dragged != null) {
         if (isOverBin) {
-          AppLogger.i(AppLogger.Category.LAUNCHER, "DROP removal item=${dragged.id}")
+          AppLogger.i(AppLogger.Category.LAUNCHER, "DROP_REMOVE item=${dragged.id} pkg=${dragged.packageName}")
           localPlacements = effectivePlacements.filter { it.id != dragged.id }
           onRemovePlacement(dragged.id)
         } else {
           val targetPage = pagerState.currentPage
           val targetPos = previewTargetSlot ?: dragged.positionIndex
-          val cols = space.gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
-          val pageSize = cols * 5
-          AppLogger.i(AppLogger.Category.LAUNCHER, "DROP item=${dragged.packageName ?: dragged.id} from=(${dragged.pageIndex}, ${dragged.positionIndex}) to=($targetPage, $targetPos)")
+          AppLogger.i(
+            AppLogger.Category.LAUNCHER,
+            "FINAL_DROP: pointerY=${currentPointerPos.y} previewTargetSlot=$previewTargetSlot targetPage=$targetPage targetPos=$targetPos gridRows=$gridRows pageSize=$pageSize draggedPlacement.pageIndex=${dragged.pageIndex} draggedPlacement.positionIndex=${dragged.positionIndex}"
+          )
           haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
 
           // Optimistically update local placements with cascading ripple logic
@@ -418,7 +477,7 @@ fun Layer1HomeScreen(
           )
           localPlacements = updatedList
 
-          onMovePlacement(dragged.id, targetPage, targetPos)
+          onMovePlacement(dragged.id, targetPage, targetPos, pageSize)
         }
       }
     } finally {
@@ -435,7 +494,8 @@ fun Layer1HomeScreen(
     edgeDwellJob?.cancel()
     edgeDwellJob = null
     isTransitioningPage = false
-    pendingEdgeDirection = EdgePagingDirection.NONE
+    activeEdgeZone = EdgePagingDirection.NONE
+    edgeTriggerState = EdgeTriggerState.IDLE
     isDragging = false
     draggedPlacement = null
     previewTargetSlot = null
@@ -446,7 +506,7 @@ fun Layer1HomeScreen(
   }
 
   Box(
-    modifier = modifier
+    modifier = Modifier
       .fillMaxSize()
       .onGloballyPositioned { coordinates ->
         rootCoordinates = coordinates
@@ -458,23 +518,20 @@ fun Layer1HomeScreen(
           onDragStart = { rootOffset ->
             val activePage = pagerState.currentPage
             var touchedPlacement: SpaceItemPlacement? = null
-            val cols = space.gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
-            val rows = 5
-            val totalSlots = cols * rows
+            val totalSlots = cols * gridRows
 
             // Check if rootOffset is in any slot with an item
-            val hitSlot = slotBounds.entries.firstOrNull { it.value.contains(rootOffset) }?.key
+            val hitSlot = slotBounds.entries.firstOrNull { it.key < totalSlots && it.value.contains(rootOffset) }?.key
             if (hitSlot != null) {
               touchedPlacement = effectivePlacements.firstOrNull { it.pageIndex == activePage && it.positionIndex == hitSlot }
             }
             if (touchedPlacement == null) {
               val bounds = pageGridBounds
-              if (bounds != null && bounds.contains(rootOffset)) {
-                val colWidth = bounds.width / cols
-                val rowHeight = bounds.height / rows
+              if (bounds != null && bounds.width > 0f) {
+                val colWidth = (bounds.width / cols).coerceAtLeast(1f)
                 val c = ((rootOffset.x - bounds.left) / colWidth).toInt().coerceIn(0, cols - 1)
-                val r = ((rootOffset.y - bounds.top) / rowHeight).toInt().coerceIn(0, rows - 1)
-                val touchedSlot = r * cols + c
+                val r = ((rootOffset.y - bounds.top) / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
+                val touchedSlot = (r * cols + c).coerceIn(0, totalSlots - 1)
                 touchedPlacement = effectivePlacements.firstOrNull { it.pageIndex == activePage && it.positionIndex == touchedSlot }
               }
             }
@@ -550,8 +607,6 @@ fun Layer1HomeScreen(
             .testTag("layer1_horizontal_pager")
         ) { page ->
           val isCurrentPage = page == pagerState.currentPage
-          val cols = space.gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
-          val rows = 5
 
           val rawPagePlacements = effectivePlacements.filter { it.pageIndex == page }
           val otherPlacements = if (isDragging && draggedPlacement != null) {
@@ -560,11 +615,10 @@ fun Layer1HomeScreen(
             rawPagePlacements
           }
 
-          val previewSlotsMap = remember(effectivePlacements, otherPlacements, isDragging, isCurrentPage, isOverBin, previewTargetSlot, draggedPlacement) {
+          val previewSlotsMap = remember(effectivePlacements, otherPlacements, isDragging, isCurrentPage, isOverBin, previewTargetSlot, draggedPlacement, pageSize, gridRows) {
             if (isDragging && isCurrentPage && !isOverBin && previewTargetSlot != null && draggedPlacement != null) {
               val target = previewTargetSlot!!
               val dragged = draggedPlacement!!
-              val pageSize = cols * rows
               val allExceptDragged = effectivePlacements.filter { it.id != dragged.id }
               val cascaded = PlacementCascadeHelper.cascadeInsert(
                 existingPlacements = allExceptDragged,
@@ -591,23 +645,19 @@ fun Layer1HomeScreen(
             }
           }
 
-          val appSpacing = 8.dp
-          val gridHorizontalPadding = 16.dp
-          val cellHeight = iconDp + labelHeight + 16.dp
-
           Column(
             modifier = Modifier
               .fillMaxSize()
-              .padding(horizontal = gridHorizontalPadding, vertical = 8.dp)
+              .padding(horizontal = gridHorizontalPadding, vertical = gridVerticalPadding)
               .onGloballyPositioned { coordinates ->
                 if (isCurrentPage && rootCoordinates != null) {
                   val localOffset = rootCoordinates!!.localPositionOf(coordinates, Offset.Zero)
                   pageGridBounds = Rect(localOffset, coordinates.size.toSize())
                 }
               },
-            verticalArrangement = Arrangement.spacedBy(appSpacing, Alignment.Top)
+            verticalArrangement = Arrangement.spacedBy(appSpacing)
           ) {
-            for (r in 0 until rows) {
+            for (r in 0 until gridRows) {
               Row(
                 modifier = Modifier
                   .fillMaxWidth()
@@ -634,10 +684,12 @@ fun Layer1HomeScreen(
                     if (isPreviewTarget && draggedPlacement != null) {
                       DropTargetPreviewSlot(
                         dragged = draggedPlacement!!,
+                        space = space,
                         appLookup = appLookup,
+                        folderLookup = folderLookup,
                         allApps = allApps,
-                        getBitmap = getBitmap,
-                        iconSizeModifier = iconSizeModifier
+                        iconSizeModifier = iconSizeModifier,
+                        getBitmap = getBitmap
                       )
                     } else if (item != null) {
                       Layer1ItemCell(
@@ -703,7 +755,7 @@ fun Layer1HomeScreen(
 
     // Subtle edge auto-paging activation indicator cues
     if (isDragging && space.layer1DisplayMode != Space.DISPLAY_MODE_SCROLL && !isOverBin) {
-      if (pendingEdgeDirection == EdgePagingDirection.LEFT) {
+      if (activeEdgeZone == EdgePagingDirection.LEFT && edgeTriggerState == EdgeTriggerState.ARMED) {
         Box(
           modifier = Modifier
             .fillMaxHeight()
@@ -719,7 +771,7 @@ fun Layer1HomeScreen(
             )
             .zIndex(100f)
         )
-      } else if (pendingEdgeDirection == EdgePagingDirection.RIGHT) {
+      } else if (activeEdgeZone == EdgePagingDirection.RIGHT && edgeTriggerState == EdgeTriggerState.ARMED) {
         Box(
           modifier = Modifier
             .fillMaxHeight()
@@ -746,7 +798,7 @@ fun Layer1HomeScreen(
       val bitmap = app?.let { getBitmap(it) }
 
       val dragScale by animateFloatAsState(
-        targetValue = 1.15f,
+        targetValue = 1.08f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "dragScale"
       )
@@ -755,11 +807,11 @@ fun Layer1HomeScreen(
         modifier = Modifier
           .offset {
             IntOffset(
-              (currentPointerPos.x - 32.dp.toPx()).roundToInt(),
-              (currentPointerPos.y - 32.dp.toPx()).roundToInt()
+              (currentPointerPos.x - touchOffsetWithinItem.x).roundToInt(),
+              (currentPointerPos.y - touchOffsetWithinItem.y).roundToInt()
             )
           }
-          .size(64.dp)
+          .wrapContentSize()
           .graphicsLayer {
             scaleX = dragScale
             scaleY = dragScale
@@ -769,32 +821,52 @@ fun Layer1HomeScreen(
           .testTag("floating_dragged_item"),
         contentAlignment = Alignment.Center
       ) {
-        if (dragged.isFolder) {
-          Icon(
-            imageVector = Icons.Default.Folder,
-            contentDescription = "Dragging Folder",
-            tint = QuantumViolet,
-            modifier = Modifier.size(AppDimens.IconLg)
-          )
-        } else if (bitmap != null) {
-          Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize()
-          )
-        } else {
+        Column(
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.Center
+        ) {
           Box(
-            modifier = Modifier
-              .fillMaxSize()
-              .clip(ShapeRoundMd)
-              .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            modifier = iconSizeModifier,
             contentAlignment = Alignment.Center
           ) {
+            if (dragged.isFolder) {
+              Icon(
+                imageVector = Icons.Default.Folder,
+                contentDescription = "Dragging Folder",
+                tint = QuantumViolet,
+                modifier = Modifier.size(AppDimens.IconLg)
+              )
+            } else if (bitmap != null) {
+              Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize()
+              )
+            } else {
+              Box(
+                modifier = Modifier
+                  .fillMaxSize()
+                  .clip(ShapeRoundMd)
+                  .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                contentAlignment = Alignment.Center
+              ) {
+                Text(
+                  text = app?.label?.take(1) ?: "?",
+                  fontWeight = FontWeight.Bold,
+                  color = QuantumViolet,
+                  fontSize = 20.sp
+                )
+              }
+            }
+          }
+          if (space.labelVisibility && app != null) {
+            Spacer(modifier = Modifier.height(AppDimens.Spacing4))
             Text(
-              text = app?.label?.take(1) ?: "?",
-              fontWeight = FontWeight.Bold,
-              color = QuantumViolet,
-              fontSize = 20.sp
+              text = app.label,
+              style = MaterialTheme.typography.bodySmall,
+              maxLines = 1,
+              color = MaterialTheme.colorScheme.onSurface,
+              fontSize = 11.sp
             )
           }
         }
@@ -802,18 +874,22 @@ fun Layer1HomeScreen(
     }
   }
 }
+}
 
 @Composable
 private fun DropTargetPreviewSlot(
   dragged: SpaceItemPlacement,
+  space: Space,
   appLookup: Map<String, DiscoveredApp>,
+  folderLookup: Map<String, SpaceFolder>,
   allApps: List<DiscoveredApp>,
-  getBitmap: (DiscoveredApp) -> android.graphics.Bitmap?,
   iconSizeModifier: Modifier,
+  getBitmap: (DiscoveredApp) -> android.graphics.Bitmap?,
   modifier: Modifier = Modifier
 ) {
+  val folder = if (dragged.isFolder && dragged.folderId != null) folderLookup[dragged.folderId] else null
   val key = "${dragged.packageName}/${dragged.componentName}"
-  val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == dragged.packageName }
+  val app = if (!dragged.isFolder) appLookup[key] ?: allApps.firstOrNull { it.packageName == dragged.packageName } else null
   val bitmap = app?.let { getBitmap(it) }
 
   Box(
@@ -822,32 +898,48 @@ private fun DropTargetPreviewSlot(
   ) {
     Column(
       horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement = Arrangement.Center
+      verticalArrangement = Arrangement.Center,
+      modifier = Modifier.graphicsLayer { alpha = 0.48f }
     ) {
       Box(
-        modifier = iconSizeModifier,
+        modifier = iconSizeModifier
+          .clip(ShapeRoundMd)
+          .background(QuantumViolet.copy(alpha = 0.14f))
+          .border(BorderStroke(1.5.dp, QuantumViolet.copy(alpha = 0.55f)), ShapeRoundMd),
         contentAlignment = Alignment.Center
       ) {
         if (dragged.isFolder) {
           Icon(
             imageVector = Icons.Default.Folder,
             contentDescription = null,
-            tint = QuantumViolet.copy(alpha = 0.6f),
+            tint = QuantumViolet,
             modifier = Modifier.size(AppDimens.IconMd)
           )
         } else if (bitmap != null) {
           Image(
             bitmap = bitmap.asImageBitmap(),
             contentDescription = null,
-            alpha = 0.45f,
             modifier = Modifier.fillMaxSize()
           )
         } else {
           Text(
             text = app?.label?.take(1) ?: "?",
             fontWeight = FontWeight.Bold,
-            color = QuantumViolet.copy(alpha = 0.7f),
+            color = QuantumViolet,
             fontSize = 18.sp
+          )
+        }
+      }
+      if (space.labelVisibility) {
+        val label = if (dragged.isFolder) folder?.name ?: "Folder" else app?.label
+        if (!label.isNullOrEmpty()) {
+          Spacer(modifier = Modifier.height(AppDimens.Spacing4))
+          Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 11.sp
           )
         }
       }
@@ -912,7 +1004,7 @@ private fun Layer1ItemCell(
         scaleX = if (isTargetHover) 1.08f else 1.0f
         scaleY = if (isTargetHover) 1.08f else 1.0f
       }
-      .clickable {
+      .clickable(enabled = !isBeingDragged) {
         if (placement.isFolder) {
           if (folder != null) onOpenFolder(folder)
         } else {

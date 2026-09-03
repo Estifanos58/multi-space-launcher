@@ -507,8 +507,8 @@ fun LauncherHomeScreen(
                   onAddAppToHome = { app, page ->
                     spaceViewModel.addAppToHome(currentSpace.id, app, page)
                   },
-                  onMovePlacement = { placementId, targetPage, targetPos ->
-                    spaceViewModel.moveAppToPage(currentSpace.id, placementId, targetPage, targetPos)
+                  onMovePlacement = { placementId, targetPage, targetPos, pageSize ->
+                    spaceViewModel.moveAppToPage(currentSpace.id, placementId, targetPage, targetPos, pageSize)
                   }
                 )
               }

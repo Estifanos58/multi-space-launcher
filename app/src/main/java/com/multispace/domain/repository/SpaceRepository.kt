@@ -154,7 +154,7 @@ interface SpaceRepository {
   suspend fun addPlacement(placement: com.multispace.domain.model.SpaceItemPlacement): Result<Unit>
   suspend fun removePlacement(placementId: String): Result<Unit>
   suspend fun updatePlacements(placements: List<com.multispace.domain.model.SpaceItemPlacement>): Result<Unit>
-  suspend fun moveAppToPage(spaceId: String, placementId: String, targetPage: Int, targetPosition: Int): Result<Unit>
+  suspend fun moveAppToPage(spaceId: String, placementId: String, targetPage: Int, targetPosition: Int, pageSize: Int? = null): Result<Unit>
   suspend fun createFolderFromApps(
     spaceId: String,
     pageIndex: Int,

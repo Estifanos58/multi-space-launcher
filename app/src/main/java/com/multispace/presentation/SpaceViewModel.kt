@@ -693,9 +693,9 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
-  fun moveAppToPage(spaceId: String, placementId: String, targetPage: Int, targetPosition: Int) {
+  fun moveAppToPage(spaceId: String, placementId: String, targetPage: Int, targetPosition: Int, pageSize: Int = -1) {
     viewModelScope.launch {
-      spaceRepository.moveAppToPage(spaceId, placementId, targetPage, targetPosition)
+      spaceRepository.moveAppToPage(spaceId, placementId, targetPage, targetPosition, pageSize)
     }
   }
 
