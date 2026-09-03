@@ -447,6 +447,7 @@ fun LauncherHomeScreen(
 
             AnimatedContent(
               targetState = activeLayerIndex,
+              modifier = Modifier.fillMaxSize(),
               transitionSpec = {
                 if (targetState == 2) {
                   (slideInVertically(animationSpec = tween(300)) { it } + fadeIn()).togetherWith(

@@ -967,18 +967,48 @@ class RoomSpaceRepository(
     targetPosition: Int
   ): Result<Unit> {
     return try {
-      val allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
-      val itemIndex = allHome.indexOfFirst { it.id == placementId }
-      val targetPosClamped = targetPosition.coerceAtLeast(0)
+      var allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
+      val space = spaceDao.getSpaceById(spaceId)
+      val cols = space?.gridColumns ?: Space.DEFAULT_GRID_COLUMNS
+      val pageSize = cols * 5
+      val targetPosClamped = targetPosition.coerceIn(0, pageSize - 1)
 
-      if (itemIndex == -1) {
-        val pkg = if (placementId.startsWith("virtual_")) {
-          placementId.removePrefix("virtual_").substringBeforeLast("_")
-        } else null
+      // Ensure database is bootstrapped from memberships if currently empty
+      if (allHome.isEmpty()) {
+        val memberships = membershipDao.getMembershipsForSpace(spaceId).distinctBy { it.packageName }
+        if (memberships.isNotEmpty()) {
+          val bootstrapped = memberships.mapIndexed { idx, m ->
+            SpaceItemPlacementEntity(
+              id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+              spaceId = spaceId,
+              layer = SpaceItemPlacement.LAYER_HOME,
+              pageIndex = idx / pageSize,
+              positionIndex = idx % pageSize,
+              itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+              packageName = m.packageName,
+              componentName = m.componentName,
+              userHandleId = m.userHandleId
+            )
+          }
+          layoutDao.insertPlacements(bootstrapped)
+          allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
+        }
+      }
 
-        val newId = "place_" + UUID.randomUUID().toString().replace("-", "").take(10)
-        val newItem = SpaceItemPlacementEntity(
-          id = newId,
+      val pkg = if (placementId.startsWith("virtual_")) {
+        placementId.removePrefix("virtual_").substringBeforeLast("_")
+      } else null
+
+      var itemIndex = allHome.indexOfFirst { it.id == placementId }
+      if (itemIndex == -1 && pkg != null) {
+        itemIndex = allHome.indexOfFirst { it.packageName == pkg }
+      }
+
+      val itemToMove = if (itemIndex != -1) {
+        allHome.removeAt(itemIndex)
+      } else {
+        SpaceItemPlacementEntity(
+          id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
           spaceId = spaceId,
           layer = SpaceItemPlacement.LAYER_HOME,
           pageIndex = targetPage,
@@ -986,52 +1016,33 @@ class RoomSpaceRepository(
           itemType = SpaceItemPlacement.ITEM_TYPE_APP,
           packageName = pkg
         )
-        val targetPageOthers = allHome.filter { it.pageIndex == targetPage }.sortedBy { it.positionIndex }
-        val toInsert = mutableListOf<SpaceItemPlacementEntity>()
-        var shiftSlot = targetPosClamped
-        val hasCollision = targetPageOthers.any { it.positionIndex == targetPosClamped }
-
-        for (other in targetPageOthers) {
-          if (hasCollision && other.positionIndex >= shiftSlot) {
-            if (other.positionIndex == shiftSlot) {
-              shiftSlot = other.positionIndex + 1
-              toInsert.add(other.copy(positionIndex = shiftSlot))
-            } else {
-              toInsert.add(other)
-            }
-          } else {
-            toInsert.add(other)
-          }
-        }
-        toInsert.add(newItem)
-        layoutDao.insertPlacements(toInsert)
-        return Result.success(Unit)
       }
 
-      val item = allHome.removeAt(itemIndex)
-      val oldPage = item.pageIndex
-      val updatedItem = item.copy(pageIndex = targetPage, positionIndex = targetPosClamped)
-
-      val targetPageOthers = allHome.filter { it.pageIndex == targetPage }.sortedBy { it.positionIndex }
+      val targetPageOthers = allHome.filter { it.pageIndex == targetPage }.toMutableList()
+      val occupyingItem = targetPageOthers.firstOrNull { it.positionIndex == targetPosClamped }
       val toInsert = mutableListOf<SpaceItemPlacementEntity>()
-      var shiftSlot = targetPosClamped
-      val hasCollision = targetPageOthers.any { it.positionIndex == targetPosClamped }
 
-      for (other in targetPageOthers) {
-        if (hasCollision && other.positionIndex >= shiftSlot) {
-          if (other.positionIndex == shiftSlot) {
-            shiftSlot = other.positionIndex + 1
-            toInsert.add(other.copy(positionIndex = shiftSlot))
-          } else {
-            toInsert.add(other)
-          }
+      if (occupyingItem != null) {
+        if (itemToMove.pageIndex == targetPage) {
+          // Same-page clean swap: occupying item moves to the dragged item's original slot
+          val swappedOccupying = occupyingItem.copy(positionIndex = itemToMove.positionIndex)
+          toInsert.add(swappedOccupying)
         } else {
-          toInsert.add(other)
+          // Cross-page drop on occupied slot: find first free slot on targetPage
+          val occupiedSlots = targetPageOthers.map { it.positionIndex }.toSet() + targetPosClamped
+          var freeSlot = 0
+          while (occupiedSlots.contains(freeSlot)) {
+            freeSlot++
+          }
+          val shiftedOccupying = occupyingItem.copy(positionIndex = freeSlot)
+          toInsert.add(shiftedOccupying)
         }
       }
+
+      val updatedItem = itemToMove.copy(pageIndex = targetPage, positionIndex = targetPosClamped)
       toInsert.add(updatedItem)
       layoutDao.insertPlacements(toInsert)
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Moved placement $placementId to page $targetPage, pos $targetPosClamped")
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Moved placement ${itemToMove.id} ($pkg) to page $targetPage, pos $targetPosClamped")
       Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to move app to page $targetPage", e)
