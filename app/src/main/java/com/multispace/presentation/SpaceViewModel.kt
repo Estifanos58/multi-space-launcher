@@ -10,6 +10,7 @@ import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.PageTurnEffect
 import com.multispace.domain.model.Space
+import com.multispace.domain.model.SpaceItemPlacement
 import com.multispace.domain.model.SpaceMembership
 import com.multispace.domain.repository.SpaceRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -993,7 +994,8 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     spanY: Int = 1,
     appWidgetId: Int = -1,
     packageName: String? = null,
-    componentName: String? = null
+    componentName: String? = null,
+    onSuccess: ((SpaceItemPlacement) -> Unit)? = null
   ) {
     viewModelScope.launch {
       val result = spaceRepository.addWidgetPlacement(
@@ -1007,8 +1009,9 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
         componentName = componentName
       )
       result.fold(
-        onSuccess = {
-          _userFeedback.tryEmit("Widget added to Home page ${pageIndex + 1}.")
+        onSuccess = { placement ->
+          _userFeedback.tryEmit("Widget placed on Home page ${placement.pageIndex + 1}.")
+          onSuccess?.invoke(placement)
         },
         onFailure = { error ->
           _userFeedback.tryEmit("Failed to add widget: ${error.message}")

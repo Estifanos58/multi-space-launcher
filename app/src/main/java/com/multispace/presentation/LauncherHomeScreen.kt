@@ -74,6 +74,7 @@ fun LauncherHomeScreen(
   var showUnlockForActiveSpace by remember { mutableStateOf(false) }
   var showCustomizationDialogForActiveSpace by remember { mutableStateOf(false) }
   var showDesktopCustomizationSheet by remember { mutableStateOf(false) }
+  var activeDesktopPage by remember { mutableIntStateOf(0) }
   var showImportDialog by remember { mutableStateOf(false) }
   var importReport by remember { mutableStateOf<ImportReport?>(null) }
   var isImporting by remember { mutableStateOf(false) }
@@ -514,7 +515,10 @@ fun LauncherHomeScreen(
                   onResizeWidget = { placementId, spanX, spanY, pos ->
                     spaceViewModel.updateWidgetSpan(placementId, spanX, spanY, pos)
                   },
-                  onOpenCustomization = { showDesktopCustomizationSheet = true }
+                  onOpenCustomization = { page ->
+                    activeDesktopPage = page
+                    showDesktopCustomizationSheet = true
+                  }
                 )
               }
             }
@@ -638,7 +642,7 @@ fun LauncherHomeScreen(
     DesktopCustomizationSheet(
       space = space,
       placements = activePlacements,
-      currentPage = 0,
+      currentPage = activeDesktopPage,
       totalPageCount = maxOf(space.pageCount, (activePlacements.maxOfOrNull { it.pageIndex } ?: 0) + 1),
       onDismiss = { showDesktopCustomizationSheet = false },
       onSelectWallpaperColor = { color ->
@@ -670,6 +674,7 @@ fun LauncherHomeScreen(
         showCustomizationDialogForActiveSpace = true
       },
       onAddWidget = { pageIndex, widgetType, spanX, spanY, appWidgetId, pkg, comp ->
+        showDesktopCustomizationSheet = false
         spaceViewModel.addWidgetToHome(
           spaceId = space.id,
           pageIndex = pageIndex,

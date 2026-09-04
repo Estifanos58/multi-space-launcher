@@ -260,4 +260,287 @@ class PlacementCascadeTest {
     assertEquals(1, remaining.size)
     assertEquals("com.pkg1", remaining.first().packageName)
   }
+
+  @Test
+  fun testWidgetFootprintDisplacesMultipleApps() {
+    // 4-column grid, page size 16 (4 rows x 4 cols)
+    val gridCols = 4
+    val testPageSize = 16
+    val existing = listOf(
+      SpaceItemPlacement(id = "app0", spaceId = "s1", pageIndex = 0, positionIndex = 0, packageName = "com.app0"),
+      SpaceItemPlacement(id = "app1", spaceId = "s1", pageIndex = 0, positionIndex = 1, packageName = "com.app1"),
+      SpaceItemPlacement(id = "app4", spaceId = "s1", pageIndex = 0, positionIndex = 4, packageName = "com.app4"),
+      SpaceItemPlacement(id = "app5", spaceId = "s1", pageIndex = 0, positionIndex = 5, packageName = "com.app5")
+    )
+    val widget2x2 = SpaceItemPlacement(
+      id = "widget_clock",
+      spaceId = "s1",
+      pageIndex = 0,
+      positionIndex = 0,
+      itemType = SpaceItemPlacement.ITEM_TYPE_WIDGET,
+      spanX = 2,
+      spanY = 2,
+      customWidgetType = SpaceItemPlacement.WIDGET_CLOCK_DATE
+    )
+
+    // Drop 2x2 widget at position 0 (footprint: row 0 cols 0..1, row 1 cols 0..1 -> slots 0, 1, 4, 5)
+    val result = PlacementCascadeHelper.computeFullPlacementsAfterDrop(
+      allCurrentPlacements = existing,
+      itemToInsert = widget2x2,
+      targetPage = 0,
+      targetPosition = 0,
+      pageSize = testPageSize,
+      cols = gridCols
+    )
+
+    val map = result.associateBy { it.id }
+    val placedWidget = map["widget_clock"]
+    assertTrue("Widget must be placed", placedWidget != null)
+    assertEquals(0, placedWidget?.pageIndex)
+    assertEquals(0, placedWidget?.positionIndex)
+    assertEquals(2, placedWidget?.spanX)
+    assertEquals(2, placedWidget?.spanY)
+
+    // The widget reserves slots {0, 1, 4, 5}. None of the displaced apps should remain in these slots!
+    val widgetReservedSlots = setOf(0, 1, 4, 5)
+    val appIds = listOf("app0", "app1", "app4", "app5")
+    for (appId in appIds) {
+      val app = map[appId]
+      assertTrue("App $appId should still exist", app != null)
+      assertFalse(
+        "App $appId should be displaced out of widget footprint",
+        widgetReservedSlots.contains(app!!.positionIndex)
+      )
+    }
+  }
+
+  @Test
+  fun testAppDropOntoMultiCellWidgetDisplacesWidget() {
+    val gridCols = 4
+    val testPageSize = 16
+    // 2x2 widget at position 0 (occupies slots 0, 1, 4, 5)
+    val widget2x2 = SpaceItemPlacement(
+      id = "widget_clock",
+      spaceId = "s1",
+      pageIndex = 0,
+      positionIndex = 0,
+      itemType = SpaceItemPlacement.ITEM_TYPE_WIDGET,
+      spanX = 2,
+      spanY = 2,
+      customWidgetType = SpaceItemPlacement.WIDGET_CLOCK_DATE
+    )
+    val incomingApp = SpaceItemPlacement(
+      id = "incoming_app",
+      spaceId = "s1",
+      pageIndex = 0,
+      positionIndex = 0,
+      packageName = "com.test.incoming"
+    )
+
+    // Dropping app onto slot 1 (inside widget footprint {0, 1, 4, 5})
+    val result = PlacementCascadeHelper.computeFullPlacementsAfterDrop(
+      allCurrentPlacements = listOf(widget2x2),
+      itemToInsert = incomingApp,
+      targetPage = 0,
+      targetPosition = 1,
+      pageSize = testPageSize,
+      cols = gridCols
+    )
+
+    val map = result.associateBy { it.id }
+    val placedApp = map["incoming_app"]
+    val displacedWidget = map["widget_clock"]
+
+    assertTrue(placedApp != null)
+    assertEquals(0, placedApp?.pageIndex)
+    assertEquals(1, placedApp?.positionIndex)
+
+    assertTrue(displacedWidget != null)
+    // Widget must not overlap slot 1
+    val widgetFp = PlacementCascadeHelper.getFootprint(
+      pageIndex = displacedWidget!!.pageIndex,
+      positionIndex = displacedWidget.positionIndex,
+      spanX = displacedWidget.spanX,
+      spanY = displacedWidget.spanY,
+      cols = gridCols,
+      pageSize = testPageSize
+    )
+    val appGlobalSlot = placedApp!!.pageIndex * testPageSize + placedApp.positionIndex
+    assertFalse(
+      "Widget footprint should not overlap with app slot",
+      widgetFp.globalSlots.contains(appGlobalSlot)
+    )
+  }
+
+  @Test
+  fun testMultiCellWidgetClampsAtGridBoundary() {
+    val gridCols = 4
+    val testPageSize = 16
+    val widget2x2 = SpaceItemPlacement(
+      id = "widget_clock",
+      spaceId = "s1",
+      pageIndex = 0,
+      positionIndex = 0,
+      itemType = SpaceItemPlacement.ITEM_TYPE_WIDGET,
+      spanX = 2,
+      spanY = 2,
+      customWidgetType = SpaceItemPlacement.WIDGET_CLOCK_DATE
+    )
+
+    // Dropping 2x2 widget at position 3 (row 0, col 3) -> should clamp to col 2 (position 2)
+    val result = PlacementCascadeHelper.computeFullPlacementsAfterDrop(
+      allCurrentPlacements = emptyList(),
+      itemToInsert = widget2x2,
+      targetPage = 0,
+      targetPosition = 3,
+      pageSize = testPageSize,
+      cols = gridCols
+    )
+
+    val placed = result.firstOrNull { it.id == "widget_clock" }
+    assertTrue(placed != null)
+    assertEquals(2, placed?.positionIndex) // clamped to col 2 so spanX=2 fits in 4 cols
+  }
+
+  @Test
+  fun testMultiCellWidgetCascadeOverflowsToNextPage() {
+    val gridCols = 4
+    val testPageSize = 4 // 1 row of 4 cols per page
+    val existing = listOf(
+      SpaceItemPlacement(id = "app0", spaceId = "s1", pageIndex = 0, positionIndex = 0, packageName = "com.app0"),
+      SpaceItemPlacement(id = "app1", spaceId = "s1", pageIndex = 0, positionIndex = 1, packageName = "com.app1"),
+      SpaceItemPlacement(id = "app2", spaceId = "s1", pageIndex = 0, positionIndex = 2, packageName = "com.app2"),
+      SpaceItemPlacement(id = "app3", spaceId = "s1", pageIndex = 0, positionIndex = 3, packageName = "com.app3")
+    )
+    val widget2x1 = SpaceItemPlacement(
+      id = "widget_search",
+      spaceId = "s1",
+      pageIndex = 0,
+      positionIndex = 0,
+      itemType = SpaceItemPlacement.ITEM_TYPE_WIDGET,
+      spanX = 2,
+      spanY = 1,
+      customWidgetType = SpaceItemPlacement.WIDGET_QUICK_SEARCH
+    )
+
+    // Drop 2x1 widget at pos 0 on full page 0
+    val result = PlacementCascadeHelper.computeFullPlacementsAfterDrop(
+      allCurrentPlacements = existing,
+      itemToInsert = widget2x1,
+      targetPage = 0,
+      targetPosition = 0,
+      pageSize = testPageSize,
+      cols = gridCols
+    )
+
+    val map = result.associateBy { it.id }
+    assertEquals(0, map["widget_search"]?.pageIndex)
+    assertEquals(0, map["widget_search"]?.positionIndex)
+
+    // Some apps must have cascaded to page 1
+    val onPage1 = result.filter { it.pageIndex == 1 }
+    assertTrue("Trailing apps should cascade to page 1", onPage1.isNotEmpty())
+  }
+
+  @Test
+  fun testFindEmptySlotOnPreferredPageWhenAvailable() {
+    val existing = listOf(
+      SpaceItemPlacement(id = "app0", spaceId = "s1", pageIndex = 0, positionIndex = 0, packageName = "com.app0"),
+      SpaceItemPlacement(id = "app1", spaceId = "s1", pageIndex = 0, positionIndex = 1, packageName = "com.app1")
+    )
+    val result = PlacementCascadeHelper.findEmptySlotForWidget(
+      existingPlacements = existing,
+      preferredPage = 0,
+      spanX = 2,
+      spanY = 2,
+      cols = 4,
+      pageSize = 20,
+      existingPageCount = 1
+    )
+
+    assertEquals(0, result.pageIndex)
+    assertEquals(2, result.positionIndex)
+    assertFalse(result.isNewPage)
+  }
+
+  @Test
+  fun testFindEmptySlotWhenPreferredPageFullChecksNextPage() {
+    // Fill page 0 completely (20 items in 4 cols x 5 rows)
+    val page0Apps = (0 until 20).map { i ->
+      SpaceItemPlacement(id = "app$i", spaceId = "s1", pageIndex = 0, positionIndex = i, packageName = "com.app$i")
+    }
+    // Page 1 has 4 items in row 0
+    val page1Apps = (0 until 4).map { i ->
+      SpaceItemPlacement(id = "p1_app$i", spaceId = "s1", pageIndex = 1, positionIndex = i, packageName = "com.p1_app$i")
+    }
+    val existing = page0Apps + page1Apps
+
+    val result = PlacementCascadeHelper.findEmptySlotForWidget(
+      existingPlacements = existing,
+      preferredPage = 0,
+      spanX = 2,
+      spanY = 2,
+      cols = 4,
+      pageSize = 20,
+      existingPageCount = 2
+    )
+
+    assertEquals(1, result.pageIndex)
+    assertEquals(4, result.positionIndex) // Starts at row 1, col 0
+    assertFalse(result.isNewPage)
+  }
+
+  @Test
+  fun testFindEmptySlotWhenAllPagesFullCreatesNewPage() {
+    // Fill page 0 completely (20 items)
+    val page0Apps = (0 until 20).map { i ->
+      SpaceItemPlacement(id = "app$i", spaceId = "s1", pageIndex = 0, positionIndex = i, packageName = "com.app$i")
+    }
+
+    val result = PlacementCascadeHelper.findEmptySlotForWidget(
+      existingPlacements = page0Apps,
+      preferredPage = 0,
+      spanX = 2,
+      spanY = 2,
+      cols = 4,
+      pageSize = 20,
+      existingPageCount = 1
+    )
+
+    assertEquals(1, result.pageIndex) // Created page 1
+    assertEquals(0, result.positionIndex) // Placed at top-left
+    assertTrue(result.isNewPage)
+  }
+
+  @Test
+  fun testFindEmptySlotRespectsMultiCellWidgetOccupancy() {
+    // Page 0 has a 4x1 search bar widget at pos 0 (occupies slots 0, 1, 2, 3)
+    val widget4x1 = SpaceItemPlacement(
+      id = "widget_search",
+      spaceId = "s1",
+      pageIndex = 0,
+      positionIndex = 0,
+      itemType = SpaceItemPlacement.ITEM_TYPE_WIDGET,
+      spanX = 4,
+      spanY = 1,
+      customWidgetType = SpaceItemPlacement.WIDGET_QUICK_SEARCH
+    )
+    // and apps at slot 4 and 5
+    val app4 = SpaceItemPlacement(id = "app4", spaceId = "s1", pageIndex = 0, positionIndex = 4, packageName = "com.app4")
+    val app5 = SpaceItemPlacement(id = "app5", spaceId = "s1", pageIndex = 0, positionIndex = 5, packageName = "com.app5")
+
+    val result = PlacementCascadeHelper.findEmptySlotForWidget(
+      existingPlacements = listOf(widget4x1, app4, app5),
+      preferredPage = 0,
+      spanX = 2,
+      spanY = 1,
+      cols = 4,
+      pageSize = 20,
+      existingPageCount = 1
+    )
+
+    assertEquals(0, result.pageIndex)
+    assertEquals(6, result.positionIndex) // slots 0..3 and 4..5 are taken, next available 2x1 is pos 6 (row 1, col 2)
+    assertFalse(result.isNewPage)
+  }
 }

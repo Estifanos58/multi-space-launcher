@@ -710,6 +710,9 @@ private fun WidgetsSubscreen(
         ),
         modifier = Modifier
           .fillMaxWidth()
+          .clickable {
+            onAddWidget(selectedTargetPage, type, spanX, spanY, -1, null, null)
+          }
           .testTag("widget_item_$type")
       ) {
         Row(
@@ -802,7 +805,19 @@ private fun WidgetsSubscreen(
           colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
           ),
-          modifier = Modifier.fillMaxWidth()
+          modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+              onAddWidget(
+                selectedTargetPage,
+                "SYSTEM_WIDGET",
+                2,
+                2,
+                -1,
+                provider.provider.packageName,
+                provider.provider.className
+              )
+            }
         ) {
           Row(
             modifier = Modifier

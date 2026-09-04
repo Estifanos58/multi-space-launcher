@@ -1218,9 +1218,12 @@ class RoomSpaceRepository(
             a.packageName != null && a.packageName == b.packageName
           )
         },
+        getSpanX = { if (it.itemType == SpaceItemPlacement.ITEM_TYPE_WIDGET) it.spanX else 1 },
+        getSpanY = { if (it.itemType == SpaceItemPlacement.ITEM_TYPE_WIDGET) it.spanY else 1 },
         targetPage = targetPage,
         targetPosition = targetPosClamped,
-        pageSize = effectivePageSize
+        pageSize = effectivePageSize,
+        cols = cols
       )
 
       // Deduplicate toInsert before persistence
@@ -1841,15 +1844,42 @@ class RoomSpaceRepository(
     componentName: String?
   ): Result<SpaceItemPlacement> {
     return try {
+      val space = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+      val cols = space.gridColumns.coerceAtLeast(1)
+      val effectivePageSize = cols * 5
       val existingPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
-      val onPage = existingPlacements.filter { it.pageIndex == pageIndex }
-      val nextPos = if (onPage.isEmpty()) 0 else onPage.maxOf { it.positionIndex } + 1
+        .map { it.toDomain() }
+
+      val placementResult = PlacementCascadeHelper.findEmptySlotForWidget(
+        existingPlacements = existingPlacements,
+        preferredPage = pageIndex,
+        spanX = spanX,
+        spanY = spanY,
+        cols = cols,
+        pageSize = effectivePageSize,
+        existingPageCount = space.pageCount
+      )
+
+      if (placementResult.isNewPage) {
+        val newPageCount = placementResult.pageIndex + 1
+        val updatedSpace = space.copy(
+          pageCount = maxOf(space.pageCount, newPageCount),
+          updatedAt = System.currentTimeMillis()
+        )
+        spaceDao.updateSpace(updatedSpace)
+        AppLogger.i(
+          AppLogger.Category.LAUNCHER,
+          "Created new page ${placementResult.pageIndex} for Space $spaceId, new total pageCount: $newPageCount"
+        )
+      }
+
       val widgetPlacement = SpaceItemPlacement(
         id = "widget_" + java.util.UUID.randomUUID().toString().replace("-", "").take(10),
         spaceId = spaceId,
         layer = SpaceItemPlacement.LAYER_HOME,
-        pageIndex = pageIndex,
-        positionIndex = nextPos,
+        pageIndex = placementResult.pageIndex,
+        positionIndex = placementResult.positionIndex,
         itemType = SpaceItemPlacement.ITEM_TYPE_WIDGET,
         packageName = packageName,
         componentName = componentName,
@@ -1858,8 +1888,12 @@ class RoomSpaceRepository(
         appWidgetId = appWidgetId,
         customWidgetType = widgetType
       )
+
       layoutDao.insertPlacement(SpaceItemPlacementEntity.fromDomain(widgetPlacement))
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Added widget placement ${widgetPlacement.id} to Space $spaceId on page $pageIndex at pos $nextPos")
+      AppLogger.i(
+        AppLogger.Category.LAUNCHER,
+        "Added widget placement ${widgetPlacement.id} to Space $spaceId on page ${widgetPlacement.pageIndex} at pos ${widgetPlacement.positionIndex} (isNewPage=${placementResult.isNewPage}, span=${spanX}x${spanY})"
+      )
       Result.success(widgetPlacement)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to add widget to Space $spaceId", e)
@@ -1874,10 +1908,36 @@ class RoomSpaceRepository(
     positionIndex: Int?
   ): Result<Unit> {
     return try {
-      if (positionIndex != null) {
-        layoutDao.updateWidgetSpanAndPosition(placementId, spanX, spanY, positionIndex)
+      val existing = layoutDao.getPlacementById(placementId)
+      if (existing != null) {
+        val space = spaceDao.getSpaceById(existing.spaceId)
+        val cols = space?.gridColumns ?: Space.DEFAULT_GRID_COLUMNS
+        val effectivePageSize = cols * 5
+        val newPos = positionIndex ?: existing.positionIndex
+        val updatedEntity = existing.copy(spanX = spanX, spanY = spanY, positionIndex = newPos)
+
+        val allHome = layoutDao.getPlacementsForSpaceLayer(existing.spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
+        val toInsert = PlacementCascadeHelper.cascadeInsertGeneric(
+          existingItems = allHome,
+          itemToInsert = updatedEntity,
+          getId = { it.id },
+          getPage = { it.pageIndex },
+          getPosition = { it.positionIndex },
+          copyItem = { entity, page, pos -> entity.copy(pageIndex = page, positionIndex = pos) },
+          getSpanX = { if (it.id == placementId) spanX else (if (it.itemType == SpaceItemPlacement.ITEM_TYPE_WIDGET) it.spanX else 1) },
+          getSpanY = { if (it.id == placementId) spanY else (if (it.itemType == SpaceItemPlacement.ITEM_TYPE_WIDGET) it.spanY else 1) },
+          targetPage = existing.pageIndex,
+          targetPosition = newPos,
+          pageSize = effectivePageSize,
+          cols = cols
+        )
+        layoutDao.insertPlacements(toInsert)
       } else {
-        layoutDao.updateWidgetSpan(placementId, spanX, spanY)
+        if (positionIndex != null) {
+          layoutDao.updateWidgetSpanAndPosition(placementId, spanX, spanY, positionIndex)
+        } else {
+          layoutDao.updateWidgetSpan(placementId, spanX, spanY)
+        }
       }
       AppLogger.i(AppLogger.Category.LAUNCHER, "Updated widget span: id=$placementId, spanX=$spanX, spanY=$spanY, pos=$positionIndex")
       Result.success(Unit)

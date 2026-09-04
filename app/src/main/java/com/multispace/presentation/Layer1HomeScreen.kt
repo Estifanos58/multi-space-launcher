@@ -92,7 +92,7 @@ fun Layer1HomeScreen(
   onAddAppToHome: (DiscoveredApp, Int) -> Unit,
   onMovePlacement: (placementId: String, targetPage: Int, targetPos: Int, pageSize: Int) -> Unit = { _, _, _, _ -> },
   onResizeWidget: (placementId: String, spanX: Int, spanY: Int, positionIndex: Int?) -> Unit = { _, _, _, _ -> },
-  onOpenCustomization: () -> Unit = {},
+  onOpenCustomization: (Int) -> Unit = {},
   appWidgetHost: AppWidgetHost? = null,
   modifier: Modifier = Modifier
 ) {
@@ -135,6 +135,8 @@ fun Layer1HomeScreen(
     val availableGridHeightDp = (maxHeight - reservedVerticalSpace).coerceAtLeast(cellHeight)
     val gridRows = ((availableGridHeightDp + appSpacing) / rowPitchDp).toInt().coerceAtLeast(1)
     val pageSize = (cols * gridRows).coerceAtLeast(1)
+    val availableGridWidthDp = (maxWidth - gridHorizontalPadding * 2).coerceAtLeast(100.dp)
+    val cellWidth = (availableGridWidthDp - appSpacing * (cols - 1)) / cols
 
     // Ensure robust fallback placements if space has apps but no placements generated yet,
     // guaranteeing no apps are duplicated or lost in Layer 1.
@@ -257,7 +259,7 @@ fun Layer1HomeScreen(
       slot < totalSlots && rect.contains(currentPointerPos)
     }?.key
 
-    val candidateSlot: Int = if (directHit != null) {
+    val rawSlot: Int = if (directHit != null) {
       directHit
     } else {
       val bounds = pageGridBounds
@@ -285,6 +287,14 @@ fun Layer1HomeScreen(
         (r * cols + c).coerceIn(0, totalSlots - 1)
       }
     }
+
+    val draggedSpanX = if (draggedPlacement?.isWidget == true) draggedPlacement!!.spanX.coerceIn(1, cols) else 1
+    val draggedSpanY = if (draggedPlacement?.isWidget == true) draggedPlacement!!.spanY.coerceIn(1, gridRows) else 1
+    val rawC = rawSlot % cols
+    val rawR = rawSlot / cols
+    val clampedC = rawC.coerceIn(0, maxOf(0, cols - draggedSpanX))
+    val clampedR = rawR.coerceIn(0, maxOf(0, gridRows - draggedSpanY))
+    val candidateSlot = (clampedR * cols + clampedC).coerceIn(0, totalSlots - 1)
 
     if (previewTargetSlot != candidateSlot) {
       previewTargetSlot = candidateSlot
@@ -484,7 +494,15 @@ fun Layer1HomeScreen(
           onRemovePlacement(dragged.id)
         } else {
           val targetPage = pagerState.currentPage
-          val targetPos = previewTargetSlot ?: dragged.positionIndex
+          val draggedSpanX = if (dragged.isWidget) dragged.spanX.coerceIn(1, cols) else 1
+          val draggedSpanY = if (dragged.isWidget) dragged.spanY.coerceIn(1, gridRows) else 1
+          val rawTargetPos = previewTargetSlot ?: dragged.positionIndex
+          val rawC = rawTargetPos % cols
+          val rawR = rawTargetPos / cols
+          val clampedC = rawC.coerceIn(0, maxOf(0, cols - draggedSpanX))
+          val clampedR = rawR.coerceIn(0, maxOf(0, gridRows - draggedSpanY))
+          val targetPos = clampedR * cols + clampedC
+
           AppLogger.i(
             AppLogger.Category.LAUNCHER,
             "FINAL_DROP: pointerY=${currentPointerPos.y} previewTargetSlot=$previewTargetSlot targetPage=$targetPage targetPos=$targetPos gridRows=$gridRows pageSize=$pageSize draggedPlacement.pageIndex=${dragged.pageIndex} draggedPlacement.positionIndex=${dragged.positionIndex}"
@@ -497,7 +515,8 @@ fun Layer1HomeScreen(
             itemToInsert = dragged,
             targetPage = targetPage,
             targetPosition = targetPos,
-            pageSize = pageSize
+            pageSize = pageSize,
+            cols = cols
           )
           localPlacements = updatedList
 
@@ -556,7 +575,14 @@ fun Layer1HomeScreen(
                 val c = ((rootOffset.x - bounds.left) / colWidth).toInt().coerceIn(0, cols - 1)
                 val r = ((rootOffset.y - bounds.top) / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
                 val touchedSlot = (r * cols + c).coerceIn(0, totalSlots - 1)
-                touchedPlacement = effectivePlacements.firstOrNull { it.pageIndex == activePage && it.positionIndex == touchedSlot }
+                touchedPlacement = effectivePlacements.firstOrNull { item ->
+                  if (item.pageIndex != activePage) return@firstOrNull false
+                  val itemR = item.positionIndex / cols
+                  val itemC = item.positionIndex % cols
+                  val itemSpanX = if (item.isWidget) item.spanX else 1
+                  val itemSpanY = if (item.isWidget) item.spanY else 1
+                  c in itemC until (itemC + itemSpanX) && r in itemR until (itemR + itemSpanY)
+                }
               }
             }
             if (touchedPlacement == null) {
@@ -572,19 +598,15 @@ fun Layer1HomeScreen(
               }?.key?.let { id -> effectivePlacements.firstOrNull { it.id == id } }
             }
             if (touchedPlacement != null) {
-              if (touchedPlacement.isWidget) {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                resizingWidgetId = touchedPlacement.id
-              } else {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                handleStartDrag(touchedPlacement, rootOffset)
-              }
+              haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+              resizingWidgetId = null
+              handleStartDrag(touchedPlacement, rootOffset)
             } else {
               if (resizingWidgetId != null) {
                 resizingWidgetId = null
               } else {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onOpenCustomization()
+                onOpenCustomization(pagerState.currentPage)
               }
             }
           },
@@ -753,13 +775,21 @@ fun Layer1HomeScreen(
                 set
               }
 
+              val draggedSpanX = if (draggedPlacement?.isWidget == true) draggedPlacement!!.spanX.coerceIn(1, cols) else 1
+              val draggedSpanY = if (draggedPlacement?.isWidget == true) draggedPlacement!!.spanY.coerceIn(1, gridRows) else 1
+
               // 1. Slot grid placeholders (handles empty clicks, slotBounds measurement, and drop landing)
               for (r in 0 until gridRows) {
                 for (c in 0 until cols) {
                   val slotIndex = r * cols + c
                   val leftDp = (cellWidth + appSpacing) * c
                   val topDp = rowPitch * r
-                  val isPreviewTarget = isDragging && isCurrentPage && !isOverBin && previewTargetSlot == slotIndex
+                  val isPreviewTarget = if (isDragging && isCurrentPage && !isOverBin && previewTargetSlot != null) {
+                    val targetSlot = previewTargetSlot!!
+                    val tR = targetSlot / cols
+                    val tC = targetSlot % cols
+                    r in tR until (tR + draggedSpanY) && c in tC until (tC + draggedSpanX)
+                  } else false
                   val isCovered = coveredSlots.contains(slotIndex)
 
                   Box(
@@ -785,7 +815,7 @@ fun Layer1HomeScreen(
                             resizingWidgetId = null
                           }
                         },
-                        onLongClick = onOpenCustomization
+                        onLongClick = { onOpenCustomization(page) }
                       )
                     }
                   }
@@ -811,7 +841,14 @@ fun Layer1HomeScreen(
                     .zIndex(if (isResizing) 50f else 1f),
                   contentAlignment = Alignment.Center
                 ) {
-                  val isPreviewTarget = isDragging && isCurrentPage && !isOverBin && previewTargetSlot == item.positionIndex
+                  val isPreviewTarget = if (isDragging && isCurrentPage && !isOverBin && previewTargetSlot != null) {
+                    val targetSlot = previewTargetSlot!!
+                    val tR = targetSlot / cols
+                    val tC = targetSlot % cols
+                    val overlapX = maxOf(tC, c) < minOf(tC + draggedSpanX, c + sX)
+                    val overlapY = maxOf(tR, r) < minOf(tR + draggedSpanY, r + sY)
+                    overlapX && overlapY
+                  } else false
                   Layer1ItemCell(
                     placement = item,
                     space = space,
@@ -844,10 +881,15 @@ fun Layer1HomeScreen(
                       val newR = if (curR + clampedSpanY > gridRows) (gridRows - clampedSpanY).coerceAtLeast(0) else curR
                       val newPos = newR * cols + newC
 
-                      localPlacements = localPlacements.map { p ->
-                        if (p.id == item.id) p.copy(spanX = clampedSpanX, spanY = clampedSpanY, positionIndex = newPos)
-                        else p
-                      }
+                      val updatedWidget = item.copy(spanX = clampedSpanX, spanY = clampedSpanY, positionIndex = newPos)
+                      localPlacements = PlacementCascadeHelper.computeFullPlacementsAfterDrop(
+                        allCurrentPlacements = localPlacements,
+                        itemToInsert = updatedWidget,
+                        targetPage = item.pageIndex,
+                        targetPosition = newPos,
+                        pageSize = pageSize,
+                        cols = cols
+                      )
                       onResizeWidget(item.id, clampedSpanX, clampedSpanY, newPos)
                     },
                     onFinishResize = {
@@ -966,53 +1008,75 @@ fun Layer1HomeScreen(
           .testTag("floating_dragged_item"),
         contentAlignment = Alignment.Center
       ) {
-        Column(
-          horizontalAlignment = Alignment.CenterHorizontally,
-          verticalArrangement = Arrangement.Center
-        ) {
+        if (dragged.isWidget) {
+          val sX = dragged.spanX.coerceIn(1, cols)
+          val sY = dragged.spanY.coerceIn(1, gridRows)
+          val widthDp = cellWidth * sX + appSpacing * (sX - 1)
+          val heightDp = cellHeight * sY + appSpacing * (sY - 1)
           Box(
-            modifier = iconSizeModifier,
+            modifier = Modifier
+              .size(width = widthDp, height = heightDp)
+              .clip(ShapeRoundLg)
+              .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)),
             contentAlignment = Alignment.Center
           ) {
-            if (dragged.isFolder) {
-              Icon(
-                imageVector = Icons.Default.Folder,
-                contentDescription = "Dragging Folder",
-                tint = QuantumViolet,
-                modifier = Modifier.size(AppDimens.IconLg)
-              )
-            } else if (bitmap != null) {
-              Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize()
-              )
-            } else {
-              Box(
-                modifier = Modifier
-                  .fillMaxSize()
-                  .clip(ShapeRoundMd)
-                  .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                contentAlignment = Alignment.Center
-              ) {
-                Text(
-                  text = app?.label?.take(1) ?: "?",
-                  fontWeight = FontWeight.Bold,
-                  color = QuantumViolet,
-                  fontSize = 20.sp
+            DesktopWidgetView(
+              placement = dragged,
+              space = space,
+              onRemove = null,
+              appWidgetHost = appWidgetHost,
+              isResizeMode = false
+            )
+          }
+        } else {
+          Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+          ) {
+            Box(
+              modifier = iconSizeModifier,
+              contentAlignment = Alignment.Center
+            ) {
+              if (dragged.isFolder) {
+                Icon(
+                  imageVector = Icons.Default.Folder,
+                  contentDescription = "Dragging Folder",
+                  tint = QuantumViolet,
+                  modifier = Modifier.size(AppDimens.IconLg)
                 )
+              } else if (bitmap != null) {
+                Image(
+                  bitmap = bitmap.asImageBitmap(),
+                  contentDescription = null,
+                  modifier = Modifier.fillMaxSize()
+                )
+              } else {
+                Box(
+                  modifier = Modifier
+                    .fillMaxSize()
+                    .clip(ShapeRoundMd)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                  contentAlignment = Alignment.Center
+                ) {
+                  Text(
+                    text = app?.label?.take(1) ?: "?",
+                    fontWeight = FontWeight.Bold,
+                    color = QuantumViolet,
+                    fontSize = 20.sp
+                  )
+                }
               }
             }
-          }
-          if (space.labelVisibility && app != null) {
-            Spacer(modifier = Modifier.height(AppDimens.Spacing4))
-            Text(
-              text = app.label,
-              style = MaterialTheme.typography.bodySmall,
-              maxLines = 1,
-              color = MaterialTheme.colorScheme.onSurface,
-              fontSize = 11.sp
-            )
+            if (space.labelVisibility && app != null) {
+              Spacer(modifier = Modifier.height(AppDimens.Spacing4))
+              Text(
+                text = app.label,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 11.sp
+              )
+            }
           }
         }
       }

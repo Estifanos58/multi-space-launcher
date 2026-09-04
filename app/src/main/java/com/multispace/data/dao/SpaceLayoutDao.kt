@@ -20,6 +20,9 @@ interface SpaceLayoutDao {
   @Query("SELECT * FROM space_item_placements WHERE space_id = :spaceId ORDER BY layer ASC, page_index ASC, position_index ASC")
   suspend fun getAllPlacementsForSpace(spaceId: String): List<SpaceItemPlacementEntity>
 
+  @Query("SELECT * FROM space_item_placements WHERE id = :placementId")
+  suspend fun getPlacementById(placementId: String): SpaceItemPlacementEntity?
+
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertPlacement(placement: SpaceItemPlacementEntity)
 
