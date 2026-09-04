@@ -518,6 +518,9 @@ fun LauncherHomeScreen(
                   onOpenCustomization = { page ->
                     activeDesktopPage = page
                     showDesktopCustomizationSheet = true
+                  },
+                  onOpenAppInfo = { app ->
+                    discoveryViewModel.openAppInfo(app)
                   }
                 )
               }

@@ -1,6 +1,9 @@
 package com.multispace.presentation
 
 import android.appwidget.AppWidgetHost
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -11,6 +14,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -22,6 +26,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,6 +45,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
@@ -93,12 +100,14 @@ fun Layer1HomeScreen(
   onMovePlacement: (placementId: String, targetPage: Int, targetPos: Int, pageSize: Int) -> Unit = { _, _, _, _ -> },
   onResizeWidget: (placementId: String, spanX: Int, spanY: Int, positionIndex: Int?) -> Unit = { _, _, _, _ -> },
   onOpenCustomization: (Int) -> Unit = {},
+  onOpenAppInfo: (DiscoveredApp) -> Unit = {},
   appWidgetHost: AppWidgetHost? = null,
   modifier: Modifier = Modifier
 ) {
   BoxWithConstraints(
     modifier = modifier.fillMaxSize()
   ) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
@@ -216,14 +225,177 @@ fun Layer1HomeScreen(
   var binBounds by remember { mutableStateOf<Rect?>(null) }
   var isOverBin by remember { mutableStateOf(false) }
 
+  // Pre-drag action overlay state
+  var activeActionPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
+  var pendingDragPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
+  var pendingDragStartOffset by remember { mutableStateOf(Offset.Zero) }
+  var hasInitiatedDrag by remember { mutableStateOf(false) }
+  var accumulatedDragDistance by remember { mutableFloatStateOf(0f) }
+  val dragSlopPx = with(density) { 8.dp.toPx() }
+
   // Root and page geometry measurements
   var rootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+  var pagerCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
   var pageGridBounds by remember { mutableStateOf<Rect?>(null) }
   var viewportWidth by remember { mutableFloatStateOf(0f) }
   var viewportHeight by remember { mutableFloatStateOf(0f) }
 
   val cellBounds = remember { mutableStateMapOf<String, Rect>() }
   val slotBounds = remember { mutableStateMapOf<Int, Rect>() }
+
+  fun updatePageGridBounds() {
+    val root = rootCoordinates
+    val pagerCoords = pagerCoordinates
+    if (root != null && pagerCoords != null && pagerCoords.isAttached && root.isAttached) {
+      val localOffset = root.localPositionOf(pagerCoords, Offset.Zero)
+      val pagerRect = Rect(localOffset, pagerCoords.size.toSize())
+      val hPadPx = with(density) { gridHorizontalPadding.toPx() }
+      val vPadPx = with(density) { gridVerticalPadding.toPx() }
+      pageGridBounds = Rect(
+        left = pagerRect.left + hPadPx,
+        top = pagerRect.top + vPadPx,
+        right = pagerRect.right - hPadPx,
+        bottom = pagerRect.bottom - vPadPx
+      )
+    }
+  }
+
+  fun getPlacementFootprintRect(item: SpaceItemPlacement): Rect? {
+    val measured = cellBounds[item.id]
+    val itemR = item.positionIndex / cols
+    val itemC = item.positionIndex % cols
+    val sX = if (item.isWidget) item.spanX.coerceIn(1, (cols - itemC).coerceAtLeast(1)) else 1
+    val sY = if (item.isWidget) item.spanY.coerceIn(1, (gridRows - itemR).coerceAtLeast(1)) else 1
+
+    val tlSlot = item.positionIndex
+    val brSlot = (itemR + sY - 1) * cols + (itemC + sX - 1)
+    val tlRect = slotBounds[tlSlot]
+    val brRect = slotBounds[brSlot]
+    val slotDerivedRect = if (tlRect != null && brRect != null) {
+      Rect(
+        left = minOf(tlRect.left, brRect.left),
+        top = minOf(tlRect.top, brRect.top),
+        right = maxOf(tlRect.right, brRect.right),
+        bottom = maxOf(tlRect.bottom, brRect.bottom)
+      )
+    } else tlRect ?: brRect
+
+    val pageBounds = pageGridBounds
+    val cellWPx = with(density) { cellWidth.toPx() }
+    val cellHPx = with(density) { cellHeight.toPx() }
+    val spacingPx = with(density) { appSpacing.toPx() }
+    val mathRect = if (pageBounds != null && pageBounds.width > 0f) {
+      val left = pageBounds.left + itemC * (cellWPx + spacingPx)
+      val top = pageBounds.top + itemR * rowPitchPx
+      val right = left + sX * cellWPx + (sX - 1) * spacingPx
+      val bottom = top + sY * cellHPx + (sY - 1) * spacingPx
+      Rect(left, top, right, bottom)
+    } else null
+
+    return when {
+      measured != null && slotDerivedRect != null -> Rect(
+        minOf(measured.left, slotDerivedRect.left),
+        minOf(measured.top, slotDerivedRect.top),
+        maxOf(measured.right, slotDerivedRect.right),
+        maxOf(measured.bottom, slotDerivedRect.bottom)
+      )
+      measured != null -> measured
+      slotDerivedRect != null -> slotDerivedRect
+      else -> mathRect
+    }
+  }
+
+  fun findItemAtOffset(offset: Offset, page: Int): SpaceItemPlacement? {
+    val pagePlacements = effectivePlacements.filter {
+      if (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL) true else it.pageIndex == page
+    }
+
+    // PRIORITY 1: Physical footprint of widgets (ensuring multi-cell bounds participate fully)
+    val hitWidget = pagePlacements.firstOrNull { item ->
+      item.isWidget && getPlacementFootprintRect(item)?.contains(offset) == true
+    }
+    if (hitWidget != null) return hitWidget
+
+    // PRIORITY 2: Physical footprint of apps and folders
+    val hitItem = pagePlacements.firstOrNull { item ->
+      !item.isWidget && getPlacementFootprintRect(item)?.contains(offset) == true
+    }
+    if (hitItem != null) return hitItem
+
+    // PRIORITY 3: Slot-based hit testing (checking all slots covered by widgets or apps)
+    val totalSlots = cols * gridRows
+    val hitSlot = slotBounds.entries.firstOrNull { (slot, rect) ->
+      slot < totalSlots && rect.contains(offset)
+    }?.key
+    if (hitSlot != null) {
+      val slotR = hitSlot / cols
+      val slotC = hitSlot % cols
+
+      // Check if any widget covers this slot
+      val coveringWidget = pagePlacements.firstOrNull { item ->
+        if (!item.isWidget) return@firstOrNull false
+        val itemR = item.positionIndex / cols
+        val itemC = item.positionIndex % cols
+        val sX = item.spanX.coerceIn(1, (cols - itemC).coerceAtLeast(1))
+        val sY = item.spanY.coerceIn(1, (gridRows - itemR).coerceAtLeast(1))
+        slotC in itemC until (itemC + sX) && slotR in itemR until (itemR + sY)
+      }
+      if (coveringWidget != null) return coveringWidget
+
+      // Check app/folder on this slot
+      val slotItem = pagePlacements.firstOrNull { item ->
+        item.positionIndex == hitSlot
+      }
+      if (slotItem != null) return slotItem
+    }
+
+    // PRIORITY 4: Mathematical grid cell resolution if slotBounds missed
+    val pageBounds = pageGridBounds
+    if (pageBounds != null && pageBounds.width > 0f) {
+      val cellWPx = with(density) { cellWidth.toPx() }
+      val spacingPx = with(density) { appSpacing.toPx() }
+      val colPitchPx = cellWPx + spacingPx
+      val relX = offset.x - pageBounds.left
+      val relY = offset.y - pageBounds.top
+      if (relX >= 0f && relY >= 0f) {
+        val calcC = (relX / colPitchPx).toInt().coerceIn(0, cols - 1)
+        val calcR = (relY / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
+
+        val widgetAtGrid = pagePlacements.firstOrNull { item ->
+          if (!item.isWidget) return@firstOrNull false
+          val itemR = item.positionIndex / cols
+          val itemC = item.positionIndex % cols
+          val sX = item.spanX.coerceIn(1, (cols - itemC).coerceAtLeast(1))
+          val sY = item.spanY.coerceIn(1, (gridRows - itemR).coerceAtLeast(1))
+          calcC in itemC until (itemC + sX) && calcR in itemR until (itemR + sY)
+        }
+        if (widgetAtGrid != null) return widgetAtGrid
+
+        val itemAtGrid = pagePlacements.firstOrNull { item ->
+          item.positionIndex == (calcR * cols + calcC)
+        }
+        if (itemAtGrid != null) return itemAtGrid
+      }
+    }
+
+    // PRIORITY 5: Touch slop margin tolerance (10dp) around widgets first, then apps
+    val touchMargin = with(density) { 10.dp.toPx() }
+    val nearWidget = pagePlacements.firstOrNull { item ->
+      if (!item.isWidget) return@firstOrNull false
+      val rect = getPlacementFootprintRect(item) ?: return@firstOrNull false
+      Rect(rect.left - touchMargin, rect.top - touchMargin, rect.right + touchMargin, rect.bottom + touchMargin).contains(offset)
+    }
+    if (nearWidget != null) return nearWidget
+
+    val nearItem = pagePlacements.firstOrNull { item ->
+      val rect = getPlacementFootprintRect(item) ?: return@firstOrNull false
+      Rect(rect.left - touchMargin, rect.top - touchMargin, rect.right + touchMargin, rect.bottom + touchMargin).contains(offset)
+    }
+    if (nearItem != null) return nearItem
+
+    // ONLY when no widget or item was touched: returns null, indicating genuine empty desktop area!
+    return null
+  }
 
   // Page management with dynamic trailing page expansion
   val maxPageInPlacements = effectivePlacements.maxOfOrNull { it.pageIndex } ?: 0
@@ -235,6 +407,16 @@ fun Layer1HomeScreen(
 
   LaunchedEffect(pagerState.currentPage) {
     slotBounds.clear()
+  }
+
+  LaunchedEffect(pagerState.currentPage, pagerState.isScrollInProgress) {
+    if (pagerState.isScrollInProgress) {
+      activeActionPlacement = null
+    }
+  }
+  LaunchedEffect(space.id) {
+    activeActionPlacement = null
+    resizingWidgetId = null
   }
 
   // Edge paging state machine (IDLE -> ARMED -> CONSUMED)
@@ -254,9 +436,21 @@ fun Layer1HomeScreen(
     val totalSlots = cols * gridRows
     if (viewportWidth <= 0f || viewportHeight <= 0f) return
 
+    val cellWPx = with(density) { cellWidth.toPx() }
+    val cellHPx = with(density) { cellHeight.toPx() }
+    val targetPointerPos = if (draggedPlacement?.isWidget == true) {
+      val widgetTopLeft = currentPointerPos - touchOffsetWithinItem
+      Offset(
+        widgetTopLeft.x + cellWPx / 2f,
+        widgetTopLeft.y + cellHPx / 2f
+      )
+    } else {
+      currentPointerPos
+    }
+
     // Check direct hit on measured slot bounds first
     val directHit = slotBounds.entries.firstOrNull { (slot, rect) ->
-      slot < totalSlots && rect.contains(currentPointerPos)
+      slot < totalSlots && rect.contains(targetPointerPos)
     }?.key
 
     val rawSlot: Int = if (directHit != null) {
@@ -266,15 +460,15 @@ fun Layer1HomeScreen(
       if (bounds != null && bounds.width > 0f) {
         val colWidth = (bounds.width / cols).coerceAtLeast(1f)
         val c = when {
-          currentPointerPos.x <= bounds.left -> 0
-          currentPointerPos.x >= bounds.right -> cols - 1
-          else -> ((currentPointerPos.x - bounds.left) / colWidth).toInt().coerceIn(0, cols - 1)
+          targetPointerPos.x <= bounds.left -> 0
+          targetPointerPos.x >= bounds.right -> cols - 1
+          else -> ((targetPointerPos.x - bounds.left) / colWidth).toInt().coerceIn(0, cols - 1)
         }
 
         val r = when {
-          currentPointerPos.y <= bounds.top -> 0
+          targetPointerPos.y <= bounds.top -> 0
           else -> {
-            val relativeY = currentPointerPos.y - bounds.top
+            val relativeY = targetPointerPos.y - bounds.top
             (relativeY / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
           }
         }
@@ -282,8 +476,8 @@ fun Layer1HomeScreen(
         (r * cols + c).coerceIn(0, totalSlots - 1)
       } else {
         val colWidth = (viewportWidth / cols).coerceAtLeast(1f)
-        val c = (currentPointerPos.x / colWidth).toInt().coerceIn(0, cols - 1)
-        val r = (currentPointerPos.y / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
+        val c = (targetPointerPos.x / colWidth).toInt().coerceIn(0, cols - 1)
+        val r = (targetPointerPos.y / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
         (r * cols + c).coerceIn(0, totalSlots - 1)
       }
     }
@@ -367,14 +561,16 @@ fun Layer1HomeScreen(
     previewTargetSlot = null
 
     // Preserve finger-to-icon offset to eliminate visual jumping when drag starts
-    val itemRect = cellBounds[placement.id] ?: slotBounds[placement.positionIndex]
+    val itemRect = getPlacementFootprintRect(placement) ?: cellBounds[placement.id] ?: slotBounds[placement.positionIndex]
     touchOffsetWithinItem = if (itemRect != null) {
       Offset(
         (startOffset.x - itemRect.left).coerceIn(0f, itemRect.width),
         (startOffset.y - itemRect.top).coerceIn(0f, itemRect.height)
       )
     } else {
-      with(density) { Offset(iconDp.toPx() / 2f, iconDp.toPx() / 2f) }
+      val sX = if (placement.isWidget) placement.spanX.coerceIn(1, cols) else 1
+      val sY = if (placement.isWidget) placement.spanY.coerceIn(1, gridRows) else 1
+      with(density) { Offset((cellWidth * sX).toPx() / 2f, (cellHeight * sY).toPx() / 2f) }
     }
 
     AppLogger.i(
@@ -555,53 +751,36 @@ fun Layer1HomeScreen(
         rootCoordinates = coordinates
         viewportWidth = coordinates.size.width.toFloat()
         viewportHeight = coordinates.size.height.toFloat()
+        updatePageGridBounds()
       }
       .pointerInput(Unit) {
         detectDragGesturesAfterLongPress(
           onDragStart = { rootOffset ->
             val activePage = pagerState.currentPage
-            var touchedPlacement: SpaceItemPlacement? = null
-            val totalSlots = cols * gridRows
+            val touchedPlacement = findItemAtOffset(rootOffset, activePage)
 
-            // Check if rootOffset is in any slot with an item
-            val hitSlot = slotBounds.entries.firstOrNull { it.key < totalSlots && it.value.contains(rootOffset) }?.key
-            if (hitSlot != null) {
-              touchedPlacement = effectivePlacements.firstOrNull { it.pageIndex == activePage && it.positionIndex == hitSlot }
-            }
-            if (touchedPlacement == null) {
-              val bounds = pageGridBounds
-              if (bounds != null && bounds.width > 0f) {
-                val colWidth = (bounds.width / cols).coerceAtLeast(1f)
-                val c = ((rootOffset.x - bounds.left) / colWidth).toInt().coerceIn(0, cols - 1)
-                val r = ((rootOffset.y - bounds.top) / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
-                val touchedSlot = (r * cols + c).coerceIn(0, totalSlots - 1)
-                touchedPlacement = effectivePlacements.firstOrNull { item ->
-                  if (item.pageIndex != activePage) return@firstOrNull false
-                  val itemR = item.positionIndex / cols
-                  val itemC = item.positionIndex % cols
-                  val itemSpanX = if (item.isWidget) item.spanX else 1
-                  val itemSpanY = if (item.isWidget) item.spanY else 1
-                  c in itemC until (itemC + itemSpanX) && r in itemR until (itemR + itemSpanY)
-                }
-              }
-            }
-            if (touchedPlacement == null) {
-              val expandedThreshold = with(density) { 16.dp.toPx() }
-              touchedPlacement = cellBounds.entries.firstOrNull { (id, rect) ->
-                val p = effectivePlacements.firstOrNull { it.id == id }
-                p?.pageIndex == activePage && Rect(
-                  rect.left - expandedThreshold,
-                  rect.top - expandedThreshold,
-                  rect.right + expandedThreshold,
-                  rect.bottom + expandedThreshold
-                ).contains(rootOffset)
-              }?.key?.let { id -> effectivePlacements.firstOrNull { it.id == id } }
-            }
             if (touchedPlacement != null) {
               haptic.performHapticFeedback(HapticFeedbackType.LongPress)
               resizingWidgetId = null
-              handleStartDrag(touchedPlacement, rootOffset)
+              if (touchedPlacement.isFolder) {
+                activeActionPlacement = null
+                pendingDragPlacement = null
+                hasInitiatedDrag = true
+                accumulatedDragDistance = 0f
+                handleStartDrag(touchedPlacement, rootOffset)
+              } else {
+                // Pre-drag long-press interaction layer for apps and widgets
+                activeActionPlacement = touchedPlacement
+                pendingDragPlacement = touchedPlacement
+                pendingDragStartOffset = rootOffset
+                hasInitiatedDrag = false
+                accumulatedDragDistance = 0f
+              }
             } else {
+              activeActionPlacement = null
+              pendingDragPlacement = null
+              hasInitiatedDrag = false
+              accumulatedDragDistance = 0f
               if (resizingWidgetId != null) {
                 resizingWidgetId = null
               } else {
@@ -610,20 +789,45 @@ fun Layer1HomeScreen(
               }
             }
           },
-          onDrag = { change, _ ->
+          onDrag = { change, dragAmount ->
             if (resizingWidgetId == null) {
-              change.consume()
-              handleDragMove(change.position)
+              accumulatedDragDistance += dragAmount.getDistance()
+              if (!hasInitiatedDrag && pendingDragPlacement != null && accumulatedDragDistance >= dragSlopPx) {
+                // User began moving their finger after the hold:
+                // Immediately hand control to existing drag-and-drop logic
+                val placementToDrag = pendingDragPlacement!!
+                activeActionPlacement = null
+                pendingDragPlacement = null
+                hasInitiatedDrag = true
+                handleStartDrag(placementToDrag, pendingDragStartOffset)
+              }
+              if (hasInitiatedDrag) {
+                change.consume()
+                handleDragMove(change.position)
+              }
             }
           },
           onDragEnd = {
             if (resizingWidgetId == null) {
-              handleEndDrag()
+              if (hasInitiatedDrag) {
+                handleEndDrag()
+              } else {
+                // User held and released without dragging: action box stays visible!
+                pendingDragPlacement = null
+              }
+              hasInitiatedDrag = false
+              accumulatedDragDistance = 0f
             }
           },
           onDragCancel = {
             if (resizingWidgetId == null) {
-              handleCancelDrag()
+              if (hasInitiatedDrag) {
+                handleCancelDrag()
+              } else {
+                pendingDragPlacement = null
+              }
+              hasInitiatedDrag = false
+              accumulatedDragDistance = 0f
             }
           }
         )
@@ -675,12 +879,7 @@ fun Layer1HomeScreen(
               isTargetHover = targetHoverPlacement?.id == placement.id,
               rootCoordinates = rootCoordinates,
               isResizeMode = isResizing,
-              onLongClick = {
-                if (placement.isWidget) {
-                  haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                  resizingWidgetId = placement.id
-                }
-              },
+              onLongClick = null,
               onResizeChange = { newSpanX, newSpanY ->
                 val clampedSpanX = newSpanX.coerceIn(1, space.gridColumns)
                 val clampedSpanY = newSpanY.coerceIn(1, 6)
@@ -708,18 +907,8 @@ fun Layer1HomeScreen(
             .fillMaxSize()
             .testTag("layer1_horizontal_pager")
             .onGloballyPositioned { pagerCoords ->
-              if (rootCoordinates != null && pagerCoords.isAttached) {
-                val localOffset = rootCoordinates!!.localPositionOf(pagerCoords, Offset.Zero)
-                val pagerRect = Rect(localOffset, pagerCoords.size.toSize())
-                val hPadPx = with(density) { gridHorizontalPadding.toPx() }
-                val vPadPx = with(density) { gridVerticalPadding.toPx() }
-                pageGridBounds = Rect(
-                  left = pagerRect.left + hPadPx,
-                  top = pagerRect.top + vPadPx,
-                  right = pagerRect.right - hPadPx,
-                  bottom = pagerRect.bottom - vPadPx
-                )
-              }
+              pagerCoordinates = pagerCoords
+              updatePageGridBounds()
             }
         ) { page ->
           val isCurrentPage = page == pagerState.currentPage
@@ -866,12 +1055,7 @@ fun Layer1HomeScreen(
                     isTargetHover = isPreviewTarget,
                     rootCoordinates = rootCoordinates,
                     isResizeMode = isResizing,
-                    onLongClick = {
-                      if (item.isWidget) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        resizingWidgetId = item.id
-                      }
-                    },
+                    onLongClick = null,
                     onResizeChange = { newSpanX, newSpanY ->
                       val clampedSpanX = newSpanX.coerceIn(1, cols)
                       val clampedSpanY = newSpanY.coerceIn(1, gridRows)
@@ -1081,6 +1265,154 @@ fun Layer1HomeScreen(
         }
       }
     }
+
+    // Tap-away dismiss scrim for pre-drag action overlay
+    if (activeActionPlacement != null && !isDragging) {
+      Box(
+        modifier = Modifier
+          .fillMaxSize()
+          .pointerInput(activeActionPlacement) {
+            detectTapGestures(
+              onPress = {
+                activeActionPlacement = null
+              }
+            )
+          }
+          .zIndex(800f)
+      )
+    }
+
+    // Pre-drag floating action box overlay (rendered above the app/widget)
+    if (activeActionPlacement != null && !isDragging) {
+      val targetPlacement = activeActionPlacement!!
+      val targetRect = getPlacementFootprintRect(targetPlacement)
+        ?: cellBounds[targetPlacement.id]
+        ?: slotBounds[targetPlacement.positionIndex]
+      val app = appLookup["${targetPlacement.packageName}/${targetPlacement.componentName}"]
+        ?: allApps.firstOrNull { it.packageName == targetPlacement.packageName }
+
+      PreDragActionBoxOverlay(
+        placement = targetPlacement,
+        app = app,
+        targetRect = targetRect,
+        viewportWidth = viewportWidth,
+        density = density,
+        onOpenAppInfo = { appToOpen ->
+          try {
+            onOpenAppInfo(appToOpen)
+          } catch (e: Exception) {
+            // fallback
+          }
+          try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+              data = Uri.fromParts("package", appToOpen.packageName, null)
+              addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+          } catch (e: Exception) {
+            AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to open App Info for ${appToOpen.packageName}", e)
+          }
+          activeActionPlacement = null
+        },
+        onActivateResize = { widgetId ->
+          resizingWidgetId = widgetId
+          activeActionPlacement = null
+        },
+        onDismiss = {
+          activeActionPlacement = null
+        },
+        modifier = Modifier.zIndex(850f)
+      )
+    }
+  }
+}
+
+@Composable
+private fun PreDragActionBoxOverlay(
+  placement: SpaceItemPlacement,
+  app: DiscoveredApp?,
+  targetRect: Rect?,
+  viewportWidth: Float,
+  density: androidx.compose.ui.unit.Density,
+  onOpenAppInfo: (DiscoveredApp) -> Unit,
+  onActivateResize: (String) -> Unit,
+  onDismiss: () -> Unit,
+  modifier: Modifier = Modifier
+) {
+  val boxWidthDp = 44.dp
+  val boxHeightDp = 44.dp
+  val boxWidthPx = with(density) { boxWidthDp.toPx() }
+  val boxHeightPx = with(density) { boxHeightDp.toPx() }
+  val gapPx = with(density) { 8.dp.toPx() }
+  val minMarginPx = with(density) { 16.dp.toPx() }
+
+  val targetCenterX = targetRect?.center?.x ?: (if (viewportWidth > 0f) viewportWidth / 2f else minMarginPx + boxWidthPx)
+  val targetTop = targetRect?.top ?: (minMarginPx + boxHeightPx + gapPx)
+  val targetBottom = targetRect?.bottom ?: targetTop
+
+  val idealTopY = targetTop - gapPx - boxHeightPx
+  val topY = if (idealTopY >= minMarginPx) idealTopY else (targetBottom + gapPx)
+  val leftX = (targetCenterX - (boxWidthPx / 2f)).coerceIn(
+    minMarginPx,
+    (viewportWidth - boxWidthPx - minMarginPx).coerceAtLeast(minMarginPx)
+  )
+
+  Surface(
+    shape = RoundedCornerShape(12.dp),
+    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.95f),
+    tonalElevation = 6.dp,
+    shadowElevation = 8.dp,
+    border = BorderStroke(
+      1.dp,
+      MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+    ),
+    modifier = modifier
+      .offset { IntOffset(leftX.roundToInt(), topY.roundToInt()) }
+      .size(boxWidthDp, boxHeightDp)
+      .testTag(if (placement.isWidget) "widget_action_box" else "app_action_box")
+  ) {
+    Box(
+      modifier = Modifier.fillMaxSize(),
+      contentAlignment = Alignment.Center
+    ) {
+      if (placement.isWidget) {
+        IconButton(
+          onClick = {
+            onActivateResize(placement.id)
+            onDismiss()
+          },
+          modifier = Modifier
+            .fillMaxSize()
+            .testTag("btn_widget_resize_action")
+        ) {
+          Icon(
+            imageVector = Icons.Default.OpenInFull,
+            contentDescription = "Resize Widget",
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp)
+          )
+        }
+      } else {
+        IconButton(
+          onClick = {
+            if (app != null) {
+              onOpenAppInfo(app)
+            }
+            onDismiss()
+          },
+          modifier = Modifier
+            .fillMaxSize()
+            .testTag("btn_app_info_action")
+        ) {
+          Icon(
+            imageVector = Icons.Default.Info,
+            contentDescription = "App Info",
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(22.dp)
+          )
+        }
+      }
+    }
   }
 }
 
@@ -1181,10 +1513,11 @@ private fun Layer1ItemCell(
     modifier = Modifier
       .fillMaxSize()
       .onGloballyPositioned { coordinates ->
-        rootCoordinates?.let { root ->
+        val root = rootCoordinates
+        if (root != null && coordinates.isAttached && root.isAttached) {
           val localOffset = root.localPositionOf(coordinates, Offset.Zero)
           onPositioned(Rect(localOffset, coordinates.size.toSize()))
-        } ?: onPositioned(coordinates.boundsInRoot())
+        }
       }
       .graphicsLayer {
         alpha = if (isBeingDragged) 0.0f else 1.0f

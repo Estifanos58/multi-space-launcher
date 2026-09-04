@@ -133,13 +133,17 @@ fun DesktopWidgetView(
             Modifier
           }
         )
-        .combinedClickable(
-          onClick = {
-            if (isResizeMode) {
-              onFinishResize?.invoke()
-            }
-          },
-          onLongClick = onLongClick
+        .then(
+          if (isResizeMode) {
+            Modifier.clickable { onFinishResize?.invoke() }
+          } else if (onLongClick != null) {
+            Modifier.combinedClickable(
+              onClick = {},
+              onLongClick = onLongClick
+            )
+          } else {
+            Modifier
+          }
         )
         .testTag("widget_card_${placement.id}")
     ) {
