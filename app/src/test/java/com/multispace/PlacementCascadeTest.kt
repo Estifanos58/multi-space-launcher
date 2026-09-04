@@ -209,4 +209,55 @@ class PlacementCascadeTest {
     assertEquals(1, map["app2"]?.positionIndex)
     assertEquals(2, map["app3"]?.positionIndex)
   }
+
+  @Test
+  fun testNoDuplicateAppCreatedOnDropWhenPackageMatches() {
+    // Existing list has app2 at position 1
+    val existing = listOf(
+      SpaceItemPlacement(id = "p1", spaceId = "s1", pageIndex = 0, positionIndex = 0, packageName = "com.test.app1"),
+      SpaceItemPlacement(id = "p2", spaceId = "s1", pageIndex = 0, positionIndex = 1, packageName = "com.test.app2"),
+      SpaceItemPlacement(id = "p3", spaceId = "s1", pageIndex = 0, positionIndex = 2, packageName = "com.test.app3")
+    )
+    // Virtual or dragged item for com.test.app2 with different ID
+    val dragged = SpaceItemPlacement(
+      id = "virtual:com.test.app2",
+      spaceId = "s1",
+      pageIndex = 0,
+      positionIndex = 1,
+      packageName = "com.test.app2"
+    )
+
+    val result = PlacementCascadeHelper.computeFullPlacementsAfterDrop(
+      allCurrentPlacements = existing,
+      itemToInsert = dragged,
+      targetPage = 0,
+      targetPosition = 3,
+      pageSize = pageSize
+    )
+
+    // Result must have exactly ONE item with packageName "com.test.app2"
+    val app2Placements = result.filter { it.packageName == "com.test.app2" }
+    assertEquals(1, app2Placements.size)
+    // Placed at target position 3
+    assertEquals(3, app2Placements.first().positionIndex)
+    // Initial position 1 must not have app2
+    assertFalse(result.any { it.positionIndex == 1 && it.packageName == "com.test.app2" })
+  }
+
+  @Test
+  fun testDragFilteringRemovesBothMatchingIdAndMatchingPackage() {
+    val placements = listOf(
+      SpaceItemPlacement(id = "p1", spaceId = "s1", pageIndex = 0, positionIndex = 0, packageName = "com.pkg1"),
+      SpaceItemPlacement(id = "p2", spaceId = "s1", pageIndex = 0, positionIndex = 1, packageName = "com.pkg2"),
+      SpaceItemPlacement(id = "p2_dup", spaceId = "s1", pageIndex = 0, positionIndex = 2, packageName = "com.pkg2")
+    )
+    val dragged = SpaceItemPlacement(id = "p2", spaceId = "s1", pageIndex = 0, positionIndex = 1, packageName = "com.pkg2")
+
+    val remaining = placements.filter { p ->
+      p.id != dragged.id && (dragged.packageName == null || p.packageName != dragged.packageName)
+    }
+
+    assertEquals(1, remaining.size)
+    assertEquals("com.pkg1", remaining.first().packageName)
+  }
 }

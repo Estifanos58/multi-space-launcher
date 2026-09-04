@@ -52,7 +52,19 @@ data class SpaceItemPlacementEntity(
   val userHandleId: Long = 0L,
 
   @ColumnInfo(name = "folder_id")
-  val folderId: String? = null
+  val folderId: String? = null,
+
+  @ColumnInfo(name = "span_x")
+  val spanX: Int = 1,
+
+  @ColumnInfo(name = "span_y")
+  val spanY: Int = 1,
+
+  @ColumnInfo(name = "app_widget_id")
+  val appWidgetId: Int = -1,
+
+  @ColumnInfo(name = "custom_widget_type")
+  val customWidgetType: String? = null
 ) {
   fun toDomain(): SpaceItemPlacement = SpaceItemPlacement(
     id = id,
@@ -64,7 +76,11 @@ data class SpaceItemPlacementEntity(
     packageName = packageName,
     componentName = componentName,
     userHandleId = userHandleId,
-    folderId = folderId
+    folderId = folderId,
+    spanX = spanX,
+    spanY = spanY,
+    appWidgetId = appWidgetId,
+    customWidgetType = customWidgetType
   )
 
   companion object {
@@ -78,7 +94,11 @@ data class SpaceItemPlacementEntity(
       packageName = domain.packageName,
       componentName = domain.componentName,
       userHandleId = domain.userHandleId,
-      folderId = domain.folderId
+      folderId = domain.folderId,
+      spanX = domain.spanX,
+      spanY = domain.spanY,
+      appWidgetId = domain.appWidgetId,
+      customWidgetType = domain.customWidgetType
     )
   }
 }

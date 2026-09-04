@@ -101,6 +101,12 @@ interface SpaceLayoutDao {
   @Query("DELETE FROM space_dock_items WHERE space_id = :spaceId")
   suspend fun deleteAllDockItemsForSpace(spaceId: String)
 
+  @Query("UPDATE space_item_placements SET span_x = :spanX, span_y = :spanY WHERE id = :placementId")
+  suspend fun updateWidgetSpan(placementId: String, spanX: Int, spanY: Int)
+
+  @Query("UPDATE space_item_placements SET span_x = :spanX, span_y = :spanY, position_index = :positionIndex WHERE id = :placementId")
+  suspend fun updateWidgetSpanAndPosition(placementId: String, spanX: Int, spanY: Int, positionIndex: Int)
+
   // --- Cleanup on App Uninstall ---
   @Query("DELETE FROM space_item_placements WHERE package_name = :packageName")
   suspend fun deletePlacementsForPackage(packageName: String)

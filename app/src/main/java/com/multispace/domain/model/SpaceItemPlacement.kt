@@ -24,7 +24,11 @@ data class SpaceItemPlacement(
   val packageName: String? = null,
   val componentName: String? = null,
   val userHandleId: Long = 0L,
-  val folderId: String? = null
+  val folderId: String? = null,
+  val spanX: Int = 1,
+  val spanY: Int = 1,
+  val appWidgetId: Int = -1,
+  val customWidgetType: String? = null
 ) {
   val isFolder: Boolean
     get() = itemType == ITEM_TYPE_FOLDER && !folderId.isNullOrEmpty()
@@ -32,11 +36,22 @@ data class SpaceItemPlacement(
   val isApp: Boolean
     get() = itemType == ITEM_TYPE_APP && !packageName.isNullOrEmpty()
 
+  val isWidget: Boolean
+    get() = itemType == ITEM_TYPE_WIDGET
+
   companion object {
     const val LAYER_HOME = 1
     const val LAYER_LIBRARY = 2
 
     const val ITEM_TYPE_APP = "APP"
     const val ITEM_TYPE_FOLDER = "FOLDER"
+    const val ITEM_TYPE_WIDGET = "WIDGET"
+
+    // Custom widget types
+    const val WIDGET_CLOCK_DATE = "CLOCK_DATE"
+    const val WIDGET_QUICK_SEARCH = "QUICK_SEARCH"
+    const val WIDGET_CALENDAR = "CALENDAR"
+    const val WIDGET_BATTERY_STATUS = "BATTERY_STATUS"
+    const val WIDGET_QUICK_NOTES = "QUICK_NOTES"
   }
 }

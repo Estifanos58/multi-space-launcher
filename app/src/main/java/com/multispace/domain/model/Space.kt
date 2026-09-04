@@ -62,7 +62,8 @@ data class Space(
   val spaceLockWallpaperOffsetY: Float = 0.0f,
   val pageTurnEffect: PageTurnEffect = PageTurnEffect.NORMAL,
   val pageTurnDurationMs: Int = DEFAULT_PAGE_TURN_DURATION_MS,
-  val pageTurnIntensity: Float = DEFAULT_PAGE_TURN_INTENSITY
+  val pageTurnIntensity: Float = DEFAULT_PAGE_TURN_INTENSITY,
+  val pageCount: Int = 1
 ) {
   val isProtected: Boolean
     get() = if (authPolicy == AUTH_BIOMETRIC) true else ((authPolicy == AUTH_PIN || authPolicy == AUTH_PATTERN) && !pinHash.isNullOrEmpty() && !pinSalt.isNullOrEmpty())

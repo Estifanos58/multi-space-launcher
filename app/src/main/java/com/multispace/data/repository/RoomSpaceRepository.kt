@@ -1164,7 +1164,7 @@ class RoomSpaceRepository(
         itemIndex = allHome.indexOfFirst { it.packageName?.contains(pkgFromVirtual) == true || pkgFromVirtual.contains(it.packageName ?: "---") }
       }
 
-      val itemToMove = if (itemIndex != -1) {
+      val itemToMoveRaw = if (itemIndex != -1) {
         allHome.removeAt(itemIndex)
       } else {
         val matchedMember = memberships.firstOrNull { it.packageName == pkgFromVirtual }
@@ -1181,6 +1181,25 @@ class RoomSpaceRepository(
         )
       }
 
+      val itemToMove = if (itemToMoveRaw.id.startsWith("virtual")) {
+        itemToMoveRaw.copy(id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10))
+      } else {
+        itemToMoveRaw
+      }
+
+      // CRITICAL: Prevent duplicate apps - purge any existing placements for the same package name
+      if (itemToMove.itemType == SpaceItemPlacement.ITEM_TYPE_APP && itemToMove.packageName != null) {
+        val duplicatePlacements = allHome.filter {
+          it.itemType == SpaceItemPlacement.ITEM_TYPE_APP && it.packageName == itemToMove.packageName
+        }
+        if (duplicatePlacements.isNotEmpty()) {
+          allHome.removeAll(duplicatePlacements)
+          for (dup in duplicatePlacements) {
+            layoutDao.deletePlacementById(dup.id)
+          }
+        }
+      }
+
       val sourcePage = itemToMove.pageIndex
       val sourcePos = itemToMove.positionIndex
 
@@ -1192,12 +1211,42 @@ class RoomSpaceRepository(
         getPage = { it.pageIndex },
         getPosition = { it.positionIndex },
         copyItem = { entity, page, pos -> entity.copy(pageIndex = page, positionIndex = pos) },
+        isSameItem = { a, b ->
+          a.id == b.id || (
+            a.itemType == SpaceItemPlacement.ITEM_TYPE_APP &&
+            b.itemType == SpaceItemPlacement.ITEM_TYPE_APP &&
+            a.packageName != null && a.packageName == b.packageName
+          )
+        },
         targetPage = targetPage,
         targetPosition = targetPosClamped,
         pageSize = effectivePageSize
       )
-      layoutDao.insertPlacements(toInsert)
-      val persistedItem = toInsert.firstOrNull { it.id == itemToMove.id }
+
+      // Deduplicate toInsert before persistence
+      val deduplicatedToInsert = mutableListOf<SpaceItemPlacementEntity>()
+      val seenPkgs = mutableSetOf<String>()
+      val seenIds = mutableSetOf<String>()
+
+      val finalItem = toInsert.firstOrNull { it.id == itemToMove.id } ?: itemToMove
+      deduplicatedToInsert.add(finalItem)
+      seenIds.add(finalItem.id)
+      if (finalItem.itemType == SpaceItemPlacement.ITEM_TYPE_APP && finalItem.packageName != null) {
+        seenPkgs.add(finalItem.packageName!!)
+      }
+
+      for (item in toInsert) {
+        if (seenIds.contains(item.id)) continue
+        if (item.itemType == SpaceItemPlacement.ITEM_TYPE_APP && item.packageName != null) {
+          if (seenPkgs.contains(item.packageName)) continue
+          seenPkgs.add(item.packageName!!)
+        }
+        seenIds.add(item.id)
+        deduplicatedToInsert.add(item)
+      }
+
+      layoutDao.insertPlacements(deduplicatedToInsert)
+      val persistedItem = deduplicatedToInsert.firstOrNull { it.id == itemToMove.id }
       AppLogger.i(
         AppLogger.Category.LAUNCHER,
         "PERSISTED_PLACEMENT: id=${persistedItem?.id} pkg=${persistedItem?.packageName} targetPage=$targetPage targetPos=$targetPosClamped gridRows=${effectivePageSize / cols} pageSize=$effectivePageSize persistedPage=${persistedItem?.pageIndex} persistedPos=${persistedItem?.positionIndex} from=($sourcePage, $sourcePos) shiftedCount=${toInsert.size - 1}"
@@ -1675,6 +1724,165 @@ class RoomSpaceRepository(
       Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to cleanup uninstalled package: $packageName", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun addPage(spaceId: String): Result<Int> {
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+      val currentPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+      val maxPageIndex = currentPlacements.maxOfOrNull { it.pageIndex } ?: 0
+      val newPageCount = maxOf(existing.pageCount, maxPageIndex + 1) + 1
+      val updated = existing.copy(pageCount = newPageCount, updatedAt = System.currentTimeMillis())
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Added page to Space $spaceId, new pageCount: $newPageCount")
+      Result.success(newPageCount)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to add page for Space $spaceId", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun deletePage(spaceId: String, pageIndex: Int): Result<Unit> {
+    return try {
+      if (pageIndex == 0) {
+        return Result.failure(IllegalArgumentException("Page 1 is immutable and cannot be deleted"))
+      }
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      val currentPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+      // Delete all placements on this page
+      val toDelete = currentPlacements.filter { it.pageIndex == pageIndex }
+      for (p in toDelete) {
+        layoutDao.deletePlacementById(p.id)
+      }
+      // Shift all placements on pages > pageIndex down by 1
+      val toShift = currentPlacements.filter { it.pageIndex > pageIndex }
+      for (p in toShift) {
+        layoutDao.updatePlacement(p.copy(pageIndex = p.pageIndex - 1))
+      }
+      val remainingPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+      val maxRemaining = remainingPlacements.maxOfOrNull { it.pageIndex } ?: 0
+      val newPageCount = maxOf(1, maxOf(existing.pageCount - 1, maxRemaining + 1))
+      val updated = existing.copy(pageCount = newPageCount, updatedAt = System.currentTimeMillis())
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Deleted page $pageIndex from Space $spaceId, new pageCount: $newPageCount")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to delete page $pageIndex for Space $spaceId", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun updateSpaceTheme(
+    spaceId: String,
+    appTheme: String,
+    gridColumns: Int?,
+    iconSize: String?,
+    labelVisibility: Boolean?
+  ): Result<Unit> {
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+      val updated = existing.copy(
+        appTheme = appTheme,
+        gridColumns = gridColumns?.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS) ?: existing.gridColumns,
+        iconSize = iconSize ?: existing.iconSize,
+        labelVisibility = labelVisibility ?: existing.labelVisibility,
+        updatedAt = System.currentTimeMillis()
+      )
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Updated theme for Space $spaceId: theme=$appTheme, cols=${updated.gridColumns}")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update theme for Space $spaceId", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun updateSpaceWallpaper(
+    spaceId: String,
+    wallpaperType: String,
+    wallpaperColor: Long?,
+    wallpaperImageUri: String?
+  ): Result<Unit> {
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+      val updated = existing.copy(
+        backgroundType = wallpaperType,
+        backgroundColor = wallpaperColor,
+        backgroundImageUri = wallpaperImageUri,
+        homeWallpaperType = wallpaperType,
+        homeWallpaperColor = wallpaperColor,
+        homeWallpaperImageUri = wallpaperImageUri,
+        updatedAt = System.currentTimeMillis()
+      )
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Updated wallpaper for Space $spaceId: type=$wallpaperType")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update wallpaper for Space $spaceId", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun addWidgetPlacement(
+    spaceId: String,
+    pageIndex: Int,
+    widgetType: String,
+    spanX: Int,
+    spanY: Int,
+    appWidgetId: Int,
+    packageName: String?,
+    componentName: String?
+  ): Result<SpaceItemPlacement> {
+    return try {
+      val existingPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+      val onPage = existingPlacements.filter { it.pageIndex == pageIndex }
+      val nextPos = if (onPage.isEmpty()) 0 else onPage.maxOf { it.positionIndex } + 1
+      val widgetPlacement = SpaceItemPlacement(
+        id = "widget_" + java.util.UUID.randomUUID().toString().replace("-", "").take(10),
+        spaceId = spaceId,
+        layer = SpaceItemPlacement.LAYER_HOME,
+        pageIndex = pageIndex,
+        positionIndex = nextPos,
+        itemType = SpaceItemPlacement.ITEM_TYPE_WIDGET,
+        packageName = packageName,
+        componentName = componentName,
+        spanX = spanX,
+        spanY = spanY,
+        appWidgetId = appWidgetId,
+        customWidgetType = widgetType
+      )
+      layoutDao.insertPlacement(SpaceItemPlacementEntity.fromDomain(widgetPlacement))
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Added widget placement ${widgetPlacement.id} to Space $spaceId on page $pageIndex at pos $nextPos")
+      Result.success(widgetPlacement)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to add widget to Space $spaceId", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun updateWidgetSpan(
+    placementId: String,
+    spanX: Int,
+    spanY: Int,
+    positionIndex: Int?
+  ): Result<Unit> {
+    return try {
+      if (positionIndex != null) {
+        layoutDao.updateWidgetSpanAndPosition(placementId, spanX, spanY, positionIndex)
+      } else {
+        layoutDao.updateWidgetSpan(placementId, spanX, spanY)
+      }
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Updated widget span: id=$placementId, spanX=$spanX, spanY=$spanY, pos=$positionIndex")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update widget span for $placementId", e)
       Result.failure(e)
     }
   }

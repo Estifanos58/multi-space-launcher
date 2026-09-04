@@ -25,7 +25,7 @@ import com.multispace.data.entity.SpaceMembershipEntity
     SpaceFolderItemEntity::class,
     SpaceDockItemEntity::class
   ],
-  version = 7,
+  version = 8,
   exportSchema = false
 )
 abstract class LauncherDatabase : RoomDatabase() {
@@ -167,6 +167,16 @@ abstract class LauncherDatabase : RoomDatabase() {
       }
     }
 
+    private val MIGRATION_7_8 = object : Migration(7, 8) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE spaces ADD COLUMN page_count INTEGER NOT NULL DEFAULT 1")
+        db.execSQL("ALTER TABLE space_item_placements ADD COLUMN span_x INTEGER NOT NULL DEFAULT 1")
+        db.execSQL("ALTER TABLE space_item_placements ADD COLUMN span_y INTEGER NOT NULL DEFAULT 1")
+        db.execSQL("ALTER TABLE space_item_placements ADD COLUMN app_widget_id INTEGER NOT NULL DEFAULT -1")
+        db.execSQL("ALTER TABLE space_item_placements ADD COLUMN custom_widget_type TEXT DEFAULT NULL")
+      }
+    }
+
     fun getInstance(context: Context): LauncherDatabase {
       return INSTANCE ?: synchronized(this) {
         val instance = Room.databaseBuilder(
@@ -174,7 +184,7 @@ abstract class LauncherDatabase : RoomDatabase() {
           LauncherDatabase::class.java,
           "multispace_launcher.db"
         )
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
         .fallbackToDestructiveMigration()
         .build()
         INSTANCE = instance

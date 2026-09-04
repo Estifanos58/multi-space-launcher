@@ -160,7 +160,10 @@ data class SpaceEntity(
   val pageTurnDurationMs: Int = 300,
 
   @ColumnInfo(name = "page_turn_intensity")
-  val pageTurnIntensity: Float = 1.0f
+  val pageTurnIntensity: Float = 1.0f,
+
+  @ColumnInfo(name = "page_count")
+  val pageCount: Int = 1
 ) {
   fun toDomain(): Space = Space(
     id = id,
@@ -213,7 +216,8 @@ data class SpaceEntity(
     spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY,
     pageTurnEffect = PageTurnEffect.fromString(pageTurnEffect),
     pageTurnDurationMs = pageTurnDurationMs,
-    pageTurnIntensity = pageTurnIntensity
+    pageTurnIntensity = pageTurnIntensity,
+    pageCount = pageCount
   )
 
   companion object {
@@ -268,7 +272,8 @@ data class SpaceEntity(
       spaceLockWallpaperOffsetY = domain.spaceLockWallpaperOffsetY,
       pageTurnEffect = domain.pageTurnEffect.name,
       pageTurnDurationMs = domain.pageTurnDurationMs,
-      pageTurnIntensity = domain.pageTurnIntensity
+      pageTurnIntensity = domain.pageTurnIntensity,
+      pageCount = domain.pageCount
     )
   }
 }

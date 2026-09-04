@@ -912,4 +912,127 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
       )
     }
   }
+
+  // --- Desktop Customization & Page Control ---
+
+  fun addPage(spaceId: String, onResult: ((Int) -> Unit)? = null) {
+    viewModelScope.launch {
+      val result = spaceRepository.addPage(spaceId)
+      result.fold(
+        onSuccess = { newCount ->
+          _userFeedback.tryEmit("Page added (total pages: $newCount).")
+          onResult?.invoke(newCount)
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Failed to add page: ${error.message}")
+        }
+      )
+    }
+  }
+
+  fun deletePage(spaceId: String, pageIndex: Int, onResult: ((Boolean) -> Unit)? = null) {
+    viewModelScope.launch {
+      val result = spaceRepository.deletePage(spaceId, pageIndex)
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("Page ${pageIndex + 1} deleted.")
+          onResult?.invoke(true)
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Failed to delete page: ${error.message}")
+          onResult?.invoke(false)
+        }
+      )
+    }
+  }
+
+  fun updateSpaceTheme(
+    spaceId: String,
+    appTheme: String,
+    gridColumns: Int? = null,
+    iconSize: String? = null,
+    labelVisibility: Boolean? = null
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.updateSpaceTheme(spaceId, appTheme, gridColumns, iconSize, labelVisibility)
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("Space theme updated.")
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Failed to update theme: ${error.message}")
+        }
+      )
+    }
+  }
+
+  fun updateSpaceWallpaper(
+    spaceId: String,
+    wallpaperType: String,
+    wallpaperColor: Long?,
+    wallpaperImageUri: String?
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.updateSpaceWallpaper(spaceId, wallpaperType, wallpaperColor, wallpaperImageUri)
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("Space wallpaper updated.")
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Failed to update wallpaper: ${error.message}")
+        }
+      )
+    }
+  }
+
+  fun addWidgetToHome(
+    spaceId: String,
+    pageIndex: Int,
+    widgetType: String,
+    spanX: Int = 1,
+    spanY: Int = 1,
+    appWidgetId: Int = -1,
+    packageName: String? = null,
+    componentName: String? = null
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.addWidgetPlacement(
+        spaceId = spaceId,
+        pageIndex = pageIndex,
+        widgetType = widgetType,
+        spanX = spanX,
+        spanY = spanY,
+        appWidgetId = appWidgetId,
+        packageName = packageName,
+        componentName = componentName
+      )
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("Widget added to Home page ${pageIndex + 1}.")
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Failed to add widget: ${error.message}")
+        }
+      )
+    }
+  }
+
+  fun updateWidgetSpan(
+    placementId: String,
+    spanX: Int,
+    spanY: Int,
+    positionIndex: Int? = null
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.updateWidgetSpan(placementId, spanX, spanY, positionIndex)
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("Widget resized to ${spanX}×${spanY}.")
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Failed to resize widget: ${error.message}")
+        }
+      )
+    }
+  }
 }

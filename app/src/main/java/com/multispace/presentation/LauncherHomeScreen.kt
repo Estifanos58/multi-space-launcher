@@ -73,6 +73,7 @@ fun LauncherHomeScreen(
   var spaceToUnlockForSwitch by remember { mutableStateOf<Space?>(null) }
   var showUnlockForActiveSpace by remember { mutableStateOf(false) }
   var showCustomizationDialogForActiveSpace by remember { mutableStateOf(false) }
+  var showDesktopCustomizationSheet by remember { mutableStateOf(false) }
   var showImportDialog by remember { mutableStateOf(false) }
   var importReport by remember { mutableStateOf<ImportReport?>(null) }
   var isImporting by remember { mutableStateOf(false) }
@@ -509,7 +510,11 @@ fun LauncherHomeScreen(
                   },
                   onMovePlacement = { placementId, targetPage, targetPos, pageSize ->
                     spaceViewModel.moveAppToPage(currentSpace.id, placementId, targetPage, targetPos, pageSize)
-                  }
+                  },
+                  onResizeWidget = { placementId, spanX, spanY, pos ->
+                    spaceViewModel.updateWidgetSpan(placementId, spanX, spanY, pos)
+                  },
+                  onOpenCustomization = { showDesktopCustomizationSheet = true }
                 )
               }
             }
@@ -623,6 +628,76 @@ fun LauncherHomeScreen(
       onAcceptAndOpenSettings = {
         showRecentsDisclosureDialog = false
         context.startActivity(RecentsController.createAccessibilitySettingsIntent())
+      }
+    )
+  }
+
+  // Desktop Customization Sheet (Triggered on long-pressing empty desktop)
+  if (showDesktopCustomizationSheet && activeSpace != null) {
+    val space = activeSpace!!
+    DesktopCustomizationSheet(
+      space = space,
+      placements = activePlacements,
+      currentPage = 0,
+      totalPageCount = maxOf(space.pageCount, (activePlacements.maxOfOrNull { it.pageIndex } ?: 0) + 1),
+      onDismiss = { showDesktopCustomizationSheet = false },
+      onSelectWallpaperColor = { color ->
+        spaceViewModel.updateSpaceWallpaper(
+          space.id,
+          Space.BACKGROUND_COLOR,
+          color,
+          null
+        )
+      },
+      onSelectWallpaperPreset = { presetUri ->
+        spaceViewModel.updateSpaceWallpaper(
+          space.id,
+          Space.BACKGROUND_IMAGE,
+          null,
+          presetUri
+        )
+      },
+      onSelectWallpaperUri = { uri ->
+        spaceViewModel.updateSpaceWallpaper(
+          space.id,
+          Space.BACKGROUND_IMAGE,
+          null,
+          uri.toString()
+        )
+      },
+      onOpenWallpaperEditor = {
+        showDesktopCustomizationSheet = false
+        showCustomizationDialogForActiveSpace = true
+      },
+      onAddWidget = { pageIndex, widgetType, spanX, spanY, appWidgetId, pkg, comp ->
+        spaceViewModel.addWidgetToHome(
+          spaceId = space.id,
+          pageIndex = pageIndex,
+          widgetType = widgetType,
+          spanX = spanX,
+          spanY = spanY,
+          appWidgetId = appWidgetId,
+          packageName = pkg,
+          componentName = comp
+        )
+      },
+      onUpdateTheme = { appTheme, cols, iconSize, showLabels ->
+        spaceViewModel.updateSpaceTheme(
+          spaceId = space.id,
+          appTheme = appTheme,
+          gridColumns = cols,
+          iconSize = iconSize,
+          labelVisibility = showLabels
+        )
+      },
+      onAddPage = {
+        spaceViewModel.addPage(space.id)
+      },
+      onDeletePage = { pageIndex ->
+        spaceViewModel.deletePage(space.id, pageIndex)
+      },
+      onScrollToPage = { _ ->
+        // Jump to page
       }
     )
   }

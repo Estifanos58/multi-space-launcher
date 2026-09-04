@@ -207,4 +207,37 @@ interface SpaceRepository {
   suspend fun applyLayoutPreset(spaceId: String, preset: com.multispace.domain.model.LayoutPreset, apps: List<DiscoveredApp>): Result<Unit>
   suspend fun importCurrentHomeLayout(spaceId: String, allInstalledApps: List<DiscoveredApp>): Result<com.multispace.domain.model.ImportReport>
   suspend fun cleanupUninstalledApp(packageName: String): Result<Unit>
+
+  // --- Desktop Customization & Page Control ---
+  suspend fun addPage(spaceId: String): Result<Int>
+  suspend fun deletePage(spaceId: String, pageIndex: Int): Result<Unit>
+  suspend fun updateSpaceTheme(
+    spaceId: String,
+    appTheme: String,
+    gridColumns: Int? = null,
+    iconSize: String? = null,
+    labelVisibility: Boolean? = null
+  ): Result<Unit>
+  suspend fun updateSpaceWallpaper(
+    spaceId: String,
+    wallpaperType: String,
+    wallpaperColor: Long?,
+    wallpaperImageUri: String?
+  ): Result<Unit>
+  suspend fun addWidgetPlacement(
+    spaceId: String,
+    pageIndex: Int,
+    widgetType: String,
+    spanX: Int = 1,
+    spanY: Int = 1,
+    appWidgetId: Int = -1,
+    packageName: String? = null,
+    componentName: String? = null
+  ): Result<com.multispace.domain.model.SpaceItemPlacement>
+  suspend fun updateWidgetSpan(
+    placementId: String,
+    spanX: Int,
+    spanY: Int,
+    positionIndex: Int? = null
+  ): Result<Unit>
 }

@@ -34,7 +34,10 @@ object PlacementCascadeHelper {
 
     val slotMap = mutableMapOf<Int, SpaceItemPlacement>()
     for (p in existingPlacements) {
-      if (p.id != itemToInsert.id) {
+      val isSameItem = p.id == itemToInsert.id ||
+        (!p.isFolder && !p.isWidget && !itemToInsert.isFolder && !itemToInsert.isWidget &&
+          p.packageName != null && p.packageName == itemToInsert.packageName)
+      if (!isSameItem) {
         val slot = p.pageIndex * safePageSize + p.positionIndex
         slotMap[slot] = p
       }
@@ -85,7 +88,10 @@ object PlacementCascadeHelper {
     val result = mutableListOf<SpaceItemPlacement>()
 
     for (p in allCurrentPlacements) {
-      if (p.id == itemToInsert.id) continue
+      val isSameItem = p.id == itemToInsert.id ||
+        (!p.isFolder && !p.isWidget && !itemToInsert.isFolder && !itemToInsert.isWidget &&
+          p.packageName != null && p.packageName == itemToInsert.packageName)
+      if (isSameItem) continue
       val shifted = updatedMap[p.id]
       if (shifted != null) {
         result.add(shifted)
@@ -97,7 +103,30 @@ object PlacementCascadeHelper {
     val finalPlaced = updatedMap[itemToInsert.id]
       ?: itemToInsert.copy(pageIndex = targetPage, positionIndex = targetPosition)
     result.add(finalPlaced)
-    return result
+
+    // Strict deduplication: ensure each app package only appears once, preserving finalPlaced at target
+    val deduplicated = mutableListOf<SpaceItemPlacement>()
+    val seenPackages = mutableSetOf<String>()
+    val seenIds = mutableSetOf<String>()
+
+    // finalPlaced takes precedence to guarantee placement at target
+    deduplicated.add(finalPlaced)
+    seenIds.add(finalPlaced.id)
+    if (!finalPlaced.isFolder && !finalPlaced.isWidget && finalPlaced.packageName != null) {
+      seenPackages.add(finalPlaced.packageName!!)
+    }
+
+    for (p in result) {
+      if (seenIds.contains(p.id)) continue
+      if (!p.isFolder && !p.isWidget && p.packageName != null) {
+        if (seenPackages.contains(p.packageName)) continue
+        seenPackages.add(p.packageName!!)
+      }
+      seenIds.add(p.id)
+      deduplicated.add(p)
+    }
+
+    return deduplicated
   }
 
   /**
@@ -110,6 +139,7 @@ object PlacementCascadeHelper {
     getPage: (T) -> Int,
     getPosition: (T) -> Int,
     copyItem: (T, Int, Int) -> T,
+    isSameItem: (T, T) -> Boolean = { a, b -> getId(a) == getId(b) },
     targetPage: Int,
     targetPosition: Int,
     pageSize: Int
@@ -117,11 +147,10 @@ object PlacementCascadeHelper {
     val safePageSize = pageSize.coerceAtLeast(1)
     val targetPosClamped = targetPosition.coerceIn(0, safePageSize - 1)
     val targetSlot = targetPage * safePageSize + targetPosClamped
-    val insertId = getId(itemToInsert)
 
     val slotMap = mutableMapOf<Int, T>()
     for (item in existingItems) {
-      if (getId(item) != insertId) {
+      if (!isSameItem(item, itemToInsert)) {
         val slot = getPage(item) * safePageSize + getPosition(item)
         slotMap[slot] = item
       }
