@@ -314,6 +314,9 @@ fun LauncherHomeScreen(
             onRemoveFromDock = { item ->
               activeSpace?.let { spaceViewModel.removeAppFromDock(it.id, item.id) }
             },
+            onReorderDock = { reordered ->
+              activeSpace?.let { spaceViewModel.reorderDockItems(it.id, reordered) }
+            },
             useLayer2 = activeSpace?.useLayer2 ?: true,
             modifier = Modifier.navigationBarsPadding()
           )

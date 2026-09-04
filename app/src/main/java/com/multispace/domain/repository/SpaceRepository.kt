@@ -193,6 +193,7 @@ interface SpaceRepository {
   suspend fun addAppToDock(spaceId: String, app: DiscoveredApp, orderIndex: Int = -1): Result<Unit>
   suspend fun removeAppFromDock(spaceId: String, dockItemId: String): Result<Unit>
   suspend fun reorderDockItems(spaceId: String, dockItems: List<com.multispace.domain.model.SpaceDockItem>): Result<Unit>
+  suspend fun cleanupDuplicateDockItems(spaceId: String): Result<Unit>
 
   // --- Layout Configuration & Presets ---
   suspend fun updateSpaceLayoutSettings(

@@ -144,6 +144,7 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
         }
       }
       spaceRepository.ensureDefaultSpaceInitialized(appList)
+      spaceRepository.cleanupDuplicateDockItems(Space.DEFAULT_SPACE_ID)
     }
   }
 
@@ -456,6 +457,7 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
   fun selectActiveSpace(spaceId: String) {
     viewModelScope.launch {
       val result = spaceRepository.setActiveSpaceId(spaceId)
+      spaceRepository.cleanupDuplicateDockItems(spaceId)
       result.fold(
         onSuccess = {
           _userFeedback.tryEmit("Switched active Space.")

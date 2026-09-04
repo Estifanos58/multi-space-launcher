@@ -96,6 +96,9 @@ class RoomSpaceRepository(
           preferences.setActiveSpaceId(resolvedSpace.id)
         }
 
+        // Clean up any historical duplicate dock items in the default space
+        cleanupDuplicateDockItems(Space.DEFAULT_SPACE_ID)
+
         // If the default space has no placements and no dock items yet, auto-import phone layout
         val defaultEntity = spaces.firstOrNull { it.id == Space.DEFAULT_SPACE_ID }
         if (defaultEntity != null && initialApps.isNotEmpty()) {
@@ -1418,28 +1421,35 @@ class RoomSpaceRepository(
 
   override fun getDockItemsForSpaceFlow(spaceId: String): Flow<List<SpaceDockItem>> {
     return layoutDao.getDockItemsForSpaceFlow(spaceId).map { list ->
-      list.map { it.toDomain() }
+      list.map { it.toDomain() }.distinctBy { it.packageName }
     }
   }
 
   override suspend fun getDockItemsForSpace(spaceId: String): List<SpaceDockItem> {
-    return layoutDao.getDockItemsForSpace(spaceId).map { it.toDomain() }
+    return layoutDao.getDockItemsForSpace(spaceId).map { it.toDomain() }.distinctBy { it.packageName }
   }
 
   override suspend fun addAppToDock(spaceId: String, app: DiscoveredApp, orderIndex: Int): Result<Unit> {
     return try {
       val space = spaceDao.getSpaceById(spaceId)
       val capacity = space?.dockCapacity ?: Space.DEFAULT_DOCK_CAPACITY
-      val current = layoutDao.getDockItemsForSpace(spaceId).toMutableList()
+      val current = layoutDao.getDockItemsForSpace(spaceId).distinctBy { it.packageName }.toMutableList()
 
-      // Check if already in dock
-      val existingIdx = current.indexOfFirst { it.packageName == app.packageName && it.componentName == app.activityName }
+      // Check if already in dock by packageName
+      val existingIdx = current.indexOfFirst { it.packageName == app.packageName }
       if (existingIdx != -1) {
+        if (orderIndex != -1 && orderIndex != existingIdx) {
+          val item = current.removeAt(existingIdx)
+          val targetIdx = orderIndex.coerceIn(0, current.size)
+          current.add(targetIdx, item)
+          val reindexed = current.mapIndexed { idx, itm -> itm.copy(orderIndex = idx) }
+          layoutDao.deleteAllDockItemsForSpace(spaceId)
+          layoutDao.insertDockItems(reindexed)
+        }
         return Result.success(Unit)
       }
 
       if (current.size >= capacity) {
-        // Drop the last item or reject
         val removed = current.removeAt(current.lastIndex)
         layoutDao.deleteDockItemById(removed.id)
       }
@@ -1455,7 +1465,8 @@ class RoomSpaceRepository(
       )
       current.add(targetIdx, newItem)
 
-      val reindexed = current.mapIndexed { idx, item -> item.copy(orderIndex = idx) }
+      val reindexed = current.distinctBy { it.packageName }.mapIndexed { idx, item -> item.copy(orderIndex = idx) }
+      layoutDao.deleteAllDockItemsForSpace(spaceId)
       layoutDao.insertDockItems(reindexed)
       Result.success(Unit)
     } catch (e: Exception) {
@@ -1466,8 +1477,15 @@ class RoomSpaceRepository(
 
   override suspend fun removeAppFromDock(spaceId: String, dockItemId: String): Result<Unit> {
     return try {
-      layoutDao.deleteDockItemById(dockItemId)
-      val remaining = layoutDao.getDockItemsForSpace(spaceId)
+      val allItems = layoutDao.getDockItemsForSpace(spaceId)
+      val target = allItems.firstOrNull { it.id == dockItemId }
+      if (target != null) {
+        layoutDao.deleteDockItemsForPackage(target.packageName)
+      } else {
+        layoutDao.deleteDockItemById(dockItemId)
+      }
+      val remaining = layoutDao.getDockItemsForSpace(spaceId).distinctBy { it.packageName }
+      layoutDao.deleteAllDockItemsForSpace(spaceId)
       val reindexed = remaining.mapIndexed { idx, item -> item.copy(orderIndex = idx) }
       layoutDao.insertDockItems(reindexed)
       Result.success(Unit)
@@ -1479,7 +1497,9 @@ class RoomSpaceRepository(
 
   override suspend fun reorderDockItems(spaceId: String, dockItems: List<SpaceDockItem>): Result<Unit> {
     return try {
-      val entities = dockItems.mapIndexed { idx, item ->
+      val distinctItems = dockItems.distinctBy { it.packageName }
+      layoutDao.deleteAllDockItemsForSpace(spaceId)
+      val entities = distinctItems.mapIndexed { idx, item ->
         SpaceDockItemEntity(
           id = item.id,
           spaceId = spaceId,
@@ -1493,6 +1513,33 @@ class RoomSpaceRepository(
       Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to reorder dock items", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun cleanupDuplicateDockItems(spaceId: String): Result<Unit> {
+    return try {
+      val items = layoutDao.getDockItemsForSpace(spaceId)
+      val seen = mutableSetOf<String>()
+      val toDelete = mutableListOf<String>()
+      for (item in items) {
+        if (!seen.add(item.packageName)) {
+          toDelete.add(item.id)
+        }
+      }
+      for (id in toDelete) {
+        layoutDao.deleteDockItemById(id)
+      }
+      if (toDelete.isNotEmpty()) {
+        val remaining = layoutDao.getDockItemsForSpace(spaceId)
+        val reindexed = remaining.mapIndexed { idx, itm -> itm.copy(orderIndex = idx) }
+        layoutDao.deleteAllDockItemsForSpace(spaceId)
+        layoutDao.insertDockItems(reindexed)
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Cleaned up ${toDelete.size} duplicate dock items for space $spaceId")
+      }
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to clean duplicate dock items for $spaceId", e)
       Result.failure(e)
     }
   }
