@@ -1,6 +1,7 @@
 package com.multispace.domain.repository
 
 import com.multispace.domain.model.DiscoveredApp
+import com.multispace.domain.model.PageTurnEffect
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceMembership
 import kotlinx.coroutines.flow.Flow
@@ -61,6 +62,9 @@ interface SpaceRepository {
     spaceLockWallpaperDimLevel: Float = 0.20f,
     spaceLockWallpaperOffsetX: Float = 0.0f,
     spaceLockWallpaperOffsetY: Float = 0.0f,
+    pageTurnEffect: PageTurnEffect = PageTurnEffect.NORMAL,
+    pageTurnDurationMs: Int = Space.DEFAULT_PAGE_TURN_DURATION_MS,
+    pageTurnIntensity: Float = Space.DEFAULT_PAGE_TURN_INTENSITY,
     initialApps: List<DiscoveredApp> = emptyList()
   ): Result<Space>
 
@@ -110,10 +114,19 @@ interface SpaceRepository {
     spaceLockWallpaperDimLevel: Float = 0.20f,
     spaceLockWallpaperOffsetX: Float = 0.0f,
     spaceLockWallpaperOffsetY: Float = 0.0f,
+    pageTurnEffect: PageTurnEffect = PageTurnEffect.NORMAL,
+    pageTurnDurationMs: Int = Space.DEFAULT_PAGE_TURN_DURATION_MS,
+    pageTurnIntensity: Float = Space.DEFAULT_PAGE_TURN_INTENSITY,
     updatedApps: List<DiscoveredApp> = emptyList()
   ): Result<Space>
   suspend fun renameSpace(spaceId: String, newName: String): Result<Unit>
   suspend fun deleteSpace(spaceId: String): Result<Unit>
+  suspend fun updatePageTurnSettings(
+    spaceId: String,
+    effect: PageTurnEffect,
+    durationMs: Int = Space.DEFAULT_PAGE_TURN_DURATION_MS,
+    intensity: Float = Space.DEFAULT_PAGE_TURN_INTENSITY
+  ): Result<Unit>
 
   fun getMembershipsForSpaceFlow(spaceId: String): Flow<List<SpaceMembership>>
   suspend fun getMembershipsForSpace(spaceId: String): List<SpaceMembership>

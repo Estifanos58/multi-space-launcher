@@ -133,7 +133,7 @@ fun Layer1HomeScreen(
     // guaranteeing no apps are duplicated or lost in Layer 1.
     var localPlacements by remember(placements) { mutableStateOf(placements) }
 
-    val effectivePlacements = remember(localPlacements, allApps, space, pageSize) {
+    val effectivePlacements = remember(localPlacements, allApps, space.id, pageSize) {
       val existingPlacedApps = localPlacements.filter { it.itemType == SpaceItemPlacement.ITEM_TYPE_APP }
       val placedPkgSet = existingPlacedApps.mapNotNull { it.packageName }.toSet()
 
@@ -605,6 +605,20 @@ fun Layer1HomeScreen(
             .weight(1f)
             .fillMaxSize()
             .testTag("layer1_horizontal_pager")
+            .onGloballyPositioned { pagerCoords ->
+              if (rootCoordinates != null && pagerCoords.isAttached) {
+                val localOffset = rootCoordinates!!.localPositionOf(pagerCoords, Offset.Zero)
+                val pagerRect = Rect(localOffset, pagerCoords.size.toSize())
+                val hPadPx = with(density) { gridHorizontalPadding.toPx() }
+                val vPadPx = with(density) { gridVerticalPadding.toPx() }
+                pageGridBounds = Rect(
+                  left = pagerRect.left + hPadPx,
+                  top = pagerRect.top + vPadPx,
+                  right = pagerRect.right - hPadPx,
+                  bottom = pagerRect.bottom - vPadPx
+                )
+              }
+            }
         ) { page ->
           val isCurrentPage = page == pagerState.currentPage
 
@@ -645,42 +659,47 @@ fun Layer1HomeScreen(
             }
           }
 
-          Column(
+          // Visual page turn presentation container (pure visual transform layer)
+          Box(
             modifier = Modifier
               .fillMaxSize()
-              .padding(horizontal = gridHorizontalPadding, vertical = gridVerticalPadding)
-              .onGloballyPositioned { coordinates ->
-                if (isCurrentPage && rootCoordinates != null) {
-                  val localOffset = rootCoordinates!!.localPositionOf(coordinates, Offset.Zero)
-                  pageGridBounds = Rect(localOffset, coordinates.size.toSize())
-                }
-              },
-            verticalArrangement = Arrangement.spacedBy(appSpacing)
+              .pageTurnEffect(
+                pagerState = pagerState,
+                page = page,
+                effect = space.pageTurnEffect,
+                intensity = space.pageTurnIntensity
+              )
           ) {
-            for (r in 0 until gridRows) {
-              Row(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .height(cellHeight),
-                horizontalArrangement = Arrangement.spacedBy(appSpacing)
-              ) {
-                for (c in 0 until cols) {
-                  val slotIndex = r * cols + c
-                  val item = previewSlotsMap[slotIndex]
-                  val isPreviewTarget = isDragging && isCurrentPage && !isOverBin && previewTargetSlot == slotIndex
+            Column(
+              modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = gridHorizontalPadding, vertical = gridVerticalPadding),
+              verticalArrangement = Arrangement.spacedBy(appSpacing)
+            ) {
+              for (r in 0 until gridRows) {
+                Row(
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .height(cellHeight),
+                  horizontalArrangement = Arrangement.spacedBy(appSpacing)
+                ) {
+                  for (c in 0 until cols) {
+                    val slotIndex = r * cols + c
+                    val item = previewSlotsMap[slotIndex]
+                    val isPreviewTarget = isDragging && isCurrentPage && !isOverBin && previewTargetSlot == slotIndex
 
-                  Box(
-                    modifier = Modifier
-                      .weight(1f)
-                      .fillMaxHeight()
-                      .onGloballyPositioned { coords ->
-                        if (isCurrentPage && coords.isAttached && rootCoordinates != null) {
-                          val localOffset = rootCoordinates!!.localPositionOf(coords, Offset.Zero)
-                          slotBounds[slotIndex] = Rect(localOffset, coords.size.toSize())
-                        }
-                      },
-                    contentAlignment = Alignment.Center
-                  ) {
+                    Box(
+                      modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .onGloballyPositioned { coords ->
+                          if (isCurrentPage && coords.isAttached && rootCoordinates != null && !pagerState.isScrollInProgress) {
+                            val localOffset = rootCoordinates!!.localPositionOf(coords, Offset.Zero)
+                            slotBounds[slotIndex] = Rect(localOffset, coords.size.toSize())
+                          }
+                        },
+                      contentAlignment = Alignment.Center
+                    ) {
                     if (isPreviewTarget && draggedPlacement != null) {
                       DropTargetPreviewSlot(
                         dragged = draggedPlacement!!,
@@ -719,6 +738,7 @@ fun Layer1HomeScreen(
             }
           }
         }
+      }
 
         // Page Indicator Dots
         if (totalPageCount > 1) {
@@ -726,7 +746,9 @@ fun Layer1HomeScreen(
             pageCount = totalPageCount,
             currentPage = pagerState.currentPage,
             onDotClick = { page ->
-              coroutineScope.launch { pagerState.animateScrollToPage(page) }
+              coroutineScope.launch {
+                pagerState.animateScrollToPage(page, animationSpec = tween(space.pageTurnDurationMs))
+              }
             },
             modifier = Modifier
               .align(Alignment.CenterHorizontally)

@@ -8,6 +8,7 @@ import com.multispace.data.preferences.LauncherPreferences
 import com.multispace.data.repository.RoomSpaceRepository
 import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.DiscoveredApp
+import com.multispace.domain.model.PageTurnEffect
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceMembership
 import com.multispace.domain.repository.SpaceRepository
@@ -208,6 +209,9 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     spaceLockWallpaperDimLevel: Float = 0.20f,
     spaceLockWallpaperOffsetX: Float = 0.0f,
     spaceLockWallpaperOffsetY: Float = 0.0f,
+    pageTurnEffect: PageTurnEffect = PageTurnEffect.NORMAL,
+    pageTurnDurationMs: Int = Space.DEFAULT_PAGE_TURN_DURATION_MS,
+    pageTurnIntensity: Float = Space.DEFAULT_PAGE_TURN_INTENSITY,
     initialApps: List<DiscoveredApp> = emptyList(),
     onResult: ((Boolean, String?) -> Unit)? = null
   ) {
@@ -256,6 +260,9 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
         spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
         spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
         spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY,
+        pageTurnEffect = pageTurnEffect,
+        pageTurnDurationMs = pageTurnDurationMs,
+        pageTurnIntensity = pageTurnIntensity,
         initialApps = initialApps
       )
       result.fold(
@@ -321,6 +328,9 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     spaceLockWallpaperDimLevel: Float = 0.20f,
     spaceLockWallpaperOffsetX: Float = 0.0f,
     spaceLockWallpaperOffsetY: Float = 0.0f,
+    pageTurnEffect: PageTurnEffect = PageTurnEffect.NORMAL,
+    pageTurnDurationMs: Int = Space.DEFAULT_PAGE_TURN_DURATION_MS,
+    pageTurnIntensity: Float = Space.DEFAULT_PAGE_TURN_INTENSITY,
     updatedApps: List<DiscoveredApp> = emptyList(),
     onResult: ((Boolean, String?) -> Unit)? = null
   ) {
@@ -371,6 +381,9 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
         spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
         spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
         spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY,
+        pageTurnEffect = pageTurnEffect,
+        pageTurnDurationMs = pageTurnDurationMs,
+        pageTurnIntensity = pageTurnIntensity,
         updatedApps = updatedApps
       )
       result.fold(
@@ -385,6 +398,25 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
           val msg = error.message ?: "Failed to update Space."
           _userFeedback.tryEmit("Error: $msg")
           onResult?.invoke(false, msg)
+        }
+      )
+    }
+  }
+
+  fun updateSpacePageTurnSettings(
+    spaceId: String,
+    effect: PageTurnEffect,
+    durationMs: Int = Space.DEFAULT_PAGE_TURN_DURATION_MS,
+    intensity: Float = Space.DEFAULT_PAGE_TURN_INTENSITY
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.updatePageTurnSettings(spaceId, effect, durationMs, intensity)
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("Page turn effect set to ${effect.displayName}")
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Failed to update page turn effect: ${error.message}")
         }
       )
     }

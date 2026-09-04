@@ -53,11 +53,13 @@ import com.multispace.R
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.ImportReport
 import com.multispace.domain.model.LayoutPreset
+import com.multispace.domain.model.PageTurnEffect
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.WallpaperCatalog
 import com.multispace.domain.model.WallpaperImagePreset
 import com.multispace.platform.PinSecurityManager
 import androidx.compose.foundation.BorderStroke
+import com.multispace.presentation.components.PageTurnEffectSection
 import com.multispace.ui.components.*
 import com.multispace.ui.theme.*
 import kotlinx.coroutines.delay
@@ -274,6 +276,17 @@ fun CreateSpaceScreen(
   var patternCanvasError by remember { mutableStateOf(false) }
   var patternCanvasFeedback by remember { mutableStateOf<String?>(null) }
   var patternClearTrigger by remember { mutableIntStateOf(0) }
+
+  // Page Turn Effect State (Layer 1 Horizontal Paging)
+  var pageTurnEffect by rememberSaveable {
+    mutableStateOf(editingSpace?.pageTurnEffect ?: PageTurnEffect.NORMAL)
+  }
+  var pageTurnDurationMs by rememberSaveable {
+    mutableIntStateOf(editingSpace?.pageTurnDurationMs ?: Space.DEFAULT_PAGE_TURN_DURATION_MS)
+  }
+  var pageTurnIntensity by rememberSaveable {
+    mutableFloatStateOf(editingSpace?.pageTurnIntensity ?: Space.DEFAULT_PAGE_TURN_INTENSITY)
+  }
 
   // Tab 2: Layout Preset State
   var selectedLayoutPreset by rememberSaveable {
@@ -1046,6 +1059,9 @@ fun CreateSpaceScreen(
                           spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
                           spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
                           spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY,
+                          pageTurnEffect = pageTurnEffect,
+                          pageTurnDurationMs = pageTurnDurationMs,
+                          pageTurnIntensity = pageTurnIntensity,
                           updatedApps = selectedAppObjects,
                           onResult = { success, _ ->
                             isCreating = false
@@ -1100,6 +1116,9 @@ fun CreateSpaceScreen(
                           spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
                           spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
                           spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY,
+                          pageTurnEffect = pageTurnEffect,
+                          pageTurnDurationMs = pageTurnDurationMs,
+                          pageTurnIntensity = pageTurnIntensity,
                           initialApps = selectedAppObjects,
                           onResult = { success, newId ->
                             isCreating = false
@@ -1183,7 +1202,13 @@ fun CreateSpaceScreen(
                 editingSpace = editingSpace,
                 onOpenPatternConfig = {
                   currentSubPage = CreateSpaceSubPage.PATTERN_GRID_CHOICE
-                }
+                },
+                pageTurnEffect = pageTurnEffect,
+                onPageTurnEffectChange = { pageTurnEffect = it },
+                pageTurnDurationMs = pageTurnDurationMs,
+                onPageTurnDurationMsChange = { pageTurnDurationMs = it },
+                pageTurnIntensity = pageTurnIntensity,
+                onPageTurnIntensityChange = { pageTurnIntensity = it }
               )
             }
             1 -> {
@@ -1531,7 +1556,13 @@ private fun Tab1BasicsAndSecurity(
   patternRows: Int,
   patternCols: Int,
   editingSpace: Space? = null,
-  onOpenPatternConfig: () -> Unit
+  onOpenPatternConfig: () -> Unit,
+  pageTurnEffect: PageTurnEffect,
+  onPageTurnEffectChange: (PageTurnEffect) -> Unit,
+  pageTurnDurationMs: Int,
+  onPageTurnDurationMsChange: (Int) -> Unit,
+  pageTurnIntensity: Float,
+  onPageTurnIntensityChange: (Float) -> Unit
 ) {
   val presetNames = listOf("Personal", "Work", "Focus & Study", "Social", "Kids Zone", "Vault & Private", "Gaming")
 
@@ -1946,6 +1977,18 @@ private fun Tab1BasicsAndSecurity(
           }
         }
       }
+    }
+
+    // 3. Page Turn Effect Section
+    item {
+      PageTurnEffectSection(
+        selectedEffect = pageTurnEffect,
+        onEffectSelected = onPageTurnEffectChange,
+        durationMs = pageTurnDurationMs,
+        onDurationChange = onPageTurnDurationMsChange,
+        intensity = pageTurnIntensity,
+        onIntensityChange = onPageTurnIntensityChange
+      )
     }
   }
 }

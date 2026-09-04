@@ -14,6 +14,7 @@ import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.ImportReport
 import com.multispace.domain.model.LayoutPreset
+import com.multispace.domain.model.PageTurnEffect
 import com.multispace.domain.model.PlacementCascadeHelper
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceDockItem
@@ -209,6 +210,9 @@ class RoomSpaceRepository(
     spaceLockWallpaperDimLevel: Float,
     spaceLockWallpaperOffsetX: Float,
     spaceLockWallpaperOffsetY: Float,
+    pageTurnEffect: PageTurnEffect,
+    pageTurnDurationMs: Int,
+    pageTurnIntensity: Float,
     initialApps: List<DiscoveredApp>
   ): Result<Space> {
     val trimmed = name.trim()
@@ -266,7 +270,10 @@ class RoomSpaceRepository(
         spaceLockWallpaperZoomLevel = spaceLockWallpaperZoomLevel,
         spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
         spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
-        spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY
+        spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY,
+        pageTurnEffect = pageTurnEffect,
+        pageTurnDurationMs = pageTurnDurationMs,
+        pageTurnIntensity = pageTurnIntensity
       )
       spaceDao.insertSpace(SpaceEntity.fromDomain(space))
 
@@ -368,6 +375,9 @@ class RoomSpaceRepository(
     spaceLockWallpaperDimLevel: Float,
     spaceLockWallpaperOffsetX: Float,
     spaceLockWallpaperOffsetY: Float,
+    pageTurnEffect: PageTurnEffect,
+    pageTurnDurationMs: Int,
+    pageTurnIntensity: Float,
     updatedApps: List<DiscoveredApp>
   ): Result<Space> {
     val trimmed = name.trim()
@@ -449,7 +459,10 @@ class RoomSpaceRepository(
         spaceLockWallpaperZoomLevel = spaceLockWallpaperZoomLevel,
         spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
         spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
-        spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY
+        spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY,
+        pageTurnEffect = pageTurnEffect.name,
+        pageTurnDurationMs = pageTurnDurationMs,
+        pageTurnIntensity = pageTurnIntensity
       )
       spaceDao.updateSpace(updated)
 
@@ -468,36 +481,103 @@ class RoomSpaceRepository(
         }
         membershipDao.insertMemberships(memberships)
 
-        // Ensure home placements and dock items are populated for updated apps
-        val pageSize = (gridColumns * 5).coerceAtLeast(1)
-        val homeEntities = uniqueUpdatedApps.mapIndexed { idx, app ->
-          SpaceItemPlacementEntity(
-            id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
-            spaceId = spaceId,
-            layer = SpaceItemPlacement.LAYER_HOME,
-            pageIndex = idx / pageSize,
-            positionIndex = idx % pageSize,
-            itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-            packageName = app.packageName,
-            componentName = app.activityName,
-            userHandleId = app.userHandleId
-          )
-        }
-        layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
-        layoutDao.insertPlacements(homeEntities)
+        // System A vs System B isolation:
+        // Updating space settings (such as pageTurnEffect, theme, or name) must NEVER reset
+        // the user's custom app placements or dock arrangement.
+        val existingPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+        if (existingPlacements.isEmpty()) {
+          // Only generate default layout if there are no existing placements
+          val pageSize = (gridColumns * 5).coerceAtLeast(1)
+          val homeEntities = uniqueUpdatedApps.mapIndexed { idx, app ->
+            SpaceItemPlacementEntity(
+              id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+              spaceId = spaceId,
+              layer = SpaceItemPlacement.LAYER_HOME,
+              pageIndex = idx / pageSize,
+              positionIndex = idx % pageSize,
+              itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+              packageName = app.packageName,
+              componentName = app.activityName,
+              userHandleId = app.userHandleId
+            )
+          }
+          layoutDao.insertPlacements(homeEntities)
+        } else {
+          // PRESERVE ALL USER CUSTOM PLACEMENTS!
+          // Only synchronize additions and removals without disturbing existing positions
+          val updatedPkgSet = uniqueUpdatedApps.map { it.packageName }.toSet()
+          val placedPkgSet = existingPlacements.mapNotNull { it.packageName }.toSet()
 
-        val dockEntities = uniqueUpdatedApps.take(dockCapacity).mapIndexed { idx, app ->
-          SpaceDockItemEntity(
-            id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
-            spaceId = spaceId,
-            orderIndex = idx,
-            packageName = app.packageName,
-            componentName = app.activityName,
-            userHandleId = app.userHandleId
-          )
+          // 1. Remove placements for apps explicitly deselected from the space
+          val placementsToRemove = existingPlacements.filter { p ->
+            p.itemType == SpaceItemPlacement.ITEM_TYPE_APP && p.packageName != null && !updatedPkgSet.contains(p.packageName)
+          }
+          for (p in placementsToRemove) {
+            layoutDao.deletePlacementById(p.id)
+          }
+
+          // 2. Add placements for newly added apps into empty slots or trailing pages
+          val newlyAddedApps = uniqueUpdatedApps.filter { !placedPkgSet.contains(it.packageName) }
+          if (newlyAddedApps.isNotEmpty()) {
+            val remainingPlacements = existingPlacements.filter { !placementsToRemove.any { r -> r.id == it.id } }
+            val pageSize = (gridColumns * 5).coerceAtLeast(1)
+            val occupiedPerPage = mutableMapOf<Int, MutableSet<Int>>()
+            for (p in remainingPlacements) {
+              occupiedPerPage.getOrPut(p.pageIndex) { mutableSetOf() }.add(p.positionIndex)
+            }
+
+            var curPage = 0
+            var curPos = 0
+            val newEntities = mutableListOf<SpaceItemPlacementEntity>()
+            for (app in newlyAddedApps) {
+              var occupied = occupiedPerPage.getOrPut(curPage) { mutableSetOf() }
+              while (occupied.contains(curPos) && curPos < pageSize) {
+                curPos++
+              }
+              if (curPos >= pageSize) {
+                curPage++
+                curPos = 0
+                occupied = occupiedPerPage.getOrPut(curPage) { mutableSetOf() }
+                while (occupied.contains(curPos) && curPos < pageSize) {
+                  curPos++
+                }
+              }
+              newEntities.add(
+                SpaceItemPlacementEntity(
+                  id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+                  spaceId = spaceId,
+                  layer = SpaceItemPlacement.LAYER_HOME,
+                  pageIndex = curPage,
+                  positionIndex = curPos,
+                  itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+                  packageName = app.packageName,
+                  componentName = app.activityName,
+                  userHandleId = app.userHandleId
+                )
+              )
+              occupied.add(curPos)
+              curPos++
+            }
+            if (newEntities.isNotEmpty()) {
+              layoutDao.insertPlacements(newEntities)
+            }
+          }
         }
-        layoutDao.deleteAllDockItemsForSpace(spaceId)
-        layoutDao.insertDockItems(dockEntities)
+
+        val existingDock = layoutDao.getDockItemsForSpace(spaceId)
+        if (existingDock.isEmpty()) {
+          val dockEntities = uniqueUpdatedApps.take(dockCapacity).mapIndexed { idx, app ->
+            SpaceDockItemEntity(
+              id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
+              spaceId = spaceId,
+              orderIndex = idx,
+              packageName = app.packageName,
+              componentName = app.activityName,
+              userHandleId = app.userHandleId
+            )
+          }
+          layoutDao.insertDockItems(dockEntities)
+        }
       }
 
       AppLogger.i(AppLogger.Category.LAUNCHER, "Updated configured Space: '$trimmed' ($spaceId) with ${updatedApps.size} apps")
@@ -795,6 +875,30 @@ class RoomSpaceRepository(
       Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update customization for Space ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun updatePageTurnSettings(
+    spaceId: String,
+    effect: PageTurnEffect,
+    durationMs: Int,
+    intensity: Float
+  ): Result<Unit> {
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+      val updated = existing.copy(
+        pageTurnEffect = effect.name,
+        pageTurnDurationMs = durationMs.coerceIn(Space.MIN_PAGE_TURN_DURATION_MS, Space.MAX_PAGE_TURN_DURATION_MS),
+        pageTurnIntensity = intensity.coerceIn(Space.MIN_PAGE_TURN_INTENSITY, Space.MAX_PAGE_TURN_INTENSITY),
+        updatedAt = System.currentTimeMillis()
+      )
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Updated page turn settings for Space '${existing.name}': effect=${effect.name}, duration=${durationMs}ms, intensity=$intensity")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update page turn settings for Space ($spaceId)", e)
       Result.failure(e)
     }
   }

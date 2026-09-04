@@ -3,6 +3,7 @@ package com.multispace.data.entity
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.multispace.domain.model.PageTurnEffect
 import com.multispace.domain.model.Space
 
 @Entity(tableName = "spaces")
@@ -150,7 +151,16 @@ data class SpaceEntity(
   val spaceLockWallpaperOffsetX: Float = 0.0f,
 
   @ColumnInfo(name = "space_lock_wallpaper_offset_y")
-  val spaceLockWallpaperOffsetY: Float = 0.0f
+  val spaceLockWallpaperOffsetY: Float = 0.0f,
+
+  @ColumnInfo(name = "page_turn_effect")
+  val pageTurnEffect: String = "NORMAL",
+
+  @ColumnInfo(name = "page_turn_duration_ms")
+  val pageTurnDurationMs: Int = 300,
+
+  @ColumnInfo(name = "page_turn_intensity")
+  val pageTurnIntensity: Float = 1.0f
 ) {
   fun toDomain(): Space = Space(
     id = id,
@@ -200,7 +210,10 @@ data class SpaceEntity(
     spaceLockWallpaperZoomLevel = spaceLockWallpaperZoomLevel,
     spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
     spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
-    spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY
+    spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY,
+    pageTurnEffect = PageTurnEffect.fromString(pageTurnEffect),
+    pageTurnDurationMs = pageTurnDurationMs,
+    pageTurnIntensity = pageTurnIntensity
   )
 
   companion object {
@@ -252,7 +265,10 @@ data class SpaceEntity(
       spaceLockWallpaperZoomLevel = domain.spaceLockWallpaperZoomLevel,
       spaceLockWallpaperDimLevel = domain.spaceLockWallpaperDimLevel,
       spaceLockWallpaperOffsetX = domain.spaceLockWallpaperOffsetX,
-      spaceLockWallpaperOffsetY = domain.spaceLockWallpaperOffsetY
+      spaceLockWallpaperOffsetY = domain.spaceLockWallpaperOffsetY,
+      pageTurnEffect = domain.pageTurnEffect.name,
+      pageTurnDurationMs = domain.pageTurnDurationMs,
+      pageTurnIntensity = domain.pageTurnIntensity
     )
   }
 }

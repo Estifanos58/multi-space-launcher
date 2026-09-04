@@ -59,7 +59,10 @@ data class Space(
   val spaceLockWallpaperZoomLevel: Float = 1.0f,
   val spaceLockWallpaperDimLevel: Float = 0.20f,
   val spaceLockWallpaperOffsetX: Float = 0.0f,
-  val spaceLockWallpaperOffsetY: Float = 0.0f
+  val spaceLockWallpaperOffsetY: Float = 0.0f,
+  val pageTurnEffect: PageTurnEffect = PageTurnEffect.NORMAL,
+  val pageTurnDurationMs: Int = DEFAULT_PAGE_TURN_DURATION_MS,
+  val pageTurnIntensity: Float = DEFAULT_PAGE_TURN_INTENSITY
 ) {
   val isProtected: Boolean
     get() = if (authPolicy == AUTH_BIOMETRIC) true else ((authPolicy == AUTH_PIN || authPolicy == AUTH_PATTERN) && !pinHash.isNullOrEmpty() && !pinSalt.isNullOrEmpty())
@@ -130,6 +133,15 @@ data class Space(
     const val PRESET_LARGE_ICONS = "LARGE_ICONS"
     const val PRESET_PRODUCTIVITY = "PRODUCTIVITY"
     const val PRESET_GAMING = "GAMING"
+
+    // Page Turn Defaults
+    const val DEFAULT_PAGE_TURN_DURATION_MS = 300
+    const val MIN_PAGE_TURN_DURATION_MS = 150
+    const val MAX_PAGE_TURN_DURATION_MS = 800
+
+    const val DEFAULT_PAGE_TURN_INTENSITY = 1.0f
+    const val MIN_PAGE_TURN_INTENSITY = 0.5f
+    const val MAX_PAGE_TURN_INTENSITY = 2.0f
 
     fun createDefault(
       id: String = DEFAULT_SPACE_ID,
