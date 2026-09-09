@@ -25,7 +25,7 @@ import com.multispace.data.entity.SpaceMembershipEntity
     SpaceFolderItemEntity::class,
     SpaceDockItemEntity::class
   ],
-  version = 8,
+  version = 9,
   exportSchema = false
 )
 abstract class LauncherDatabase : RoomDatabase() {
@@ -159,21 +159,192 @@ abstract class LauncherDatabase : RoomDatabase() {
       }
     }
 
-    private val MIGRATION_6_7 = object : Migration(6, 7) {
-      override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("ALTER TABLE spaces ADD COLUMN page_turn_effect TEXT NOT NULL DEFAULT 'NORMAL'")
-        db.execSQL("ALTER TABLE spaces ADD COLUMN page_turn_duration_ms INTEGER NOT NULL DEFAULT 300")
-        db.execSQL("ALTER TABLE spaces ADD COLUMN page_turn_intensity REAL NOT NULL DEFAULT 1.0")
+    private fun hasColumn(db: SupportSQLiteDatabase, tableName: String, columnName: String): Boolean {
+      val cursor = db.query("PRAGMA table_info(`$tableName`)")
+      cursor.use {
+        val nameIndex = it.getColumnIndex("name")
+        while (it.moveToNext()) {
+          if (nameIndex != -1 && it.getString(nameIndex).equals(columnName, ignoreCase = true)) {
+            return true
+          }
+        }
+      }
+      return false
+    }
+
+    private fun addColumnIfNotExists(
+      db: SupportSQLiteDatabase,
+      tableName: String,
+      columnName: String,
+      columnDefinition: String
+    ) {
+      if (!hasColumn(db, tableName, columnName)) {
+        db.execSQL("ALTER TABLE `$tableName` ADD COLUMN `$columnName` $columnDefinition")
       }
     }
 
-    private val MIGRATION_7_8 = object : Migration(7, 8) {
+    private fun recreateSpacesTable(db: SupportSQLiteDatabase) {
+      db.execSQL("PRAGMA foreign_keys = OFF")
+      db.execSQL("""
+        CREATE TABLE IF NOT EXISTS `spaces_migration_temp` (
+          `id` TEXT NOT NULL,
+          `name` TEXT NOT NULL,
+          `order_index` INTEGER NOT NULL,
+          `created_at` INTEGER NOT NULL,
+          `updated_at` INTEGER NOT NULL,
+          `auth_policy` TEXT NOT NULL,
+          `pin_salt` TEXT,
+          `pin_hash` TEXT,
+          `layout_type` TEXT NOT NULL,
+          `pattern_rows` INTEGER NOT NULL,
+          `pattern_cols` INTEGER NOT NULL,
+          `background_type` TEXT NOT NULL,
+          `background_color` INTEGER,
+          `background_image_uri` TEXT,
+          `home_wallpaper_type` TEXT NOT NULL,
+          `home_wallpaper_color` INTEGER,
+          `home_wallpaper_image_uri` TEXT,
+          `phone_lock_wallpaper_type` TEXT NOT NULL,
+          `phone_lock_wallpaper_color` INTEGER,
+          `phone_lock_wallpaper_image_uri` TEXT,
+          `space_lock_wallpaper_type` TEXT NOT NULL,
+          `space_lock_wallpaper_color` INTEGER,
+          `space_lock_wallpaper_image_uri` TEXT,
+          `app_theme` TEXT NOT NULL,
+          `grid_columns` INTEGER NOT NULL,
+          `icon_size` TEXT NOT NULL,
+          `label_visibility` INTEGER NOT NULL,
+          `layer1_display_mode` TEXT NOT NULL,
+          `layer2_display_mode` TEXT NOT NULL,
+          `layer2_access_mode` TEXT NOT NULL,
+          `dock_capacity` INTEGER NOT NULL,
+          `layout_preset` TEXT NOT NULL,
+          `use_layer2` INTEGER NOT NULL,
+          `home_wallpaper_scale_mode` TEXT NOT NULL,
+          `home_wallpaper_zoom_level` REAL NOT NULL,
+          `home_wallpaper_dim_level` REAL NOT NULL,
+          `home_wallpaper_offset_x` REAL NOT NULL,
+          `home_wallpaper_offset_y` REAL NOT NULL,
+          `phone_lock_wallpaper_scale_mode` TEXT NOT NULL,
+          `phone_lock_wallpaper_zoom_level` REAL NOT NULL,
+          `phone_lock_wallpaper_dim_level` REAL NOT NULL,
+          `phone_lock_wallpaper_offset_x` REAL NOT NULL,
+          `phone_lock_wallpaper_offset_y` REAL NOT NULL,
+          `space_lock_wallpaper_scale_mode` TEXT NOT NULL,
+          `space_lock_wallpaper_zoom_level` REAL NOT NULL,
+          `space_lock_wallpaper_dim_level` REAL NOT NULL,
+          `space_lock_wallpaper_offset_x` REAL NOT NULL,
+          `space_lock_wallpaper_offset_y` REAL NOT NULL,
+          `page_turn_effect` TEXT NOT NULL,
+          `page_turn_duration_ms` INTEGER NOT NULL,
+          `page_turn_intensity` REAL NOT NULL,
+          `page_count` INTEGER NOT NULL,
+          PRIMARY KEY(`id`)
+        )
+      """.trimIndent())
+
+      val durationSelect = when {
+        hasColumn(db, "spaces", "page_turn_duration_ms") -> "`page_turn_duration_ms`"
+        hasColumn(db, "spaces", "page_turn_duration") -> "`page_turn_duration`"
+        else -> "300"
+      }
+      val pageCountSelect = if (hasColumn(db, "spaces", "page_count")) "`page_count`" else "1"
+
+      db.execSQL("""
+        INSERT INTO `spaces_migration_temp` (
+          `id`, `name`, `order_index`, `created_at`, `updated_at`, `auth_policy`, `pin_salt`, `pin_hash`,
+          `layout_type`, `pattern_rows`, `pattern_cols`, `background_type`, `background_color`,
+          `background_image_uri`, `home_wallpaper_type`, `home_wallpaper_color`, `home_wallpaper_image_uri`,
+          `phone_lock_wallpaper_type`, `phone_lock_wallpaper_color`, `phone_lock_wallpaper_image_uri`,
+          `space_lock_wallpaper_type`, `space_lock_wallpaper_color`, `space_lock_wallpaper_image_uri`,
+          `app_theme`, `grid_columns`, `icon_size`, `label_visibility`, `layer1_display_mode`,
+          `layer2_display_mode`, `layer2_access_mode`, `dock_capacity`, `layout_preset`, `use_layer2`,
+          `home_wallpaper_scale_mode`, `home_wallpaper_zoom_level`, `home_wallpaper_dim_level`,
+          `home_wallpaper_offset_x`, `home_wallpaper_offset_y`, `phone_lock_wallpaper_scale_mode`,
+          `phone_lock_wallpaper_zoom_level`, `phone_lock_wallpaper_dim_level`,
+          `phone_lock_wallpaper_offset_x`, `phone_lock_wallpaper_offset_y`,
+          `space_lock_wallpaper_scale_mode`, `space_lock_wallpaper_zoom_level`,
+          `space_lock_wallpaper_dim_level`, `space_lock_wallpaper_offset_x`,
+          `space_lock_wallpaper_offset_y`, `page_turn_effect`, `page_turn_duration_ms`,
+          `page_turn_intensity`, `page_count`
+        )
+        SELECT
+          `id`, `name`, `order_index`, `created_at`, `updated_at`, `auth_policy`, `pin_salt`, `pin_hash`,
+          `layout_type`, `pattern_rows`, `pattern_cols`, `background_type`, `background_color`,
+          `background_image_uri`, `home_wallpaper_type`, `home_wallpaper_color`, `home_wallpaper_image_uri`,
+          `phone_lock_wallpaper_type`, `phone_lock_wallpaper_color`, `phone_lock_wallpaper_image_uri`,
+          `space_lock_wallpaper_type`, `space_lock_wallpaper_color`, `space_lock_wallpaper_image_uri`,
+          `app_theme`, `grid_columns`, `icon_size`, `label_visibility`, `layer1_display_mode`,
+          `layer2_display_mode`, `layer2_access_mode`, `dock_capacity`, `layout_preset`, `use_layer2`,
+          `home_wallpaper_scale_mode`, `home_wallpaper_zoom_level`, `home_wallpaper_dim_level`,
+          `home_wallpaper_offset_x`, `home_wallpaper_offset_y`, `phone_lock_wallpaper_scale_mode`,
+          `phone_lock_wallpaper_zoom_level`, `phone_lock_wallpaper_dim_level`,
+          `phone_lock_wallpaper_offset_x`, `phone_lock_wallpaper_offset_y`,
+          `space_lock_wallpaper_scale_mode`, `space_lock_wallpaper_zoom_level`,
+          `space_lock_wallpaper_dim_level`, `space_lock_wallpaper_offset_x`,
+          `space_lock_wallpaper_offset_y`, `page_turn_effect`, $durationSelect,
+          `page_turn_intensity`, $pageCountSelect
+        FROM `spaces`
+      """.trimIndent())
+
+      db.execSQL("DROP TABLE `spaces`")
+      db.execSQL("ALTER TABLE `spaces_migration_temp` RENAME TO `spaces`")
+      db.execSQL("PRAGMA foreign_keys = ON")
+    }
+
+    private fun migrateToVersion8Or9(db: SupportSQLiteDatabase) {
+      addColumnIfNotExists(db, "space_item_placements", "span_x", "INTEGER NOT NULL DEFAULT 1")
+      addColumnIfNotExists(db, "space_item_placements", "span_y", "INTEGER NOT NULL DEFAULT 1")
+      addColumnIfNotExists(db, "space_item_placements", "app_widget_id", "INTEGER NOT NULL DEFAULT -1")
+      addColumnIfNotExists(db, "space_item_placements", "custom_widget_type", "TEXT DEFAULT NULL")
+
+      addColumnIfNotExists(db, "spaces", "page_count", "INTEGER NOT NULL DEFAULT 1")
+      addColumnIfNotExists(db, "spaces", "page_turn_effect", "TEXT NOT NULL DEFAULT 'NORMAL'")
+      addColumnIfNotExists(db, "spaces", "page_turn_intensity", "REAL NOT NULL DEFAULT 1.0")
+
+      val hasOldDuration = hasColumn(db, "spaces", "page_turn_duration")
+      val hasNewDuration = hasColumn(db, "spaces", "page_turn_duration_ms")
+
+      if (hasOldDuration && !hasNewDuration) {
+        try {
+          db.execSQL("ALTER TABLE `spaces` RENAME COLUMN `page_turn_duration` TO `page_turn_duration_ms`")
+        } catch (_: Exception) {
+          recreateSpacesTable(db)
+        }
+      } else if (hasOldDuration && hasNewDuration) {
+        try {
+          db.execSQL("ALTER TABLE `spaces` DROP COLUMN `page_turn_duration`")
+        } catch (_: Exception) {
+          recreateSpacesTable(db)
+        }
+      } else if (!hasNewDuration) {
+        db.execSQL("ALTER TABLE `spaces` ADD COLUMN `page_turn_duration_ms` INTEGER NOT NULL DEFAULT 300")
+      }
+    }
+
+    private val MIGRATION_6_7 = object : Migration(6, 7) {
       override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("ALTER TABLE spaces ADD COLUMN page_count INTEGER NOT NULL DEFAULT 1")
-        db.execSQL("ALTER TABLE space_item_placements ADD COLUMN span_x INTEGER NOT NULL DEFAULT 1")
-        db.execSQL("ALTER TABLE space_item_placements ADD COLUMN span_y INTEGER NOT NULL DEFAULT 1")
-        db.execSQL("ALTER TABLE space_item_placements ADD COLUMN app_widget_id INTEGER NOT NULL DEFAULT -1")
-        db.execSQL("ALTER TABLE space_item_placements ADD COLUMN custom_widget_type TEXT DEFAULT NULL")
+        addColumnIfNotExists(db, "spaces", "page_turn_effect", "TEXT NOT NULL DEFAULT 'NORMAL'")
+        addColumnIfNotExists(db, "spaces", "page_turn_duration_ms", "INTEGER NOT NULL DEFAULT 300")
+        addColumnIfNotExists(db, "spaces", "page_turn_intensity", "REAL NOT NULL DEFAULT 1.0")
+      }
+    }
+
+    internal val MIGRATION_7_8 = object : Migration(7, 8) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        migrateToVersion8Or9(db)
+      }
+    }
+
+    internal val MIGRATION_8_9 = object : Migration(8, 9) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        migrateToVersion8Or9(db)
+      }
+    }
+
+    internal val MIGRATION_7_9 = object : Migration(7, 9) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        migrateToVersion8Or9(db)
       }
     }
 
@@ -184,7 +355,17 @@ abstract class LauncherDatabase : RoomDatabase() {
           LauncherDatabase::class.java,
           "multispace_launcher.db"
         )
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+        .addMigrations(
+          MIGRATION_1_2,
+          MIGRATION_2_3,
+          MIGRATION_3_4,
+          MIGRATION_4_5,
+          MIGRATION_5_6,
+          MIGRATION_6_7,
+          MIGRATION_7_8,
+          MIGRATION_8_9,
+          MIGRATION_7_9
+        )
         .fallbackToDestructiveMigration()
         .build()
         INSTANCE = instance
