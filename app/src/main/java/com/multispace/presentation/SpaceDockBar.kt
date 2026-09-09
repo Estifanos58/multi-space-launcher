@@ -67,7 +67,8 @@ fun SpaceDockBar(
   onRemoveFromDock: (SpaceDockItem) -> Unit,
   onReorderDock: (List<SpaceDockItem>) -> Unit = {},
   modifier: Modifier = Modifier,
-  useLayer2: Boolean = true
+  useLayer2: Boolean = true,
+  appTheme: String = Space.THEME_DEFAULT
 ) {
   val deduplicatedDockItems = remember(dockItems) {
     dockItems.distinctBy { it.packageName }
@@ -279,7 +280,8 @@ fun SpaceDockBar(
                 isGhost = isDragging && item.id == draggedItem?.id,
                 getBitmap = getBitmap,
                 onLaunchApp = onLaunchApp,
-                onPositioned = { rect -> slotBounds[item.id] = rect }
+                onPositioned = { rect -> slotBounds[item.id] = rect },
+                appTheme = appTheme
               )
             }
 
@@ -317,7 +319,8 @@ fun SpaceDockBar(
                 isGhost = isDragging && item.id == draggedItem?.id,
                 getBitmap = getBitmap,
                 onLaunchApp = onLaunchApp,
-                onPositioned = { rect -> slotBounds[item.id] = rect }
+                onPositioned = { rect -> slotBounds[item.id] = rect },
+                appTheme = appTheme
               )
             }
           } else {
@@ -330,7 +333,8 @@ fun SpaceDockBar(
                 isGhost = isDragging && item.id == draggedItem?.id,
                 getBitmap = getBitmap,
                 onLaunchApp = onLaunchApp,
-                onPositioned = { rect -> slotBounds[item.id] = rect }
+                onPositioned = { rect -> slotBounds[item.id] = rect },
+                appTheme = appTheme
               )
             }
           }
@@ -362,34 +366,13 @@ fun SpaceDockBar(
             .testTag("dock_floating_dragged_item"),
           contentAlignment = Alignment.Center
         ) {
-          if (bitmap != null) {
-            Image(
-              bitmap = bitmap.asImageBitmap(),
-              contentDescription = app?.label,
-              modifier = Modifier
-                .fillMaxSize()
-                .clip(ShapeRoundMd)
-            )
-          } else {
-            Surface(
-              color = MaterialTheme.colorScheme.primaryContainer,
-              shape = ShapeRoundMd,
-              border = BorderStroke(
-                AppDimens.BorderThin,
-                MaterialTheme.colorScheme.primary
-              ),
-              modifier = Modifier.fillMaxSize()
-            ) {
-              Box(contentAlignment = Alignment.Center) {
-                Text(
-                  text = app?.label?.take(1) ?: item.packageName.take(1).uppercase(),
-                  fontWeight = FontWeight.Bold,
-                  color = MaterialTheme.colorScheme.onPrimaryContainer,
-                  fontSize = 20.sp
-                )
-              }
-            }
-          }
+          ThemedAppIcon(
+            app = app,
+            bitmap = bitmap,
+            appTheme = appTheme,
+            modifier = Modifier.fillMaxSize(),
+            fallbackText = app?.label?.take(1) ?: item.packageName.take(1).uppercase()
+          )
         }
       }
     }
@@ -432,7 +415,8 @@ private fun DockAppSlot(
   getBitmap: (DiscoveredApp) -> android.graphics.Bitmap?,
   onLaunchApp: (DiscoveredApp) -> Unit,
   onPositioned: (Rect) -> Unit,
-  modifier: Modifier = Modifier
+  modifier: Modifier = Modifier,
+  appTheme: String = Space.THEME_DEFAULT
 ) {
   val key = "${item.packageName}/${item.componentName}"
   val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == item.packageName }
@@ -478,32 +462,13 @@ private fun DockAppSlot(
       }
     } else {
       val bitmap = app?.let { getBitmap(it) }
-      if (bitmap != null) {
-        Image(
-          bitmap = bitmap.asImageBitmap(),
-          contentDescription = app?.label,
-          modifier = Modifier.fillMaxSize()
-        )
-      } else {
-        Surface(
-          color = MaterialTheme.colorScheme.primaryContainer,
-          shape = ShapeRoundMd,
-          border = BorderStroke(
-            AppDimens.BorderThin,
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-          ),
-          modifier = Modifier.fillMaxSize()
-        ) {
-          Box(contentAlignment = Alignment.Center) {
-            Text(
-              text = app?.label?.take(1) ?: item.packageName.take(1).uppercase(),
-              fontWeight = FontWeight.Bold,
-              color = MaterialTheme.colorScheme.onPrimaryContainer,
-              fontSize = 18.sp
-            )
-          }
-        }
-      }
+      ThemedAppIcon(
+        app = app,
+        bitmap = bitmap,
+        appTheme = appTheme,
+        modifier = Modifier.fillMaxSize(),
+        fallbackText = app?.label?.take(1) ?: item.packageName.take(1).uppercase()
+      )
     }
   }
 }

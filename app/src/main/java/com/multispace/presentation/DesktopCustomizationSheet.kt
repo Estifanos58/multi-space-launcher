@@ -2,9 +2,11 @@ package com.multispace.presentation
 
 import android.appwidget.AppWidgetManager
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -12,6 +14,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,17 +40,24 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
@@ -53,6 +65,7 @@ import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -73,9 +86,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.SheetState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -89,13 +106,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.multispace.R
+import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceItemPlacement
 import com.multispace.ui.theme.AmberPulse
@@ -112,7 +133,8 @@ enum class CustomizationSection {
   WALLPAPERS,
   WIDGETS,
   THEME,
-  PAGE_CONTROL
+  PAGE_CONTROL,
+  CUSTOMIZE_SPACE
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -122,11 +144,22 @@ fun DesktopCustomizationSheet(
   placements: List<SpaceItemPlacement>,
   currentPage: Int,
   totalPageCount: Int,
+  spaceApps: List<DiscoveredApp> = emptyList(),
   onDismiss: () -> Unit,
   onSelectWallpaperColor: (Long) -> Unit,
   onSelectWallpaperPreset: (String) -> Unit,
   onSelectWallpaperUri: (Uri) -> Unit,
-  onOpenWallpaperEditor: () -> Unit,
+  onOpenWallpaperEditor: () -> Unit = {},
+  onUpdateSpaceCustomization: ((
+    backgroundType: String,
+    backgroundColor: Long?,
+    backgroundImageUri: String?,
+    gridColumns: Int,
+    iconSize: String,
+    labelVisibility: Boolean
+  ) -> Unit)? = null,
+  onReorderApp: ((DiscoveredApp, Int) -> Unit)? = null,
+  onSortAlphabetically: (() -> Unit)? = null,
   onAddWidget: (pageIndex: Int, widgetType: String, spanX: Int, spanY: Int, appWidgetId: Int, pkg: String?, comp: String?) -> Unit,
   onUpdateTheme: (appTheme: String, cols: Int, iconSize: String, showLabels: Boolean) -> Unit,
   onAddPage: () -> Unit,
@@ -136,37 +169,50 @@ fun DesktopCustomizationSheet(
 ) {
   var currentSection by remember { mutableStateOf(CustomizationSection.ROOT) }
 
-  ModalBottomSheet(
-    onDismissRequest = onDismiss,
-    sheetState = sheetState,
-    containerColor = MaterialTheme.colorScheme.surface,
-    shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-    modifier = Modifier
-      .fillMaxWidth()
-      .testTag("desktop_customization_sheet")
-  ) {
-    Box(
+  if (currentSection == CustomizationSection.ROOT) {
+    DesktopCustomizationOverlay(
+      onNavigate = { currentSection = it },
+      onDismiss = onDismiss
+    )
+  } else {
+    ModalBottomSheet(
+      onDismissRequest = {
+        currentSection = CustomizationSection.ROOT
+      },
+      sheetState = sheetState,
+      containerColor = MaterialTheme.colorScheme.surface,
+      shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
       modifier = Modifier
         .fillMaxWidth()
-        .fillMaxHeight(0.70f)
-        .padding(horizontal = AppDimens.Spacing20, vertical = AppDimens.Spacing8)
+        .testTag("desktop_customization_sheet")
     ) {
-      Column(modifier = Modifier.fillMaxSize()) {
-        // Header with title and back navigation
-        Row(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = AppDimens.Spacing12),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+      Box(
+        modifier = Modifier
+          .fillMaxWidth()
+          .fillMaxHeight(0.82f)
+          .padding(horizontal = AppDimens.Spacing20, vertical = AppDimens.Spacing8)
+      ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+          // Header with title and back navigation
           Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(bottom = AppDimens.Spacing12),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
+            horizontalArrangement = Arrangement.SpaceBetween
           ) {
-            if (currentSection != CustomizationSection.ROOT) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
+            ) {
               IconButton(
-                onClick = { currentSection = CustomizationSection.ROOT },
+                onClick = {
+                  if (currentSection == CustomizationSection.CUSTOMIZE_SPACE) {
+                    currentSection = CustomizationSection.WALLPAPERS
+                  } else {
+                    currentSection = CustomizationSection.ROOT
+                  }
+                },
                 modifier = Modifier
                   .size(36.dp)
                   .testTag("btn_customization_back")
@@ -177,64 +223,59 @@ fun DesktopCustomizationSheet(
                   tint = MaterialTheme.colorScheme.onSurface
                 )
               }
-            }
-            Text(
-              text = when (currentSection) {
-                CustomizationSection.ROOT -> "Desktop Customization"
-                CustomizationSection.WALLPAPERS -> "Wallpapers"
-                CustomizationSection.WIDGETS -> "Widgets"
-                CustomizationSection.THEME -> "Theme & Layout"
-                CustomizationSection.PAGE_CONTROL -> "Page Control"
-              },
-              style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-              color = MaterialTheme.colorScheme.onSurface
-            )
-          }
-
-          IconButton(
-            onClick = onDismiss,
-            modifier = Modifier
-              .size(36.dp)
-              .testTag("btn_close_customization")
-          ) {
-            Icon(
-              imageVector = Icons.Default.Close,
-              contentDescription = "Close",
-              tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-          }
-        }
-
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        Spacer(modifier = Modifier.height(AppDimens.Spacing16))
-
-        // Animated Content for Root and Sub-sections
-        AnimatedContent(
-          targetState = currentSection,
-          transitionSpec = {
-            if (targetState != CustomizationSection.ROOT) {
-              (slideInHorizontally { it } + fadeIn()).togetherWith(slideOutHorizontally { -it } + fadeOut())
-            } else {
-              (slideInHorizontally { -it } + fadeIn()).togetherWith(slideOutHorizontally { it } + fadeOut())
-            }
-          },
-          label = "customization_section"
-        ) { section ->
-          when (section) {
-            CustomizationSection.ROOT -> {
-              CustomizationRootMenu(
-                onNavigate = { currentSection = it },
-                space = space,
-                totalPageCount = totalPageCount
+              Text(
+                text = when (currentSection) {
+                  CustomizationSection.ROOT -> "Desktop Customization"
+                  CustomizationSection.WALLPAPERS -> "Wallpapers"
+                  CustomizationSection.WIDGETS -> "Widgets"
+                  CustomizationSection.THEME -> "Theme & Layout"
+                  CustomizationSection.PAGE_CONTROL -> "Page Control"
+                  CustomizationSection.CUSTOMIZE_SPACE -> "Customize Space"
+                },
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
               )
             }
+
+            IconButton(
+              onClick = onDismiss,
+              modifier = Modifier
+                .size(36.dp)
+                .testTag("btn_close_customization")
+            ) {
+              Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Close",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+              )
+            }
+          }
+
+          HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+          Spacer(modifier = Modifier.height(AppDimens.Spacing16))
+
+          when (currentSection) {
             CustomizationSection.WALLPAPERS -> {
               WallpapersSubscreen(
                 space = space,
                 onSelectColor = onSelectWallpaperColor,
                 onSelectPreset = onSelectWallpaperPreset,
                 onSelectUri = onSelectWallpaperUri,
-                onOpenEditor = onOpenWallpaperEditor
+                onOpenCustomizeSpace = { currentSection = CustomizationSection.CUSTOMIZE_SPACE }
+              )
+            }
+            CustomizationSection.CUSTOMIZE_SPACE -> {
+              CustomizeSpaceSubscreen(
+                space = space,
+                spaceApps = spaceApps,
+                onSaveCustomization = { bgType, bgColor, bgUri, cols, size, showLabels ->
+                  onUpdateSpaceCustomization?.invoke(bgType, bgColor, bgUri, cols, size, showLabels)
+                },
+                onSelectColor = onSelectWallpaperColor,
+                onSelectPreset = onSelectWallpaperPreset,
+                onSelectUri = onSelectWallpaperUri,
+                onReorderApp = onReorderApp,
+                onSortAlphabetically = onSortAlphabetically
               )
             }
             CustomizationSection.WIDGETS -> {
@@ -262,6 +303,7 @@ fun DesktopCustomizationSheet(
                 onScrollToPage = onScrollToPage
               )
             }
+            CustomizationSection.ROOT -> {}
           }
         }
       }
@@ -270,155 +312,147 @@ fun DesktopCustomizationSheet(
 }
 
 @Composable
-private fun CustomizationRootMenu(
+private fun DesktopCustomizationOverlay(
   onNavigate: (CustomizationSection) -> Unit,
-  space: Space,
-  totalPageCount: Int
+  onDismiss: () -> Unit
 ) {
-  Column(
+  BackHandler(onBack = onDismiss)
+
+  Box(
     modifier = Modifier
       .fillMaxSize()
-      .verticalScroll(rememberScrollState()),
-    verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+      .clickable(
+        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+        indication = null,
+        onClick = onDismiss
+      )
+      .testTag("desktop_customization_overlay")
   ) {
-    CustomizationCategoryTile(
-      title = "Wallpapers",
-      subtitle = "Solid colors, curated themes, or custom photos",
-      icon = Icons.Default.Wallpaper,
-      badge = if (space.homeWallpaperType == Space.BACKGROUND_DEFAULT) "Default" else "Custom",
-      iconTint = QuantumViolet,
-      onClick = { onNavigate(CustomizationSection.WALLPAPERS) },
-      testTag = "tile_customization_wallpapers"
-    )
+    // Floating horizontal dock at the bottom of the screen
+    Surface(
+      shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+      color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+      border = androidx.compose.foundation.BorderStroke(
+        1.dp,
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+      ),
+      tonalElevation = 8.dp,
+      shadowElevation = 12.dp,
+      modifier = Modifier
+        .align(Alignment.BottomCenter)
+        .navigationBarsPadding()
+        .padding(bottom = AppDimens.Spacing32)
+        .padding(horizontal = AppDimens.Spacing16)
+        .clickable(
+          interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+          indication = null,
+          onClick = { /* Intercept click so it does not dismiss */ }
+        )
+        .testTag("desktop_customization_horizontal_bar")
+    ) {
+      Row(
+        modifier = Modifier
+          .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing12),
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        HorizontalCustomizationItem(
+          title = "Wallpapers",
+          icon = Icons.Default.Wallpaper,
+          iconTint = QuantumViolet,
+          onClick = { onNavigate(CustomizationSection.WALLPAPERS) },
+          testTag = "tile_customization_wallpapers"
+        )
 
-    CustomizationCategoryTile(
-      title = "Widgets",
-      subtitle = "Clock, search bar, calendar, notes, battery, and system widgets",
-      icon = Icons.Default.Widgets,
-      badge = "Add Items",
-      iconTint = CyberCyan,
-      onClick = { onNavigate(CustomizationSection.WIDGETS) },
-      testTag = "tile_customization_widgets"
-    )
+        HorizontalCustomizationItem(
+          title = "Widgets",
+          icon = Icons.Default.Widgets,
+          iconTint = CyberCyan,
+          onClick = { onNavigate(CustomizationSection.WIDGETS) },
+          testTag = "tile_customization_widgets"
+        )
 
-    CustomizationCategoryTile(
-      title = "Theme",
-      subtitle = "Palette, grid columns (${space.gridColumns}x), icon size, and label visibility",
-      icon = Icons.Default.Palette,
-      badge = space.appTheme,
-      iconTint = EmeraldCore,
-      onClick = { onNavigate(CustomizationSection.THEME) },
-      testTag = "tile_customization_theme"
-    )
+        HorizontalCustomizationItem(
+          title = "Theme",
+          icon = Icons.Default.Palette,
+          iconTint = EmeraldCore,
+          onClick = { onNavigate(CustomizationSection.THEME) },
+          testTag = "tile_customization_theme"
+        )
 
-    CustomizationCategoryTile(
-      title = "Page Control",
-      subtitle = "Create, delete, or reorder desktop pages (Page 1 is permanent)",
-      icon = Icons.Default.Layers,
-      badge = "$totalPageCount ${if (totalPageCount == 1) "Page" else "Pages"}",
-      iconTint = AmberPulse,
-      onClick = { onNavigate(CustomizationSection.PAGE_CONTROL) },
-      testTag = "tile_customization_page_control"
-    )
+        HorizontalCustomizationItem(
+          title = "Page Control",
+          icon = Icons.Default.Layers,
+          iconTint = AmberPulse,
+          onClick = { onNavigate(CustomizationSection.PAGE_CONTROL) },
+          testTag = "tile_customization_page_control"
+        )
+      }
+    }
   }
 }
 
 @Composable
-private fun CustomizationCategoryTile(
+private fun HorizontalCustomizationItem(
   title: String,
-  subtitle: String,
   icon: ImageVector,
-  badge: String,
   iconTint: Color,
   onClick: () -> Unit,
   testTag: String
 ) {
-  Card(
-    onClick = onClick,
-    shape = ShapeRoundMd,
-    colors = CardDefaults.cardColors(
-      containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-    ),
-    border = androidx.compose.foundation.BorderStroke(
-      1.dp,
-      MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-    ),
+  Column(
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.Center,
     modifier = Modifier
-      .fillMaxWidth()
+      .clip(ShapeRoundMd)
+      .clickable(onClick = onClick)
+      .padding(horizontal = AppDimens.Spacing6, vertical = AppDimens.Spacing4)
       .testTag(testTag)
   ) {
-    Row(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(AppDimens.Spacing16),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.SpaceBetween
+    Surface(
+      shape = CircleShape,
+      color = iconTint.copy(alpha = 0.15f),
+      border = androidx.compose.foundation.BorderStroke(
+        1.dp,
+        iconTint.copy(alpha = 0.35f)
+      ),
+      modifier = Modifier.size(50.dp)
     ) {
-      Row(
-        modifier = Modifier.weight(1f),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing16)
+      Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.fillMaxSize()
       ) {
-        Box(
-          modifier = Modifier
-            .size(44.dp)
-            .clip(ShapeRoundMd)
-            .background(iconTint.copy(alpha = 0.15f)),
-          contentAlignment = Alignment.Center
-        ) {
-          Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = iconTint,
-            modifier = Modifier.size(24.dp)
-          )
-        }
-
-        Column {
-          Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
-          ) {
-            Text(
-              text = title,
-              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-              color = MaterialTheme.colorScheme.onSurface
-            )
-            Box(
-              modifier = Modifier
-                .clip(CircleShape)
-                .background(iconTint.copy(alpha = 0.2f))
-                .padding(horizontal = AppDimens.Spacing8, vertical = 2.dp)
-            ) {
-              Text(
-                text = badge,
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                color = iconTint,
-                fontSize = 10.sp
-              )
-            }
-          }
-          Spacer(modifier = Modifier.height(AppDimens.Spacing4))
-          Text(
-            text = subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-          )
-        }
+        Icon(
+          imageVector = icon,
+          contentDescription = title,
+          tint = iconTint,
+          modifier = Modifier.size(24.dp)
+        )
       }
-
-      Icon(
-        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-        contentDescription = "Open",
-        tint = MaterialTheme.colorScheme.onSurfaceVariant
-      )
     }
+
+    Spacer(modifier = Modifier.height(AppDimens.Spacing6))
+
+    Text(
+      text = title,
+      style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+      color = MaterialTheme.colorScheme.onSurface,
+      textAlign = TextAlign.Center,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis
+    )
   }
 }
 
 // --- WALLPAPERS SUB-SCREEN ---
+
+data class DefaultWallpaperItem(
+  val id: String,
+  val name: String,
+  val category: String,
+  @DrawableRes val resId: Int,
+  val isDefault: Boolean = false
+)
 
 @Composable
 private fun WallpapersSubscreen(
@@ -426,14 +460,24 @@ private fun WallpapersSubscreen(
   onSelectColor: (Long) -> Unit,
   onSelectPreset: (String) -> Unit,
   onSelectUri: (Uri) -> Unit,
-  onOpenEditor: () -> Unit
+  onOpenCustomizeSpace: () -> Unit
 ) {
+  val context = LocalContext.current
   val photoPickerLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.PickVisualMedia()
   ) { uri: Uri? ->
     if (uri != null) {
       onSelectUri(uri)
     }
+  }
+
+  val defaultWallpapers = remember(context.packageName) {
+    listOf(
+      DefaultWallpaperItem("aurora", "Aurora Borealis", "Cosmic Glow", R.drawable.img_wallpaper_aurora, isDefault = true),
+      DefaultWallpaperItem("cyber", "Cyberpunk Glow", "Neon Night", R.drawable.img_wallpaper_cyber),
+      DefaultWallpaperItem("mountain", "Mountain Mist", "Alpine Serenity", R.drawable.img_wallpaper_mountain),
+      DefaultWallpaperItem("nature", "Emerald Nature", "Forest Wonder", R.drawable.img_wallpaper_nature)
+    )
   }
 
   val presetColors = listOf(
@@ -447,20 +491,13 @@ private fun WallpapersSubscreen(
     0xFF083344 to "Ocean Deep"
   )
 
-  val presetThemes = listOf(
-    "Deep Space" to "android.resource://com.example/drawable/wp_space",
-    "Cyberpunk Glow" to "android.resource://com.example/drawable/wp_cyber",
-    "Aurora Borealis" to "android.resource://com.example/drawable/wp_aurora",
-    "Minimalist Charcoal" to "android.resource://com.example/drawable/wp_minimal"
-  )
-
   Column(
     modifier = Modifier
       .fillMaxSize()
       .verticalScroll(rememberScrollState()),
     verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16)
   ) {
-    // Action Row: Photo Picker & Advanced Wallpaper Editor
+    // Action Row: Photo Picker & Continuation to Customize Space
     Row(
       modifier = Modifier.fillMaxWidth(),
       horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
@@ -484,7 +521,7 @@ private fun WallpapersSubscreen(
       }
 
       OutlinedButton(
-        onClick = onOpenEditor,
+        onClick = onOpenCustomizeSpace,
         shape = ShapeRoundMd,
         modifier = Modifier
           .weight(1f)
@@ -493,9 +530,130 @@ private fun WallpapersSubscreen(
       ) {
         Icon(imageVector = Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(modifier = Modifier.width(AppDimens.Spacing8))
-        Text("Fine Tune", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+        Text("Customize Space", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
       }
     }
+
+    // Default Wallpapers Gallery
+    Text(
+      text = "Default Wallpapers",
+      style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+      color = MaterialTheme.colorScheme.onSurface
+    )
+
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .horizontalScroll(rememberScrollState()),
+      horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+    ) {
+      defaultWallpapers.forEach { wallpaper ->
+        val uriStr = "android.resource://${context.packageName}/${wallpaper.resId}"
+        val isSelected = if (wallpaper.isDefault) {
+          space.homeWallpaperType == Space.BACKGROUND_DEFAULT ||
+            (space.homeWallpaperType == Space.BACKGROUND_IMAGE && (space.homeWallpaperImageUri == uriStr || space.homeWallpaperImageUri.isNullOrEmpty() || space.homeWallpaperImageUri == "DEFAULT"))
+        } else {
+          space.homeWallpaperType == Space.BACKGROUND_IMAGE && space.homeWallpaperImageUri == uriStr
+        }
+
+        Card(
+          onClick = { onSelectPreset(uriStr) },
+          shape = ShapeRoundMd,
+          modifier = Modifier
+            .width(135.dp)
+            .height(195.dp)
+            .testTag("default_wallpaper_${wallpaper.id}"),
+          border = androidx.compose.foundation.BorderStroke(
+            if (isSelected) 3.dp else 1.dp,
+            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+          )
+        ) {
+          Box(modifier = Modifier.fillMaxSize()) {
+            Image(
+              painter = painterResource(id = wallpaper.resId),
+              contentDescription = wallpaper.name,
+              contentScale = ContentScale.Crop,
+              modifier = Modifier.fillMaxSize()
+            )
+
+            // Scrim overlay for text
+            Box(
+              modifier = Modifier
+                .fillMaxSize()
+                .background(
+                  Brush.verticalGradient(
+                    colors = listOf(
+                      Color.Transparent,
+                      Color.Black.copy(alpha = 0.3f),
+                      Color.Black.copy(alpha = 0.85f)
+                    ),
+                    startY = 140f
+                  )
+                )
+            )
+
+            if (isSelected) {
+              Box(
+                modifier = Modifier
+                  .align(Alignment.TopEnd)
+                  .padding(AppDimens.Spacing8)
+                  .size(26.dp)
+                  .clip(CircleShape)
+                  .background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.Center
+              ) {
+                Icon(
+                  imageVector = Icons.Default.Check,
+                  contentDescription = "Selected",
+                  tint = Color.White,
+                  modifier = Modifier.size(16.dp)
+                )
+              }
+            }
+
+            Column(
+              modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(AppDimens.Spacing8)
+            ) {
+              if (wallpaper.isDefault) {
+                Surface(
+                  shape = CircleShape,
+                  color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+                  modifier = Modifier.padding(bottom = 2.dp)
+                ) {
+                  Text(
+                    text = "DEFAULT",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    fontSize = 9.sp,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                  )
+                }
+              }
+              Text(
+                text = wallpaper.name,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+              )
+              Text(
+                text = wallpaper.category,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.75f),
+                fontSize = 10.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+              )
+            }
+          }
+        }
+      }
+    }
+
+    Spacer(modifier = Modifier.height(AppDimens.Spacing4))
 
     // Color Swatches
     Text(
@@ -548,64 +706,541 @@ private fun WallpapersSubscreen(
         }
       }
     }
+  }
+}
 
-    Spacer(modifier = Modifier.height(AppDimens.Spacing8))
+// --- CUSTOMIZE SPACE SUB-SCREEN (CONTINUATION OF BOTTOM SHEET) ---
 
-    // Preset Styles
-    Text(
-      text = "Presets",
-      style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-      color = MaterialTheme.colorScheme.onSurface
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CustomizeSpaceSubscreen(
+  space: Space,
+  spaceApps: List<DiscoveredApp>,
+  onSaveCustomization: (backgroundType: String, backgroundColor: Long?, backgroundImageUri: String?, gridColumns: Int, iconSize: String, labelVisibility: Boolean) -> Unit,
+  onSelectColor: (Long) -> Unit,
+  onSelectPreset: (String) -> Unit,
+  onSelectUri: (Uri) -> Unit,
+  onReorderApp: ((DiscoveredApp, Int) -> Unit)?,
+  onSortAlphabetically: (() -> Unit)?
+) {
+  val context = LocalContext.current
+
+  val defaultWallpapers = remember(context.packageName) {
+    listOf(
+      DefaultWallpaperItem("aurora", "Aurora Borealis", "Cosmic Glow", R.drawable.img_wallpaper_aurora, isDefault = true),
+      DefaultWallpaperItem("cyber", "Cyberpunk Glow", "Neon Night", R.drawable.img_wallpaper_cyber),
+      DefaultWallpaperItem("mountain", "Mountain Mist", "Alpine Serenity", R.drawable.img_wallpaper_mountain),
+      DefaultWallpaperItem("nature", "Emerald Nature", "Forest Wonder", R.drawable.img_wallpaper_nature)
     )
+  }
 
-    Row(
-      modifier = Modifier
-        .fillMaxWidth()
-        .horizontalScroll(rememberScrollState()),
-      horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+  val presetColors = listOf(
+    0xFF12141C to "Midnight Dark",
+    0xFF1E1B4B to "Deep Indigo",
+    0xFF0F172A to "Slate Navy",
+    0xFF1C1917 to "Warm Onyx",
+    0xFF14532D to "Forest Green",
+    0xFF701A75 to "Crimson Plum",
+    0xFF312E81 to "Royal Violet",
+    0xFF083344 to "Ocean Deep"
+  )
+
+  var selectedBgType by remember(space.id) { mutableStateOf(space.backgroundType) }
+  var selectedBgColor by remember(space.id) { mutableStateOf(space.backgroundColor ?: presetColors.first().first) }
+  var selectedImageUri by remember(space.id) { mutableStateOf(space.backgroundImageUri) }
+  var selectedGridColumns by remember(space.id) { mutableIntStateOf(space.gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)) }
+  var selectedIconSize by remember(space.id) { mutableStateOf(space.iconSize) }
+  var selectedLabelVisibility by remember(space.id) { mutableStateOf(space.labelVisibility) }
+
+  var activeTab by remember { mutableIntStateOf(0) } // 0: Wallpaper, 1: Grid & Layout, 2: App Ordering
+
+  val photoPickerLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.PickVisualMedia()
+  ) { uri: Uri? ->
+    if (uri != null) {
+      selectedImageUri = uri.toString()
+      selectedBgType = Space.BACKGROUND_IMAGE
+      onSelectUri(uri)
+    }
+  }
+
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .padding(bottom = AppDimens.Spacing8),
+    verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+  ) {
+    // Space Identity Banner
+    Surface(
+      shape = ShapeRoundMd,
+      color = MaterialTheme.colorScheme.surfaceContainerHigh,
+      modifier = Modifier.fillMaxWidth()
     ) {
-      presetThemes.forEach { (name, uriStr) ->
-        val isSelected = space.homeWallpaperImageUri == uriStr
-        OutlinedCard(
-          onClick = { onSelectPreset(uriStr) },
-          shape = ShapeRoundMd,
-          modifier = Modifier
-            .width(130.dp)
-            .height(84.dp)
-            .testTag("preset_$name"),
-          colors = CardDefaults.outlinedCardColors(
-            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceContainerHigh
-          ),
-          border = androidx.compose.foundation.BorderStroke(
-            if (isSelected) 2.dp else 1.dp,
-            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing12),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+      ) {
+        Column {
+          Text(
+            text = space.name,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface
           )
+          Text(
+            text = "${selectedGridColumns} Cols • ${selectedIconSize.replaceFirstChar { it.uppercase() }} Icons",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+          )
+        }
+        Surface(
+          shape = CircleShape,
+          color = MaterialTheme.colorScheme.primaryContainer,
+          modifier = Modifier.size(36.dp)
         ) {
-          Box(
+          Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            Icon(
+              imageVector = Icons.Default.Tune,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.onPrimaryContainer,
+              modifier = Modifier.size(20.dp)
+            )
+          }
+        }
+      }
+    }
+
+    // Segmented Navigation Tabs
+    SecondaryTabRow(
+      selectedTabIndex = activeTab,
+      containerColor = MaterialTheme.colorScheme.surface,
+      modifier = Modifier.fillMaxWidth()
+    ) {
+      Tab(
+        selected = activeTab == 0,
+        onClick = { activeTab = 0 },
+        text = { Text("Wallpapers", fontWeight = if (activeTab == 0) FontWeight.Bold else FontWeight.Normal) },
+        icon = { Icon(Icons.Default.Wallpaper, contentDescription = null, modifier = Modifier.size(18.dp)) }
+      )
+      Tab(
+        selected = activeTab == 1,
+        onClick = { activeTab = 1 },
+        text = { Text("Grid & Icons", fontWeight = if (activeTab == 1) FontWeight.Bold else FontWeight.Normal) },
+        icon = { Icon(Icons.Default.GridView, contentDescription = null, modifier = Modifier.size(18.dp)) }
+      )
+      Tab(
+        selected = activeTab == 2,
+        onClick = { activeTab = 2 },
+        text = { Text("App Ordering", fontWeight = if (activeTab == 2) FontWeight.Bold else FontWeight.Normal) },
+        icon = { Icon(Icons.Default.FormatListNumbered, contentDescription = null, modifier = Modifier.size(18.dp)) }
+      )
+    }
+
+    // Tab Body
+    Box(
+      modifier = Modifier
+        .weight(1f)
+        .fillMaxWidth()
+    ) {
+      when (activeTab) {
+        0 -> {
+          // Wallpaper & Color Tab
+          Column(
             modifier = Modifier
               .fillMaxSize()
-              .padding(AppDimens.Spacing12),
-            contentAlignment = Alignment.BottomStart
+              .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16)
           ) {
-            Column {
-              Icon(
-                imageVector = Icons.Default.AutoAwesome,
-                contentDescription = null,
-                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-              )
-              Spacer(modifier = Modifier.height(AppDimens.Spacing6))
-              Text(
-                text = name,
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-              )
+            // Default Wallpapers
+            Text(
+              text = "Default Wallpapers",
+              style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+              horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+            ) {
+              defaultWallpapers.forEach { wp ->
+                val uriStr = "android.resource://${context.packageName}/${wp.resId}"
+                val isSelected = if (wp.isDefault) {
+                  selectedBgType == Space.BACKGROUND_DEFAULT || (selectedBgType == Space.BACKGROUND_IMAGE && (selectedImageUri == uriStr || selectedImageUri.isNullOrEmpty() || selectedImageUri == "DEFAULT"))
+                } else {
+                  selectedBgType == Space.BACKGROUND_IMAGE && selectedImageUri == uriStr
+                }
+
+                Card(
+                  onClick = {
+                    selectedBgType = Space.BACKGROUND_IMAGE
+                    selectedImageUri = uriStr
+                    onSelectPreset(uriStr)
+                  },
+                  shape = ShapeRoundMd,
+                  modifier = Modifier
+                    .width(120.dp)
+                    .height(170.dp),
+                  border = androidx.compose.foundation.BorderStroke(
+                    if (isSelected) 3.dp else 1.dp,
+                    if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                  )
+                ) {
+                  Box(modifier = Modifier.fillMaxSize()) {
+                    Image(
+                      painter = painterResource(id = wp.resId),
+                      contentDescription = wp.name,
+                      contentScale = ContentScale.Crop,
+                      modifier = Modifier.fillMaxSize()
+                    )
+
+                    Box(
+                      modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                          Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
+                            startY = 120f
+                          )
+                        )
+                    )
+
+                    if (isSelected) {
+                      Box(
+                        modifier = Modifier
+                          .align(Alignment.TopEnd)
+                          .padding(6.dp)
+                          .size(22.dp)
+                          .clip(CircleShape)
+                          .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center
+                      ) {
+                        Icon(
+                          imageVector = Icons.Default.Check,
+                          contentDescription = "Selected",
+                          tint = Color.White,
+                          modifier = Modifier.size(14.dp)
+                        )
+                      }
+                    }
+
+                    Column(
+                      modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .padding(6.dp)
+                    ) {
+                      if (wp.isDefault) {
+                        Surface(
+                          shape = CircleShape,
+                          color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+                          modifier = Modifier.padding(bottom = 2.dp)
+                        ) {
+                          Text(
+                            text = "DEFAULT",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontSize = 8.sp,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                          )
+                        }
+                      }
+                      Text(
+                        text = wp.name,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                      )
+                    }
+                  }
+                }
+              }
+            }
+
+            // Solid Colors
+            Text(
+              text = "Solid Colors",
+              style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+              horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+            ) {
+              presetColors.forEach { (colorVal, name) ->
+                val isSelected = selectedBgType == Space.BACKGROUND_COLOR && selectedBgColor == colorVal
+                Column(
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  modifier = Modifier.clickable {
+                    selectedBgType = Space.BACKGROUND_COLOR
+                    selectedBgColor = colorVal
+                    onSelectColor(colorVal)
+                  }
+                ) {
+                  Box(
+                    modifier = Modifier
+                      .size(46.dp)
+                      .clip(CircleShape)
+                      .background(Color(colorVal))
+                      .border(
+                        width = if (isSelected) 3.dp else 1.dp,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                        shape = CircleShape
+                      ),
+                    contentAlignment = Alignment.Center
+                  ) {
+                    if (isSelected) {
+                      Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Selected",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                      )
+                    }
+                  }
+                  Spacer(modifier = Modifier.height(4.dp))
+                  Text(
+                    text = name,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                    maxLines = 1
+                  )
+                }
+              }
+            }
+
+            // Custom Photo
+            OutlinedButton(
+              onClick = {
+                photoPickerLauncher.launch(
+                  PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+              },
+              shape = ShapeRoundMd,
+              modifier = Modifier
+                .fillMaxWidth()
+                .height(46.dp)
+            ) {
+              Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+              Spacer(modifier = Modifier.width(8.dp))
+              Text("Choose Photo from Gallery", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold))
+            }
+          }
+        }
+        1 -> {
+          // Grid & Layout Tab
+          Column(
+            modifier = Modifier
+              .fillMaxSize()
+              .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16)
+          ) {
+            Text(
+              text = "Desktop Grid Columns",
+              style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+              (3..6).forEach { cols ->
+                val isSelected = selectedGridColumns == cols
+                FilterChip(
+                  selected = isSelected,
+                  onClick = { selectedGridColumns = cols },
+                  label = {
+                    Text(
+                      text = "$cols Columns",
+                      style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                      )
+                    )
+                  },
+                  modifier = Modifier.weight(1f)
+                )
+              }
+            }
+
+            Text(
+              text = "App Icon Size",
+              style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+              listOf(
+                Space.ICON_SIZE_SMALL to "Compact",
+                Space.ICON_SIZE_MEDIUM to "Standard",
+                Space.ICON_SIZE_LARGE to "Spacious"
+              ).forEach { (sizeKey, label) ->
+                val isSelected = selectedIconSize == sizeKey
+                FilterChip(
+                  selected = isSelected,
+                  onClick = { selectedIconSize = sizeKey },
+                  label = {
+                    Text(
+                      text = label,
+                      style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                      )
+                    )
+                  },
+                  modifier = Modifier.weight(1f)
+                )
+              }
+            }
+
+            Surface(
+              shape = ShapeRoundMd,
+              color = MaterialTheme.colorScheme.surfaceContainerHigh,
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Row(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(AppDimens.Spacing16),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+              ) {
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(
+                    text = "Show App Labels",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface
+                  )
+                  Text(
+                    text = "Display app titles under icons on the desktop",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                  )
+                }
+                Switch(
+                  checked = selectedLabelVisibility,
+                  onCheckedChange = { selectedLabelVisibility = it }
+                )
+              }
+            }
+          }
+        }
+        2 -> {
+          // App Ordering Tab
+          Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+          ) {
+            FilledTonalButton(
+              onClick = { onSortAlphabetically?.invoke() },
+              shape = ShapeRoundMd,
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Icon(Icons.Default.SortByAlpha, contentDescription = null, modifier = Modifier.size(18.dp))
+              Spacer(modifier = Modifier.width(8.dp))
+              Text("Sort Apps Alphabetically (A-Z)", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+            }
+
+            if (spaceApps.isEmpty()) {
+              Box(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .weight(1f),
+                contentAlignment = Alignment.Center
+              ) {
+                Text(
+                  text = "No apps in this space yet",
+                  style = MaterialTheme.typography.bodyMedium,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+              }
+            } else {
+              LazyColumn(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+              ) {
+                itemsIndexed(spaceApps) { index, app ->
+                  Surface(
+                    shape = ShapeRoundSm,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth()
+                  ) {
+                    Row(
+                      modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                      Text(
+                        text = app.label,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                      )
+
+                      Row {
+                        IconButton(
+                          onClick = { onReorderApp?.invoke(app, -1) },
+                          enabled = index > 0,
+                          modifier = Modifier.size(32.dp)
+                        ) {
+                          Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(
+                          onClick = { onReorderApp?.invoke(app, 1) },
+                          enabled = index < spaceApps.size - 1,
+                          modifier = Modifier.size(32.dp)
+                        ) {
+                          Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(16.dp))
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }
       }
+    }
+
+    // Save & Apply Button
+    Button(
+      onClick = {
+        onSaveCustomization(
+          selectedBgType,
+          if (selectedBgType == Space.BACKGROUND_COLOR) selectedBgColor else null,
+          if (selectedBgType == Space.BACKGROUND_IMAGE) selectedImageUri else null,
+          selectedGridColumns,
+          selectedIconSize,
+          selectedLabelVisibility
+        )
+      },
+      shape = ShapeRoundMd,
+      colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+      modifier = Modifier
+        .fillMaxWidth()
+        .height(48.dp)
+        .testTag("btn_apply_space_customization")
+    ) {
+      Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(20.dp))
+      Spacer(modifier = Modifier.width(8.dp))
+      Text("Apply Customization", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
     }
   }
 }
@@ -874,134 +1509,459 @@ private fun ThemeSubscreen(
   space: Space,
   onUpdateTheme: (appTheme: String, cols: Int, iconSize: String, showLabels: Boolean) -> Unit
 ) {
-  var selectedTheme by remember { mutableStateOf(space.appTheme) }
-  var selectedColumns by remember { mutableIntStateOf(space.gridColumns) }
-  var selectedIconSize by remember { mutableStateOf(space.iconSize) }
-  var showLabels by remember { mutableStateOf(space.labelVisibility) }
+  var selectedTheme by remember(space.appTheme) { mutableStateOf(space.appTheme) }
+  var selectedColumns by remember(space.gridColumns) { mutableIntStateOf(space.gridColumns) }
+  var selectedIconSize by remember(space.iconSize) { mutableStateOf(space.iconSize) }
+  var showLabels by remember(space.labelVisibility) { mutableStateOf(space.labelVisibility) }
 
-  val themePresets = listOf(
-    "DEFAULT" to "Modern Teal",
-    "PURPLE" to "Midnight Violet",
-    "DARK" to "Deep Slate",
-    "NEON" to "Cyber Neon",
-    "MINIMAL" to "Pure Minimal",
-    "EMERALD" to "Forest Emerald",
-    "SUNSET" to "Crimson Sunset",
-    "OCEAN" to "Pacific Blue"
-  )
+  val activePalette = remember(selectedTheme) { AppThemeHelper.getPalette(selectedTheme) }
 
   val columnsList = listOf(3, 4, 5, 6)
   val iconSizes = listOf(
-    Space.ICON_SIZE_SMALL to "Small",
-    Space.ICON_SIZE_MEDIUM to "Medium",
-    Space.ICON_SIZE_LARGE to "Large"
+    Space.ICON_SIZE_SMALL to ("Small" to "44dp"),
+    Space.ICON_SIZE_MEDIUM to ("Standard" to "52dp"),
+    Space.ICON_SIZE_LARGE to ("Large" to "62dp")
   )
 
   Column(
     modifier = Modifier
       .fillMaxSize()
       .verticalScroll(rememberScrollState()),
-    verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16)
+    verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing20)
   ) {
-    // Theme Palette
-    Text(
-      text = "App Theme Palette",
-      style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-      color = MaterialTheme.colorScheme.onSurface
-    )
-
-    Row(
+    // 1. LIVE DESKTOP PREVIEW CARD
+    Card(
+      shape = ShapeRoundLg,
+      colors = CardDefaults.cardColors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+      ),
+      border = BorderStroke(1.dp, activePalette.primaryColor.copy(alpha = 0.35f)),
       modifier = Modifier
         .fillMaxWidth()
-        .horizontalScroll(rememberScrollState()),
-      horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
+        .testTag("theme_live_preview_card")
     ) {
-      themePresets.forEach { (themeKey, name) ->
-        FilterChip(
-          selected = selectedTheme == themeKey,
-          onClick = {
-            selectedTheme = themeKey
-            onUpdateTheme(themeKey, selectedColumns, selectedIconSize, showLabels)
-          },
-          label = { Text(name) },
-          shape = ShapeRoundMd,
-          colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primary,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-          ),
-          modifier = Modifier.testTag("theme_chip_$themeKey")
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(AppDimens.Spacing16),
+        verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+      ) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
+          ) {
+            Icon(
+              imageVector = Icons.Default.Visibility,
+              contentDescription = null,
+              tint = activePalette.primaryColor,
+              modifier = Modifier.size(18.dp)
+            )
+            Text(
+              text = "Live Desktop Preview",
+              style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onSurface
+            )
+          }
+
+          Surface(
+            shape = CircleShape,
+            color = activePalette.primaryColor.copy(alpha = 0.15f),
+            border = BorderStroke(1.dp, activePalette.primaryColor.copy(alpha = 0.4f))
+          ) {
+            Text(
+              text = activePalette.name,
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+              color = activePalette.primaryColor,
+              modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            )
+          }
+        }
+
+        // Preview app row
+        val previewApps = listOf(
+          Triple("Phone", Icons.Default.Phone, activePalette.primaryColor),
+          Triple("Mail", Icons.Default.Email, activePalette.secondaryColor),
+          Triple("Search", Icons.Default.Search, activePalette.primaryColor),
+          Triple("Apps", Icons.Default.Apps, activePalette.secondaryColor)
         )
+
+        val previewIconDp = when (selectedIconSize) {
+          Space.ICON_SIZE_SMALL -> 40.dp
+          Space.ICON_SIZE_LARGE -> 54.dp
+          else -> 46.dp
+        }
+
+        Surface(
+          shape = ShapeRoundMd,
+          color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+          border = BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = AppDimens.Spacing12, vertical = AppDimens.Spacing16),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            val isThemed = !selectedTheme.equals(Space.THEME_DEFAULT, ignoreCase = true)
+            previewApps.take(selectedColumns.coerceAtMost(4)).forEach { (name, icon, tint) ->
+              Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+              ) {
+                Box(
+                  modifier = Modifier
+                    .size(previewIconDp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (isThemed) activePalette.iconBackgroundColor else MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .border(
+                      width = if (isThemed) 1.5.dp else 1.dp,
+                      color = if (isThemed) activePalette.primaryColor.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant,
+                      shape = RoundedCornerShape(14.dp)
+                    ),
+                  contentAlignment = Alignment.Center
+                ) {
+                  Icon(
+                    imageVector = icon,
+                    contentDescription = name,
+                    tint = if (isThemed) activePalette.primaryColor else tint,
+                    modifier = Modifier.size(previewIconDp * 0.55f)
+                  )
+                }
+
+                if (showLabels) {
+                  Spacer(modifier = Modifier.height(AppDimens.Spacing4))
+                  Text(
+                    text = name,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    color = MaterialTheme.colorScheme.onSurface
+                  )
+                }
+              }
+            }
+          }
+        }
       }
     }
 
-    // Grid Columns
-    Text(
-      text = "Grid Density",
-      style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-      color = MaterialTheme.colorScheme.onSurface
-    )
-
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
-    ) {
-      columnsList.forEach { cols ->
-        FilterChip(
-          selected = selectedColumns == cols,
-          onClick = {
-            selectedColumns = cols
-            onUpdateTheme(selectedTheme, cols, selectedIconSize, showLabels)
-          },
-          label = { Text("${cols} Columns") },
-          shape = ShapeRoundMd,
-          modifier = Modifier
-            .weight(1f)
-            .testTag("grid_col_$cols"),
-          colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primary,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+    // 2. APP THEME PALETTE SECTION
+    Column(verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Column {
+          Text(
+            text = "App Theme Palette",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface
           )
-        )
-      }
-    }
-
-    // Icon Size
-    Text(
-      text = "Icon Size",
-      style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-      color = MaterialTheme.colorScheme.onSurface
-    )
-
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
-    ) {
-      iconSizes.forEach { (sizeKey, label) ->
-        FilterChip(
-          selected = selectedIconSize == sizeKey,
-          onClick = {
-            selectedIconSize = sizeKey
-            onUpdateTheme(selectedTheme, selectedColumns, sizeKey, showLabels)
-          },
-          label = { Text(label) },
-          shape = ShapeRoundMd,
-          modifier = Modifier
-            .weight(1f)
-            .testTag("icon_size_$sizeKey"),
-          colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primary,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+          Text(
+            text = "Color accent & icon styling applied to desktop apps",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
           )
+        }
+        Icon(
+          imageVector = Icons.Default.Palette,
+          contentDescription = null,
+          tint = QuantumViolet
         )
+      }
+
+      // 2-column Grid of Themes
+      Column(verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)) {
+        AppThemeHelper.PALETTES.chunked(2).forEach { rowPalettes ->
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
+          ) {
+            rowPalettes.forEach { palette ->
+              val isSelected = selectedTheme.equals(palette.id, ignoreCase = true)
+              Surface(
+                shape = ShapeRoundMd,
+                color = if (isSelected) QuantumViolet.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = if (isSelected) BorderStroke(2.dp, QuantumViolet) else BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                modifier = Modifier
+                  .weight(1f)
+                  .clickable {
+                    selectedTheme = palette.id
+                    onUpdateTheme(palette.id, selectedColumns, selectedIconSize, showLabels)
+                  }
+                  .testTag("theme_card_${palette.id.lowercase()}")
+              ) {
+                Column(
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(AppDimens.Spacing12),
+                  verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
+                ) {
+                  Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                  ) {
+                    // Mini preview icon chip
+                    Box(
+                      modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(palette.iconBackgroundColor)
+                        .border(1.2.dp, palette.primaryColor.copy(alpha = 0.6f), RoundedCornerShape(10.dp)),
+                      contentAlignment = Alignment.Center
+                    ) {
+                      Icon(
+                        imageVector = Icons.Default.Apps,
+                        contentDescription = null,
+                        tint = palette.primaryColor,
+                        modifier = Modifier.size(18.dp)
+                      )
+                    }
+
+                    // Color dots & selection indicator
+                    Row(
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing4)
+                    ) {
+                      Box(
+                        modifier = Modifier
+                          .size(10.dp)
+                          .clip(CircleShape)
+                          .background(palette.primaryColor)
+                      )
+                      Box(
+                        modifier = Modifier
+                          .size(10.dp)
+                          .clip(CircleShape)
+                          .background(palette.secondaryColor)
+                      )
+                      if (isSelected) {
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Icon(
+                          imageVector = Icons.Default.CheckCircle,
+                          contentDescription = "Selected",
+                          tint = QuantumViolet,
+                          modifier = Modifier.size(16.dp)
+                        )
+                      }
+                    }
+                  }
+
+                  Column {
+                    Text(
+                      text = palette.name,
+                      style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                      color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurface,
+                      maxLines = 1
+                    )
+                    Text(
+                      text = palette.description,
+                      style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      maxLines = 1
+                    )
+                  }
+                }
+              }
+            }
+            if (rowPalettes.size == 1) {
+              Spacer(modifier = Modifier.weight(1f))
+            }
+          }
+        }
       }
     }
 
-    // App Labels Toggle
+    // 3. GRID DENSITY SECTION
+    Column(verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Column {
+          Text(
+            text = "Grid Density",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface
+          )
+          Text(
+            text = "Number of columns for desktop applications",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+          )
+        }
+        Icon(
+          imageVector = Icons.Default.GridView,
+          contentDescription = null,
+          tint = QuantumViolet
+        )
+      }
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
+      ) {
+        columnsList.forEach { cols ->
+          val isSelected = selectedColumns == cols
+          val label = when (cols) {
+            3 -> "Spacious"
+            4 -> "Standard"
+            5 -> "Compact"
+            6 -> "Dense"
+            else -> "$cols Cols"
+          }
+
+          Surface(
+            shape = ShapeRoundMd,
+            color = if (isSelected) QuantumViolet.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+            border = if (isSelected) BorderStroke(2.dp, QuantumViolet) else BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            modifier = Modifier
+              .weight(1f)
+              .clickable {
+                selectedColumns = cols
+                onUpdateTheme(selectedTheme, cols, selectedIconSize, showLabels)
+              }
+              .testTag("grid_col_$cols")
+          ) {
+            Column(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = AppDimens.Spacing12, horizontal = AppDimens.Spacing6),
+              horizontalAlignment = Alignment.CenterHorizontally,
+              verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing4)
+            ) {
+              // Mini column indicator dots
+              Row(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                repeat(cols) {
+                  Box(
+                    modifier = Modifier
+                      .size(4.dp)
+                      .clip(CircleShape)
+                      .background(if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                  )
+                }
+              }
+
+              Text(
+                text = "${cols}x",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurface
+              )
+              Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+              )
+            }
+          }
+        }
+      }
+    }
+
+    // 4. ICON SIZE SECTION
+    Column(verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Column {
+          Text(
+            text = "Icon Size",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface
+          )
+          Text(
+            text = "Visual dimension of application icons",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+          )
+        }
+        Icon(
+          imageVector = Icons.Default.Tune,
+          contentDescription = null,
+          tint = QuantumViolet
+        )
+      }
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
+      ) {
+        iconSizes.forEach { (sizeKey, sizeData) ->
+          val (sizeTitle, sizeDp) = sizeData
+          val isSelected = selectedIconSize == sizeKey
+          val previewBoxSize = when (sizeKey) {
+            Space.ICON_SIZE_SMALL -> 18.dp
+            Space.ICON_SIZE_LARGE -> 28.dp
+            else -> 23.dp
+          }
+
+          Surface(
+            shape = ShapeRoundMd,
+            color = if (isSelected) QuantumViolet.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+            border = if (isSelected) BorderStroke(2.dp, QuantumViolet) else BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            modifier = Modifier
+              .weight(1f)
+              .clickable {
+                selectedIconSize = sizeKey
+                onUpdateTheme(selectedTheme, selectedColumns, sizeKey, showLabels)
+              }
+              .testTag("icon_size_$sizeKey")
+          ) {
+            Column(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = AppDimens.Spacing12, horizontal = AppDimens.Spacing8),
+              horizontalAlignment = Alignment.CenterHorizontally,
+              verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing6)
+            ) {
+              Box(
+                modifier = Modifier
+                  .size(previewBoxSize)
+                  .clip(RoundedCornerShape(6.dp))
+                  .background(if (isSelected) QuantumViolet else MaterialTheme.colorScheme.surfaceContainerHighest)
+                  .border(1.dp, if (isSelected) QuantumViolet else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
+              )
+
+              Text(
+                text = sizeTitle,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurface
+              )
+
+              Text(
+                text = sizeDp,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = if (isSelected) QuantumViolet else MaterialTheme.colorScheme.onSurfaceVariant
+              )
+            }
+          }
+        }
+      }
+    }
+
+    // 5. APP LABELS TOGGLE
     Card(
       shape = ShapeRoundMd,
       colors = CardDefaults.cardColors(
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
       ),
+      border = BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
       modifier = Modifier.fillMaxWidth()
     ) {
       Row(
@@ -1013,13 +1973,24 @@ private fun ThemeSubscreen(
       ) {
         Row(
           verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+          horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12),
+          modifier = Modifier.weight(1f)
         ) {
-          Icon(
-            imageVector = if (showLabels) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary
-          )
+          Box(
+            modifier = Modifier
+              .size(38.dp)
+              .clip(ShapeRoundSm)
+              .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            contentAlignment = Alignment.Center
+          ) {
+            Icon(
+              imageVector = if (showLabels) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+              contentDescription = null,
+              tint = if (showLabels) QuantumViolet else MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.size(20.dp)
+            )
+          }
+
           Column {
             Text(
               text = "Show Icon Labels",
@@ -1027,7 +1998,7 @@ private fun ThemeSubscreen(
               color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-              text = "Display app name text under icons",
+              text = "Display app name text under icons on desktop",
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1044,6 +2015,37 @@ private fun ThemeSubscreen(
         )
       }
     }
+
+    // 6. APPLY TO SPACE BUTTON
+    Button(
+      onClick = {
+        onUpdateTheme(selectedTheme, selectedColumns, selectedIconSize, showLabels)
+      },
+      colors = ButtonDefaults.buttonColors(containerColor = QuantumViolet),
+      shape = ShapeRoundMd,
+      modifier = Modifier
+        .fillMaxWidth()
+        .height(48.dp)
+        .testTag("btn_apply_theme_and_layout")
+    ) {
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
+      ) {
+        Icon(
+          imageVector = Icons.Default.Check,
+          contentDescription = null,
+          tint = Color.White
+        )
+        Text(
+          text = "Apply Theme & Layout",
+          style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+          color = Color.White
+        )
+      }
+    }
+
+    Spacer(modifier = Modifier.height(AppDimens.Spacing8))
   }
 }
 

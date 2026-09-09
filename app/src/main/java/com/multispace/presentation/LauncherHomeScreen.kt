@@ -72,7 +72,6 @@ fun LauncherHomeScreen(
   var showSpaceSwitcherMenu by remember { mutableStateOf(false) }
   var spaceToUnlockForSwitch by remember { mutableStateOf<Space?>(null) }
   var showUnlockForActiveSpace by remember { mutableStateOf(false) }
-  var showCustomizationDialogForActiveSpace by remember { mutableStateOf(false) }
   var showDesktopCustomizationSheet by remember { mutableStateOf(false) }
   var activeDesktopPage by remember { mutableIntStateOf(0) }
   var showImportDialog by remember { mutableStateOf(false) }
@@ -302,8 +301,8 @@ fun LauncherHomeScreen(
       containerColor = Color.Transparent,
       contentWindowInsets = WindowInsets(0, 0, 0, 0),
       bottomBar = {
-        // Space Dock Bar (Persistent on Home / Layer 1)
-        if (isCurrentSpaceUnlocked && activeSpace != null && activeLayerIndex == 1) {
+        // Space Dock Bar (Persistent on Home / Layer 1, hidden when customization mode is active)
+        if (isCurrentSpaceUnlocked && activeSpace != null && activeLayerIndex == 1 && !showDesktopCustomizationSheet) {
           SpaceDockBar(
             dockItems = activeDockItems,
             allApps = discoveryUiState.allApps,
@@ -319,6 +318,7 @@ fun LauncherHomeScreen(
               activeSpace?.let { spaceViewModel.reorderDockItems(it.id, reordered) }
             },
             useLayer2 = activeSpace?.useLayer2 ?: true,
+            appTheme = activeSpace?.appTheme ?: Space.THEME_DEFAULT,
             modifier = Modifier.navigationBarsPadding()
           )
         }
@@ -585,32 +585,6 @@ fun LauncherHomeScreen(
     )
   }
 
-  // Live Space Customization Dialog on Home
-  if (showCustomizationDialogForActiveSpace && activeSpace != null) {
-    SpaceCustomizationDialog(
-      space = activeSpace!!,
-      spaceApps = spaceScopedApps,
-      onDismiss = { showCustomizationDialogForActiveSpace = false },
-      onSave = { bgType, bgColor, bgUri, cols, size, showLabels ->
-        spaceViewModel.updateSpaceCustomization(
-          spaceId = activeSpace!!.id,
-          backgroundType = bgType,
-          backgroundColor = bgColor,
-          backgroundImageUri = bgUri,
-          gridColumns = cols,
-          iconSize = size,
-          labelVisibility = showLabels
-        )
-      },
-      onReorderApp = { app, direction ->
-        spaceViewModel.reorderSpaceApp(activeSpace!!.id, app, direction)
-      },
-      onSortAlphabetically = {
-        spaceViewModel.sortSpaceAppsAlphabetically(activeSpace!!.id, spaceScopedApps)
-      }
-    )
-  }
-
   // Folder Dialog
   if (activeFolderInDialog != null) {
     val folder = activeFolderInDialog!!
@@ -676,6 +650,7 @@ fun LauncherHomeScreen(
       placements = activePlacements,
       currentPage = activeDesktopPage,
       totalPageCount = maxOf(space.pageCount, (activePlacements.maxOfOrNull { it.pageIndex } ?: 0) + 1),
+      spaceApps = spaceScopedApps,
       onDismiss = { showDesktopCustomizationSheet = false },
       onSelectWallpaperColor = { color ->
         spaceViewModel.updateSpaceWallpaper(
@@ -701,9 +676,23 @@ fun LauncherHomeScreen(
           uri.toString()
         )
       },
-      onOpenWallpaperEditor = {
-        showDesktopCustomizationSheet = false
-        showCustomizationDialogForActiveSpace = true
+      onOpenWallpaperEditor = {},
+      onUpdateSpaceCustomization = { bgType, bgColor, bgUri, cols, size, showLabels ->
+        spaceViewModel.updateSpaceCustomization(
+          spaceId = space.id,
+          backgroundType = bgType,
+          backgroundColor = bgColor,
+          backgroundImageUri = bgUri,
+          gridColumns = cols,
+          iconSize = size,
+          labelVisibility = showLabels
+        )
+      },
+      onReorderApp = { app, direction ->
+        spaceViewModel.reorderSpaceApp(space.id, app, direction)
+      },
+      onSortAlphabetically = {
+        spaceViewModel.sortSpaceAppsAlphabetically(space.id, spaceScopedApps)
       },
       onAddWidget = { pageIndex, widgetType, spanX, spanY, appWidgetId, pkg, comp ->
         showDesktopCustomizationSheet = false

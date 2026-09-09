@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,17 +23,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import com.multispace.R
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
 
@@ -93,20 +96,25 @@ fun SpaceCustomizationDialog(
     }
   }
 
-  Dialog(onDismissRequest = onDismiss) {
-    Surface(
-      shape = RoundedCornerShape(24.dp),
-      color = MaterialTheme.colorScheme.surface,
-      tonalElevation = 8.dp,
+  val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+  ModalBottomSheet(
+    onDismissRequest = onDismiss,
+    sheetState = sheetState,
+    containerColor = MaterialTheme.colorScheme.surface,
+    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+    modifier = Modifier
+      .fillMaxWidth()
+      .testTag("space_customization_dialog")
+  ) {
+    Box(
       modifier = Modifier
         .fillMaxWidth()
-        .heightIn(max = 640.dp)
-        .testTag("space_customization_dialog")
+        .fillMaxHeight(0.88f)
+        .padding(horizontal = 20.dp, vertical = 8.dp)
     ) {
       Column(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(20.dp)
+        modifier = Modifier.fillMaxSize()
       ) {
         // Header
         Row(
@@ -179,6 +187,7 @@ fun SpaceCustomizationDialog(
               selectedImageUri = selectedImageUri,
               onSelectBgType = { selectedBgType = it },
               onSelectBgColor = { selectedBgColor = it },
+              onSelectImageUri = { selectedImageUri = it },
               onPickImage = { imagePickerLauncher.launch("image/*") },
               onClearImage = {
                 selectedImageUri = null
@@ -243,9 +252,20 @@ private fun BackgroundCustomizationTab(
   selectedImageUri: String?,
   onSelectBgType: (String) -> Unit,
   onSelectBgColor: (Long) -> Unit,
+  onSelectImageUri: (String) -> Unit,
   onPickImage: () -> Unit,
   onClearImage: () -> Unit
 ) {
+  val context = LocalContext.current
+  val defaultWallpapers = remember(context.packageName) {
+    listOf(
+      Triple("Aurora Borealis", "Default Cosmic Glow", R.drawable.img_wallpaper_aurora),
+      Triple("Cyberpunk Glow", "Futuristic Cityscape", R.drawable.img_wallpaper_cyber),
+      Triple("Mountain Mist", "Serene Alpine Peaks", R.drawable.img_wallpaper_mountain),
+      Triple("Emerald Nature", "Lush Forest Canopy", R.drawable.img_wallpaper_nature)
+    )
+  }
+
   Column(
     modifier = Modifier
       .fillMaxSize()
@@ -296,34 +316,92 @@ private fun BackgroundCustomizationTab(
 
     when (selectedBgType) {
       Space.BACKGROUND_DEFAULT -> {
-        Card(
-          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-          shape = RoundedCornerShape(16.dp),
-          modifier = Modifier.fillMaxWidth()
-        ) {
-          Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+          Text(
+            text = "Select Default Wallpaper",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold
+          )
+
+          Row(
             modifier = Modifier
               .fillMaxWidth()
-              .padding(16.dp)
+              .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
           ) {
-            Icon(
-              imageVector = Icons.Default.BrightnessAuto,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.primary,
-              modifier = Modifier.size(36.dp)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-              text = "System Theme Background",
-              style = MaterialTheme.typography.bodyMedium,
-              fontWeight = FontWeight.Medium
-            )
-            Text(
-              text = "Uses the standard launcher dark/light color scheme.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            defaultWallpapers.forEach { (name, desc, resId) ->
+              val uriStr = "android.resource://${context.packageName}/${resId}"
+              val isSelected = (selectedImageUri == uriStr) ||
+                (name == "Aurora Borealis" && (selectedImageUri.isNullOrEmpty() || selectedImageUri == "DEFAULT"))
+
+              Card(
+                onClick = {
+                  onSelectBgType(Space.BACKGROUND_IMAGE)
+                  onSelectImageUri(uriStr)
+                },
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                  .width(120.dp)
+                  .height(170.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                  if (isSelected) 3.dp else 1.dp,
+                  if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                )
+              ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                  Image(
+                    painter = painterResource(id = resId),
+                    contentDescription = name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                  )
+                  Box(
+                    modifier = Modifier
+                      .fillMaxSize()
+                      .background(
+                        Brush.verticalGradient(
+                          colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)),
+                          startY = 110f
+                        )
+                      )
+                  )
+                  if (isSelected) {
+                    Box(
+                      modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                      contentAlignment = Alignment.Center
+                    ) {
+                      Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                    }
+                  }
+                  Column(
+                    modifier = Modifier
+                      .align(Alignment.BottomStart)
+                      .padding(8.dp)
+                  ) {
+                    Text(
+                      text = name,
+                      style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                      color = Color.White,
+                      maxLines = 1,
+                      overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                      text = desc,
+                      style = MaterialTheme.typography.bodySmall,
+                      color = Color.White.copy(alpha = 0.7f),
+                      fontSize = 9.sp,
+                      maxLines = 1,
+                      overflow = TextOverflow.Ellipsis
+                    )
+                  }
+                }
+              }
+            }
           }
         }
       }

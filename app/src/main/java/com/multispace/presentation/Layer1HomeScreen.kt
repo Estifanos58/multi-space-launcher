@@ -1228,27 +1228,14 @@ fun Layer1HomeScreen(
                   tint = QuantumViolet,
                   modifier = Modifier.size(AppDimens.IconLg)
                 )
-              } else if (bitmap != null) {
-                Image(
-                  bitmap = bitmap.asImageBitmap(),
-                  contentDescription = null,
-                  modifier = Modifier.fillMaxSize()
-                )
               } else {
-                Box(
-                  modifier = Modifier
-                    .fillMaxSize()
-                    .clip(ShapeRoundMd)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                  contentAlignment = Alignment.Center
-                ) {
-                  Text(
-                    text = app?.label?.take(1) ?: "?",
-                    fontWeight = FontWeight.Bold,
-                    color = QuantumViolet,
-                    fontSize = 20.sp
-                  )
-                }
+                ThemedAppIcon(
+                  app = app,
+                  bitmap = bitmap,
+                  appTheme = space.appTheme,
+                  modifier = Modifier.fillMaxSize(),
+                  fallbackText = app?.label?.take(1) ?: dragged.packageName?.take(1)?.uppercase()
+                )
               }
             }
             if (space.labelVisibility && app != null) {
@@ -1568,7 +1555,7 @@ private fun Layer1ItemCell(
               horizontalArrangement = Arrangement.SpaceEvenly
             ) {
               previewItems.take(2).forEach { item ->
-                MiniAppIcon(item = item, appLookup = appLookup, allApps = allApps, getBitmap = getBitmap)
+                MiniAppIcon(item = item, appLookup = appLookup, allApps = allApps, appTheme = space.appTheme, getBitmap = getBitmap)
               }
             }
             if (previewItems.size > 2) {
@@ -1577,7 +1564,7 @@ private fun Layer1ItemCell(
                 horizontalArrangement = Arrangement.SpaceEvenly
               ) {
                 previewItems.drop(2).take(2).forEach { item ->
-                  MiniAppIcon(item = item, appLookup = appLookup, allApps = allApps, getBitmap = getBitmap)
+                  MiniAppIcon(item = item, appLookup = appLookup, allApps = allApps, appTheme = space.appTheme, getBitmap = getBitmap)
                 }
               }
             }
@@ -1605,29 +1592,15 @@ private fun Layer1ItemCell(
         )
       }
     } else {
-      // App Item - apps only take the space their icon takes! No border padding, no card background!
+      // App Item - themed according to space.appTheme
       val bitmap = app?.let { getBitmap(it) }
-      if (bitmap != null) {
-        Image(
-          bitmap = bitmap.asImageBitmap(),
-          contentDescription = app.label,
-          modifier = iconSizeModifier
-        )
-      } else {
-        Box(
-          modifier = iconSizeModifier
-            .clip(ShapeRoundMd)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-          contentAlignment = Alignment.Center
-        ) {
-          Text(
-            text = app?.label?.take(1) ?: placement.packageName?.take(1)?.uppercase() ?: "?",
-            fontWeight = FontWeight.Bold,
-            color = QuantumViolet,
-            fontSize = 18.sp
-          )
-        }
-      }
+      ThemedAppIcon(
+        app = app,
+        bitmap = bitmap,
+        appTheme = space.appTheme,
+        modifier = iconSizeModifier,
+        fallbackText = app?.label?.take(1) ?: placement.packageName?.take(1)?.uppercase()
+      )
 
       if (space.labelVisibility) {
         Spacer(modifier = Modifier.height(AppDimens.Spacing4))
@@ -1650,34 +1623,18 @@ private fun MiniAppIcon(
   item: SpaceFolderItem,
   appLookup: Map<String, DiscoveredApp>,
   allApps: List<DiscoveredApp>,
+  appTheme: String,
   getBitmap: (DiscoveredApp) -> android.graphics.Bitmap?
 ) {
   val key = "${item.packageName}/${item.componentName}"
   val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == item.packageName }
   val bitmap = app?.let { getBitmap(it) }
 
-  if (bitmap != null) {
-    Image(
-      bitmap = bitmap.asImageBitmap(),
-      contentDescription = app.label,
-      modifier = Modifier
-        .size(16.dp)
-        .clip(ShapeRoundXs)
-    )
-  } else {
-    Box(
-      modifier = Modifier
-        .size(16.dp)
-        .clip(ShapeRoundXs)
-        .background(MaterialTheme.colorScheme.primaryContainer),
-      contentAlignment = Alignment.Center
-    ) {
-      Text(
-        text = app?.label?.take(1) ?: item.packageName.take(1).uppercase(),
-        fontSize = 8.sp,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onPrimaryContainer
-      )
-    }
-  }
+  ThemedMiniAppIcon(
+    app = app,
+    bitmap = bitmap,
+    appTheme = appTheme,
+    modifier = Modifier.size(16.dp),
+    fallbackText = app?.label?.take(1) ?: item.packageName.take(1).uppercase()
+  )
 }
