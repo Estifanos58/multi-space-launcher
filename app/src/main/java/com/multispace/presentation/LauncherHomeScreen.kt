@@ -300,6 +300,7 @@ fun LauncherHomeScreen(
     Scaffold(
       modifier = Modifier.fillMaxSize(),
       containerColor = Color.Transparent,
+      contentWindowInsets = WindowInsets(0, 0, 0, 0),
       bottomBar = {
         // Space Dock Bar (Persistent on Home / Layer 1)
         if (isCurrentSpaceUnlocked && activeSpace != null && activeLayerIndex == 1) {
@@ -324,10 +325,7 @@ fun LauncherHomeScreen(
       }
     ) { paddingValues ->
       Box(
-        modifier = Modifier
-          .fillMaxSize()
-          .padding(paddingValues)
-          .statusBarsPadding()
+        modifier = Modifier.fillMaxSize()
       ) {
         when {
           !isCurrentSpaceUnlocked -> {
@@ -335,6 +333,8 @@ fun LauncherHomeScreen(
             Column(
               modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
+                .padding(bottom = paddingValues.calculateBottomPadding())
                 .padding(AppDimens.Spacing32),
               verticalArrangement = Arrangement.Center,
               horizontalAlignment = Alignment.CenterHorizontally
@@ -388,22 +388,40 @@ fun LauncherHomeScreen(
             }
           }
           discoveryUiState.isLoading && discoveryUiState.allApps.isEmpty() -> {
-            ModernLoadingState(message = "Scanning installed applications...")
+            Box(
+              modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(bottom = paddingValues.calculateBottomPadding()),
+              contentAlignment = Alignment.Center
+            ) {
+              ModernLoadingState(message = "Scanning installed applications...")
+            }
           }
           discoveryUiState.errorMessage != null && spaceScopedApps.isEmpty() -> {
-            ModernEmptyState(
-              icon = Icons.Default.ErrorOutline,
-              title = "Unable to load Space apps",
-              description = discoveryUiState.errorMessage ?: "Unknown error occurred during discovery",
-              actionText = "Retry Scan",
-              onActionClick = { discoveryViewModel.loadApps() }
-            )
+            Box(
+              modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(bottom = paddingValues.calculateBottomPadding()),
+              contentAlignment = Alignment.Center
+            ) {
+              ModernEmptyState(
+                icon = Icons.Default.ErrorOutline,
+                title = "Unable to load Space apps",
+                description = discoveryUiState.errorMessage ?: "Unknown error occurred during discovery",
+                actionText = "Retry Scan",
+                onActionClick = { discoveryViewModel.loadApps() }
+              )
+            }
           }
           spaceScopedApps.isEmpty() -> {
             // Empty Space State prompting to configure app memberships
             Column(
               modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
+                .padding(bottom = paddingValues.calculateBottomPadding())
                 .padding(AppDimens.Spacing32),
               verticalArrangement = Arrangement.Center,
               horizontalAlignment = Alignment.CenterHorizontally
@@ -467,7 +485,7 @@ fun LauncherHomeScreen(
               label = "layer_transition"
             ) { layer ->
               if (layer == 2) {
-                // Layer 2: Space App Library (All Space Apps with Search)
+                // Layer 2: Space App Library (Takes the WHOLE SCREEN)
                 Layer2LibraryScreen(
                   space = currentSpace,
                   spaceApps = spaceScopedApps,
@@ -482,50 +500,58 @@ fun LauncherHomeScreen(
                   onAppInfo = { app ->
                     discoveryViewModel.openAppInfo(app)
                   },
-                  onCloseLayer2 = { spaceViewModel.setLayer(1) }
+                  onCloseLayer2 = { spaceViewModel.setLayer(1) },
+                  modifier = Modifier.fillMaxSize()
                 )
               } else {
                 // Layer 1: Curated Workspace (Pages / Scrolling Grid & Folders)
-                Layer1HomeScreen(
-                  space = currentSpace,
-                  placements = activePlacements,
-                  folders = activeFolders,
-                  allApps = spaceScopedApps,
-                  getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
-                  onLaunchApp = onLaunchApp,
-                  onOpenFolder = { folder -> activeFolderInDialog = folder },
-                  onRemovePlacement = { placementId ->
-                    spaceViewModel.removePlacement(placementId)
-                  },
-                  onCreateFolderFromApps = { src, tgt, srcId, tgtId ->
-                    spaceViewModel.createFolderFromApps(
-                      spaceId = currentSpace.id,
-                      pageIndex = 0,
-                      positionIndex = 0,
-                      folderName = "New Folder",
-                      sourceApp = src,
-                      targetApp = tgt,
-                      sourcePlacementId = srcId,
-                      targetPlacementId = tgtId
-                    )
-                  },
-                  onAddAppToHome = { app, page ->
-                    spaceViewModel.addAppToHome(currentSpace.id, app, page)
-                  },
-                  onMovePlacement = { placementId, targetPage, targetPos, pageSize ->
-                    spaceViewModel.moveAppToPage(currentSpace.id, placementId, targetPage, targetPos, pageSize)
-                  },
-                  onResizeWidget = { placementId, spanX, spanY, pos ->
-                    spaceViewModel.updateWidgetSpan(placementId, spanX, spanY, pos)
-                  },
-                  onOpenCustomization = { page ->
-                    activeDesktopPage = page
-                    showDesktopCustomizationSheet = true
-                  },
-                  onOpenAppInfo = { app ->
-                    discoveryViewModel.openAppInfo(app)
-                  }
-                )
+                Box(
+                  modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(bottom = paddingValues.calculateBottomPadding())
+                ) {
+                  Layer1HomeScreen(
+                    space = currentSpace,
+                    placements = activePlacements,
+                    folders = activeFolders,
+                    allApps = spaceScopedApps,
+                    getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
+                    onLaunchApp = onLaunchApp,
+                    onOpenFolder = { folder -> activeFolderInDialog = folder },
+                    onRemovePlacement = { placementId ->
+                      spaceViewModel.removePlacement(placementId)
+                    },
+                    onCreateFolderFromApps = { src, tgt, srcId, tgtId ->
+                      spaceViewModel.createFolderFromApps(
+                        spaceId = currentSpace.id,
+                        pageIndex = 0,
+                        positionIndex = 0,
+                        folderName = "New Folder",
+                        sourceApp = src,
+                        targetApp = tgt,
+                        sourcePlacementId = srcId,
+                        targetPlacementId = tgtId
+                      )
+                    },
+                    onAddAppToHome = { app, page ->
+                      spaceViewModel.addAppToHome(currentSpace.id, app, page)
+                    },
+                    onMovePlacement = { placementId, targetPage, targetPos, pageSize ->
+                      spaceViewModel.moveAppToPage(currentSpace.id, placementId, targetPage, targetPos, pageSize)
+                    },
+                    onResizeWidget = { placementId, spanX, spanY, pos ->
+                      spaceViewModel.updateWidgetSpan(placementId, spanX, spanY, pos)
+                    },
+                    onOpenCustomization = { page ->
+                      activeDesktopPage = page
+                      showDesktopCustomizationSheet = true
+                    },
+                    onOpenAppInfo = { app ->
+                      discoveryViewModel.openAppInfo(app)
+                    }
+                  )
+                }
               }
             }
           }

@@ -80,7 +80,8 @@ fun Layer2LibraryScreen(
   Column(
     modifier = modifier
       .fillMaxSize()
-      .background(MaterialTheme.colorScheme.background.copy(alpha = 0.96f))
+      .background(MaterialTheme.colorScheme.background.copy(alpha = 0.80f))
+      .statusBarsPadding()
       .padding(top = AppDimens.Spacing8)
       .testTag("layer2_library_screen")
   ) {
@@ -130,7 +131,8 @@ fun Layer2LibraryScreen(
       Box(
         modifier = Modifier
           .fillMaxWidth()
-          .weight(1f),
+          .weight(1f)
+          .navigationBarsPadding(),
         contentAlignment = Alignment.Center
       ) {
         ModernEmptyState(
@@ -151,7 +153,9 @@ fun Layer2LibraryScreen(
           .testTag("layer2_apps_grid"),
         horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8),
         verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16),
-        contentPadding = PaddingValues(bottom = AppDimens.Spacing24)
+        contentPadding = PaddingValues(
+          bottom = AppDimens.Spacing24 + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        )
       ) {
         items(filteredApps, key = { "${it.packageName}/${it.activityName}" }) { app ->
           Column(
