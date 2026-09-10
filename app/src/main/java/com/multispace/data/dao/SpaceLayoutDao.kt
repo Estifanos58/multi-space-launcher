@@ -35,6 +35,12 @@ interface SpaceLayoutDao {
   @Query("DELETE FROM space_item_placements WHERE id = :placementId")
   suspend fun deletePlacementById(placementId: String)
 
+  @Query("DELETE FROM space_item_placements WHERE space_id = :spaceId AND layer = :layer AND page_index = :pageIndex")
+  suspend fun deletePlacementsForPage(spaceId: String, layer: Int, pageIndex: Int)
+
+  @Query("UPDATE space_item_placements SET page_index = page_index - 1 WHERE space_id = :spaceId AND layer = :layer AND page_index > :pageIndex")
+  suspend fun decrementPageIndicesAbove(spaceId: String, layer: Int, pageIndex: Int)
+
   @Query("DELETE FROM space_item_placements WHERE space_id = :spaceId AND layer = :layer")
   suspend fun deletePlacementsForSpaceLayer(spaceId: String, layer: Int)
 

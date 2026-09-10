@@ -102,6 +102,8 @@ fun Layer1HomeScreen(
   onOpenCustomization: (Int) -> Unit = {},
   onOpenAppInfo: (DiscoveredApp) -> Unit = {},
   appWidgetHost: AppWidgetHost? = null,
+  unifiedDragState: UnifiedDragState? = null,
+  onDropItemToDock: ((placement: SpaceItemPlacement, app: DiscoveredApp, targetDockIndex: Int) -> Unit)? = null,
   modifier: Modifier = Modifier
 ) {
   BoxWithConstraints(
@@ -432,8 +434,52 @@ fun Layer1HomeScreen(
     baseEdgeZonePx
   }
 
-  fun updatePreviewTargetSlot() {
+  fun calculateSlotForPosition(pointerPos: Offset, spanX: Int = 1, spanY: Int = 1): Int {
     val totalSlots = cols * gridRows
+    if (viewportWidth <= 0f || viewportHeight <= 0f) return 0
+
+    // Check direct hit on measured slot bounds first
+    val directHit = slotBounds.entries.firstOrNull { (slot, rect) ->
+      slot < totalSlots && rect.contains(pointerPos)
+    }?.key
+
+    val rawSlot: Int = if (directHit != null) {
+      directHit
+    } else {
+      val bounds = pageGridBounds
+      if (bounds != null && bounds.width > 0f) {
+        val colWidth = (bounds.width / cols).coerceAtLeast(1f)
+        val c = when {
+          pointerPos.x <= bounds.left -> 0
+          pointerPos.x >= bounds.right -> cols - 1
+          else -> ((pointerPos.x - bounds.left) / colWidth).toInt().coerceIn(0, cols - 1)
+        }
+
+        val r = when {
+          pointerPos.y <= bounds.top -> 0
+          else -> {
+            val relativeY = pointerPos.y - bounds.top
+            (relativeY / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
+          }
+        }
+
+        (r * cols + c).coerceIn(0, totalSlots - 1)
+      } else {
+        val colWidth = (viewportWidth / cols).coerceAtLeast(1f)
+        val c = (pointerPos.x / colWidth).toInt().coerceIn(0, cols - 1)
+        val r = (pointerPos.y / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
+        (r * cols + c).coerceIn(0, totalSlots - 1)
+      }
+    }
+
+    val rawC = rawSlot % cols
+    val rawR = rawSlot / cols
+    val clampedC = rawC.coerceIn(0, maxOf(0, cols - spanX))
+    val clampedR = rawR.coerceIn(0, maxOf(0, gridRows - spanY))
+    return (clampedR * cols + clampedC).coerceIn(0, totalSlots - 1)
+  }
+
+  fun updatePreviewTargetSlot() {
     if (viewportWidth <= 0f || viewportHeight <= 0f) return
 
     val cellWPx = with(density) { cellWidth.toPx() }
@@ -448,47 +494,9 @@ fun Layer1HomeScreen(
       currentPointerPos
     }
 
-    // Check direct hit on measured slot bounds first
-    val directHit = slotBounds.entries.firstOrNull { (slot, rect) ->
-      slot < totalSlots && rect.contains(targetPointerPos)
-    }?.key
-
-    val rawSlot: Int = if (directHit != null) {
-      directHit
-    } else {
-      val bounds = pageGridBounds
-      if (bounds != null && bounds.width > 0f) {
-        val colWidth = (bounds.width / cols).coerceAtLeast(1f)
-        val c = when {
-          targetPointerPos.x <= bounds.left -> 0
-          targetPointerPos.x >= bounds.right -> cols - 1
-          else -> ((targetPointerPos.x - bounds.left) / colWidth).toInt().coerceIn(0, cols - 1)
-        }
-
-        val r = when {
-          targetPointerPos.y <= bounds.top -> 0
-          else -> {
-            val relativeY = targetPointerPos.y - bounds.top
-            (relativeY / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
-          }
-        }
-
-        (r * cols + c).coerceIn(0, totalSlots - 1)
-      } else {
-        val colWidth = (viewportWidth / cols).coerceAtLeast(1f)
-        val c = (targetPointerPos.x / colWidth).toInt().coerceIn(0, cols - 1)
-        val r = (targetPointerPos.y / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
-        (r * cols + c).coerceIn(0, totalSlots - 1)
-      }
-    }
-
     val draggedSpanX = if (draggedPlacement?.isWidget == true) draggedPlacement!!.spanX.coerceIn(1, cols) else 1
     val draggedSpanY = if (draggedPlacement?.isWidget == true) draggedPlacement!!.spanY.coerceIn(1, gridRows) else 1
-    val rawC = rawSlot % cols
-    val rawR = rawSlot / cols
-    val clampedC = rawC.coerceIn(0, maxOf(0, cols - draggedSpanX))
-    val clampedR = rawR.coerceIn(0, maxOf(0, gridRows - draggedSpanY))
-    val candidateSlot = (clampedR * cols + clampedC).coerceIn(0, totalSlots - 1)
+    val candidateSlot = calculateSlotForPosition(targetPointerPos, draggedSpanX, draggedSpanY)
 
     if (previewTargetSlot != candidateSlot) {
       previewTargetSlot = candidateSlot
@@ -497,6 +505,30 @@ fun Layer1HomeScreen(
         "PREVIEW_TARGET: pointerY=${currentPointerPos.y} previewTargetSlot=$candidateSlot targetPage=${pagerState.currentPage} targetPos=$candidateSlot gridRows=$gridRows pageSize=$pageSize draggedPlacement.pageIndex=${draggedPlacement?.pageIndex} draggedPlacement.positionIndex=${draggedPlacement?.positionIndex}"
       )
       haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
+  }
+
+  // Cross-component drag listener: highlight desktop slots when dragging app from DockBar
+  LaunchedEffect(unifiedDragState?.rootPointerPos, unifiedDragState?.currentTargetZone) {
+    val uds = unifiedDragState
+    if (uds != null && uds.isDragging && uds.dragSource == DragSource.DOCK_BAR) {
+      if (uds.currentTargetZone == DragTargetZone.DESKTOP) {
+        val coords = rootCoordinates
+        if (coords != null && coords.isAttached) {
+          val localPos = coords.rootToLocal(uds.rootPointerPos)
+          val candidateSlot = calculateSlotForPosition(localPos, 1, 1)
+          if (previewTargetSlot != candidateSlot) {
+            previewTargetSlot = candidateSlot
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+          }
+          uds.targetDesktopPage = pagerState.currentPage
+          uds.targetDesktopPosition = candidateSlot
+        }
+      } else {
+        if (previewTargetSlot != null) {
+          previewTargetSlot = null
+        }
+      }
     }
   }
 
@@ -573,6 +605,18 @@ fun Layer1HomeScreen(
       with(density) { Offset((cellWidth * sX).toPx() / 2f, (cellHeight * sY).toPx() / 2f) }
     }
 
+    if (unifiedDragState != null) {
+      val app = appLookup["${placement.packageName}/${placement.componentName}"]
+        ?: allApps.firstOrNull { it.packageName == placement.packageName }
+      unifiedDragState.isDragging = true
+      unifiedDragState.dragSource = DragSource.LAYER1_DESKTOP
+      unifiedDragState.draggedPlacement = placement
+      unifiedDragState.draggedApp = app
+      unifiedDragState.touchOffsetInItem = touchOffsetWithinItem
+      unifiedDragState.rootPointerPos = rootCoordinates?.localToRoot(startOffset) ?: startOffset
+      unifiedDragState.currentTargetZone = DragTargetZone.DESKTOP
+    }
+
     AppLogger.i(
       AppLogger.Category.LAUNCHER,
       "DRAG_START item=${placement.id} pkg=${placement.packageName ?: "folder"} page=${placement.pageIndex} slot=${placement.positionIndex} touchOffset=$touchOffsetWithinItem"
@@ -581,10 +625,21 @@ fun Layer1HomeScreen(
 
   fun handleDragMove(newPos: Offset) {
     currentPointerPos = newPos
+    val rootPos = rootCoordinates?.localToRoot(newPos) ?: newPos
+    if (unifiedDragState != null) {
+      unifiedDragState.rootPointerPos = rootPos
+    }
+
     val overBin = binBounds?.contains(currentPointerPos) == true
     isOverBin = overBin
+    if (unifiedDragState != null) {
+      unifiedDragState.isOverBin = overBin
+    }
 
     if (overBin) {
+      if (unifiedDragState != null) {
+        unifiedDragState.currentTargetZone = DragTargetZone.REMOVE_BIN
+      }
       targetHoverPlacement = null
       previewTargetSlot = null
       if (activeEdgeZone != EdgePagingDirection.NONE) {
@@ -595,6 +650,26 @@ fun Layer1HomeScreen(
         edgeTriggerState = EdgeTriggerState.IDLE
       }
       return
+    }
+
+    // Check if dragging over the DockBar (only valid for apps, not widgets)
+    val isAppPlacement = draggedPlacement?.isWidget != true
+    val isOverDock = isAppPlacement && (unifiedDragState?.isPointerOverDock(rootPos) == true)
+    if (isOverDock && unifiedDragState != null) {
+      unifiedDragState.currentTargetZone = DragTargetZone.DOCK_BAR
+      targetHoverPlacement = null
+      previewTargetSlot = null
+      if (activeEdgeZone != EdgePagingDirection.NONE) {
+        edgeDwellJob?.cancel()
+        edgeDwellJob = null
+        activeEdgeZone = EdgePagingDirection.NONE
+        edgeTriggerState = EdgeTriggerState.IDLE
+      }
+      return
+    }
+
+    if (unifiedDragState != null) {
+      unifiedDragState.currentTargetZone = DragTargetZone.DESKTOP
     }
 
     updatePreviewTargetSlot()
@@ -682,41 +757,57 @@ fun Layer1HomeScreen(
     try {
       val dragged = draggedPlacement
       if (dragged != null) {
-        if (isOverBin) {
-          AppLogger.i(AppLogger.Category.LAUNCHER, "DROP_REMOVE item=${dragged.id} pkg=${dragged.packageName}")
-          localPlacements = effectivePlacements.filter {
-            it.id != dragged.id && (dragged.packageName == null || it.packageName != dragged.packageName)
+        val targetZone = unifiedDragState?.currentTargetZone ?: if (isOverBin) DragTargetZone.REMOVE_BIN else DragTargetZone.DESKTOP
+        when (targetZone) {
+          DragTargetZone.REMOVE_BIN -> {
+            AppLogger.i(AppLogger.Category.LAUNCHER, "DROP_REMOVE item=${dragged.id} pkg=${dragged.packageName}")
+            localPlacements = effectivePlacements.filter {
+              it.id != dragged.id && (dragged.packageName == null || it.packageName != dragged.packageName)
+            }
+            onRemovePlacement(dragged.id)
           }
-          onRemovePlacement(dragged.id)
-        } else {
-          val targetPage = pagerState.currentPage
-          val draggedSpanX = if (dragged.isWidget) dragged.spanX.coerceIn(1, cols) else 1
-          val draggedSpanY = if (dragged.isWidget) dragged.spanY.coerceIn(1, gridRows) else 1
-          val rawTargetPos = previewTargetSlot ?: dragged.positionIndex
-          val rawC = rawTargetPos % cols
-          val rawR = rawTargetPos / cols
-          val clampedC = rawC.coerceIn(0, maxOf(0, cols - draggedSpanX))
-          val clampedR = rawR.coerceIn(0, maxOf(0, gridRows - draggedSpanY))
-          val targetPos = clampedR * cols + clampedC
+          DragTargetZone.DOCK_BAR -> {
+            if (!dragged.isWidget) {
+              val app = appLookup["${dragged.packageName}/${dragged.componentName}"]
+                ?: allApps.firstOrNull { it.packageName == dragged.packageName }
+              if (app != null) {
+                AppLogger.i(AppLogger.Category.LAUNCHER, "DROP_TO_DOCK item=${dragged.id} pkg=${dragged.packageName} slot=${unifiedDragState?.targetDockIndex}")
+                localPlacements = effectivePlacements.filter { it.id != dragged.id }
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onDropItemToDock?.invoke(dragged, app, unifiedDragState?.targetDockIndex ?: -1)
+              }
+            }
+          }
+          DragTargetZone.DESKTOP, DragTargetZone.NONE -> {
+            val targetPage = pagerState.currentPage
+            val draggedSpanX = if (dragged.isWidget) dragged.spanX.coerceIn(1, cols) else 1
+            val draggedSpanY = if (dragged.isWidget) dragged.spanY.coerceIn(1, gridRows) else 1
+            val rawTargetPos = previewTargetSlot ?: dragged.positionIndex
+            val rawC = rawTargetPos % cols
+            val rawR = rawTargetPos / cols
+            val clampedC = rawC.coerceIn(0, maxOf(0, cols - draggedSpanX))
+            val clampedR = rawR.coerceIn(0, maxOf(0, gridRows - draggedSpanY))
+            val targetPos = clampedR * cols + clampedC
 
-          AppLogger.i(
-            AppLogger.Category.LAUNCHER,
-            "FINAL_DROP: pointerY=${currentPointerPos.y} previewTargetSlot=$previewTargetSlot targetPage=$targetPage targetPos=$targetPos gridRows=$gridRows pageSize=$pageSize draggedPlacement.pageIndex=${dragged.pageIndex} draggedPlacement.positionIndex=${dragged.positionIndex}"
-          )
-          haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            AppLogger.i(
+              AppLogger.Category.LAUNCHER,
+              "FINAL_DROP: pointerY=${currentPointerPos.y} previewTargetSlot=$previewTargetSlot targetPage=$targetPage targetPos=$targetPos gridRows=$gridRows pageSize=$pageSize draggedPlacement.pageIndex=${dragged.pageIndex} draggedPlacement.positionIndex=${dragged.positionIndex}"
+            )
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
 
-          // Optimistically update local placements with cascading ripple logic
-          val updatedList = PlacementCascadeHelper.computeFullPlacementsAfterDrop(
-            allCurrentPlacements = effectivePlacements,
-            itemToInsert = dragged,
-            targetPage = targetPage,
-            targetPosition = targetPos,
-            pageSize = pageSize,
-            cols = cols
-          )
-          localPlacements = updatedList
+            // Optimistically update local placements with cascading ripple logic
+            val updatedList = PlacementCascadeHelper.computeFullPlacementsAfterDrop(
+              allCurrentPlacements = effectivePlacements,
+              itemToInsert = dragged,
+              targetPage = targetPage,
+              targetPosition = targetPos,
+              pageSize = pageSize,
+              cols = cols
+            )
+            localPlacements = updatedList
 
-          onMovePlacement(dragged.id, targetPage, targetPos, pageSize)
+            onMovePlacement(dragged.id, targetPage, targetPos, pageSize)
+          }
         }
       }
     } finally {
@@ -726,6 +817,7 @@ fun Layer1HomeScreen(
       targetHoverPlacement = null
       isOverBin = false
       extraPagesCount = 0
+      unifiedDragState?.reset()
     }
   }
 
@@ -741,6 +833,7 @@ fun Layer1HomeScreen(
     targetHoverPlacement = null
     isOverBin = false
     extraPagesCount = 0
+    unifiedDragState?.reset()
     AppLogger.i(AppLogger.Category.LAUNCHER, "DRAG_CANCEL")
   }
 
@@ -751,6 +844,7 @@ fun Layer1HomeScreen(
         rootCoordinates = coordinates
         viewportWidth = coordinates.size.width.toFloat()
         viewportHeight = coordinates.size.height.toFloat()
+        unifiedDragState?.layer1Coordinates = coordinates
         updatePageGridBounds()
       }
       .pointerInput(Unit) {
@@ -973,7 +1067,8 @@ fun Layer1HomeScreen(
                   val slotIndex = r * cols + c
                   val leftDp = (cellWidth + appSpacing) * c
                   val topDp = rowPitch * r
-                  val isPreviewTarget = if (isDragging && isCurrentPage && !isOverBin && previewTargetSlot != null) {
+                  val isAnyActiveDrag = isDragging || (unifiedDragState != null && unifiedDragState.isDragging && unifiedDragState.currentTargetZone == DragTargetZone.DESKTOP)
+                  val isPreviewTarget = if (isAnyActiveDrag && isCurrentPage && !isOverBin && previewTargetSlot != null) {
                     val targetSlot = previewTargetSlot!!
                     val tR = targetSlot / cols
                     val tC = targetSlot % cols
@@ -1030,7 +1125,8 @@ fun Layer1HomeScreen(
                     .zIndex(if (isResizing) 50f else 1f),
                   contentAlignment = Alignment.Center
                 ) {
-                  val isPreviewTarget = if (isDragging && isCurrentPage && !isOverBin && previewTargetSlot != null) {
+                  val isAnyActiveDrag = isDragging || (unifiedDragState != null && unifiedDragState.isDragging && unifiedDragState.currentTargetZone == DragTargetZone.DESKTOP)
+                  val isPreviewTarget = if (isAnyActiveDrag && isCurrentPage && !isOverBin && previewTargetSlot != null) {
                     val targetSlot = previewTargetSlot!!
                     val tR = targetSlot / cols
                     val tC = targetSlot % cols

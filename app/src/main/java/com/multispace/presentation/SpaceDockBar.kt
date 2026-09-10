@@ -66,6 +66,8 @@ fun SpaceDockBar(
   onOpenLayer2: () -> Unit,
   onRemoveFromDock: (SpaceDockItem) -> Unit,
   onReorderDock: (List<SpaceDockItem>) -> Unit = {},
+  onDropFromDockToDesktop: (dockItem: SpaceDockItem, app: DiscoveredApp, targetPage: Int, targetPos: Int) -> Unit = { _, _, _, _ -> },
+  unifiedDragState: UnifiedDragState = remember { UnifiedDragState() },
   modifier: Modifier = Modifier,
   useLayer2: Boolean = true,
   appTheme: String = Space.THEME_DEFAULT
@@ -101,11 +103,34 @@ fun SpaceDockBar(
     allApps.associateBy { "${it.packageName}/${it.activityName}" }
   }
 
+  val isReceivingDrop = unifiedDragState.isDragging &&
+      unifiedDragState.dragSource == DragSource.LAYER1_DESKTOP &&
+      unifiedDragState.currentTargetZone == DragTargetZone.DOCK_BAR
+
+  val isDockAtCapacity = displayedDockItems.size >= maxAppSlots
+
+  // Update target dock slot when an app is dragged from Layer 1
+  LaunchedEffect(isReceivingDrop, unifiedDragState.rootPointerPos) {
+    if (isReceivingDrop) {
+      val coords = dockBarBoxCoordinates
+      if (coords != null && coords.isAttached) {
+        val dockLocal = coords.rootToLocal(unifiedDragState.rootPointerPos)
+        val sorted = slotBounds.entries.sortedBy { it.value.center.x }
+        if (sorted.isNotEmpty()) {
+          val idx = sorted.indexOfFirst { dockLocal.x < it.value.right }
+          unifiedDragState.targetDockIndex = if (idx == -1) sorted.size else idx
+        } else {
+          unifiedDragState.targetDockIndex = 0
+        }
+      }
+    }
+  }
+
   Column(
     modifier = modifier.fillMaxWidth(),
     horizontalAlignment = Alignment.CenterHorizontally
   ) {
-    // Dynamic Drop Target for Removing from Dock during drag
+    // Dynamic Drop Target for Removing from Dock during dock item drag
     AnimatedVisibility(
       visible = isDragging && draggedItem != null,
       enter = fadeIn() + slideInVertically { -it / 2 },
@@ -153,11 +178,41 @@ fun SpaceDockBar(
       }
     }
 
+    // Dynamic Visual Feedback when dragging an app from Layer 1 over the DockBar
+    AnimatedVisibility(
+      visible = isReceivingDrop,
+      enter = fadeIn() + slideInVertically { it / 2 },
+      exit = fadeOut() + slideOutVertically { it / 2 }
+    ) {
+      Surface(
+        shape = CircleShape,
+        color = if (isDockAtCapacity) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer,
+        tonalElevation = 6.dp,
+        shadowElevation = 6.dp,
+        border = BorderStroke(
+          1.dp,
+          if (isDockAtCapacity) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+        ),
+        modifier = Modifier
+          .padding(bottom = AppDimens.Spacing6)
+          .testTag("dock_drop_feedback_pill")
+      ) {
+        Text(
+          text = if (isDockAtCapacity) "Dock Full: Will Swap App" else "Release to Add to Dock",
+          style = MaterialTheme.typography.labelMedium,
+          fontWeight = FontWeight.Bold,
+          color = if (isDockAtCapacity) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+          modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+        )
+      }
+    }
+
     Box(
       modifier = Modifier
         .fillMaxWidth()
         .onGloballyPositioned { coordinates ->
           dockBarBoxCoordinates = coordinates
+          unifiedDragState.dockCoordinates = coordinates
         }
         .pointerInput(displayedDockItems) {
           detectDragGesturesAfterLongPress(
@@ -172,12 +227,25 @@ fun SpaceDockBar(
                 hasInitiatedDrag = false
                 accumulatedDragDistance = 0f
                 currentPointerPos = rootOffset
+
+                val key = "${touchedItem.packageName}/${touchedItem.componentName}"
+                val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == touchedItem.packageName }
+
                 val rect = slotBounds[touchedItem.id]
                 touchOffsetInSlot = if (rect != null) {
                   Offset(rootOffset.x - rect.left, rootOffset.y - rect.top)
                 } else {
                   Offset(25.dp.toPx(), 25.dp.toPx())
                 }
+
+                unifiedDragState.isDragging = true
+                unifiedDragState.dragSource = DragSource.DOCK_BAR
+                unifiedDragState.draggedDockItem = touchedItem
+                unifiedDragState.draggedApp = app
+                unifiedDragState.touchOffsetInItem = touchOffsetInSlot
+                unifiedDragState.rootPointerPos = dockBarBoxCoordinates?.localToRoot(rootOffset) ?: rootOffset
+                unifiedDragState.currentTargetZone = DragTargetZone.DOCK_BAR
+
                 previewItems = displayedDockItems.toMutableList()
               }
             },
@@ -189,30 +257,41 @@ fun SpaceDockBar(
                   hasInitiatedDrag = true
                 }
                 currentPointerPos = change.position
+                val rootPos = dockBarBoxCoordinates?.localToRoot(change.position) ?: change.position
+                unifiedDragState.rootPointerPos = rootPos
 
-                // Check if hovering over remove zone or dragged upward past dock
-                val isAboveDock = change.position.y < -5f
-                val overZone = removeZoneBounds?.contains(change.position) == true || isAboveDock
-                isOverRemoveZone = overZone
+                val overRemovePill = removeZoneBounds?.contains(change.position) == true
+                val isMovedUpwards = change.position.y < -15f || unifiedDragState.isPointerOverDesktop(rootPos)
 
-                if (!overZone && hasInitiatedDrag && previewItems.isNotEmpty()) {
-                  val curItem = draggedItem!!
-                  val sortedSlots = slotBounds.entries
-                    .filter { entry -> previewItems.any { itm -> itm.id == entry.key } }
-                    .sortedBy { it.value.center.x }
+                if (overRemovePill) {
+                  isOverRemoveZone = true
+                  unifiedDragState.currentTargetZone = DragTargetZone.REMOVE_BIN
+                } else if (isMovedUpwards) {
+                  isOverRemoveZone = false
+                  unifiedDragState.currentTargetZone = DragTargetZone.DESKTOP
+                } else {
+                  isOverRemoveZone = false
+                  unifiedDragState.currentTargetZone = DragTargetZone.DOCK_BAR
 
-                  if (sortedSlots.isNotEmpty()) {
-                    val targetIndex = sortedSlots.indexOfFirst { change.position.x < it.value.right }
-                      .let { if (it == -1) sortedSlots.size - 1 else it }
-                      .coerceIn(0, previewItems.size - 1)
+                  if (hasInitiatedDrag && previewItems.isNotEmpty()) {
+                    val curItem = draggedItem!!
+                    val sortedSlots = slotBounds.entries
+                      .filter { entry -> previewItems.any { itm -> itm.id == entry.key } }
+                      .sortedBy { it.value.center.x }
 
-                    val curIndex = previewItems.indexOfFirst { it.id == curItem.id }
-                    if (curIndex != -1 && targetIndex != curIndex) {
-                      val updated = previewItems.toMutableList()
-                      val moved = updated.removeAt(curIndex)
-                      updated.add(targetIndex, moved)
-                      previewItems = updated
-                      haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    if (sortedSlots.isNotEmpty()) {
+                      val targetIndex = sortedSlots.indexOfFirst { change.position.x < it.value.right }
+                        .let { if (it == -1) sortedSlots.size - 1 else it }
+                        .coerceIn(0, previewItems.size - 1)
+
+                      val curIndex = previewItems.indexOfFirst { it.id == curItem.id }
+                      if (curIndex != -1 && targetIndex != curIndex) {
+                        val updated = previewItems.toMutableList()
+                        val moved = updated.removeAt(curIndex)
+                        updated.add(targetIndex, moved)
+                        previewItems = updated
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                      }
                     }
                   }
                 }
@@ -221,17 +300,33 @@ fun SpaceDockBar(
             onDragEnd = {
               if (draggedItem != null) {
                 val item = draggedItem!!
-                if (isOverRemoveZone) {
-                  onRemoveFromDock(item)
-                  haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                } else if (hasInitiatedDrag) {
-                  if (previewItems != displayedDockItems && previewItems.isNotEmpty()) {
-                    onReorderDock(previewItems)
+                val key = "${item.packageName}/${item.componentName}"
+                val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == item.packageName }
+
+                when (unifiedDragState.currentTargetZone) {
+                  DragTargetZone.REMOVE_BIN -> {
+                    onRemoveFromDock(item)
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                   }
-                } else {
-                  // Held without dragging: show remove/action dialog
-                  itemForAction = item
+                  DragTargetZone.DESKTOP -> {
+                    if (app != null) {
+                      val targetPage = unifiedDragState.targetDesktopPage
+                      val targetPos = unifiedDragState.targetDesktopPosition.coerceAtLeast(0)
+                      onDropFromDockToDesktop(item, app, targetPage, targetPos)
+                      haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                  }
+                  DragTargetZone.DOCK_BAR, DragTargetZone.NONE -> {
+                    if (hasInitiatedDrag) {
+                      if (previewItems != displayedDockItems && previewItems.isNotEmpty()) {
+                        onReorderDock(previewItems)
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                      }
+                    } else {
+                      // Held without dragging: show remove/action dialog
+                      itemForAction = item
+                    }
+                  }
                 }
               }
               isDragging = false
@@ -239,6 +334,7 @@ fun SpaceDockBar(
               hasInitiatedDrag = false
               accumulatedDragDistance = 0f
               isOverRemoveZone = false
+              unifiedDragState.reset()
             },
             onDragCancel = {
               isDragging = false
@@ -246,16 +342,24 @@ fun SpaceDockBar(
               hasInitiatedDrag = false
               accumulatedDragDistance = 0f
               isOverRemoveZone = false
+              unifiedDragState.reset()
             }
           )
         }
     ) {
+      val dockBorder = if (isReceivingDrop) {
+        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+      } else {
+        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+      }
+
       ModernGlassCard(
         modifier = Modifier
           .fillMaxWidth()
           .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing6)
           .testTag("space_dock_bar"),
-        shape = ShapeRoundLg
+        shape = ShapeRoundLg,
+        border = dockBorder
       ) {
         Row(
           modifier = Modifier
@@ -273,14 +377,17 @@ fun SpaceDockBar(
 
             // Left apps
             leftItems.forEach { item ->
+              val isItemGhost = (isDragging && item.id == draggedItem?.id) ||
+                  (unifiedDragState.isDragging && unifiedDragState.draggedDockItem?.id == item.id)
               DockAppSlot(
                 item = item,
                 allApps = allApps,
                 appLookup = appLookup,
-                isGhost = isDragging && item.id == draggedItem?.id,
+                isGhost = isItemGhost,
                 getBitmap = getBitmap,
                 onLaunchApp = onLaunchApp,
                 onPositioned = { rect -> slotBounds[item.id] = rect },
+                parentCoordinates = dockBarBoxCoordinates,
                 appTheme = appTheme
               )
             }
@@ -312,67 +419,38 @@ fun SpaceDockBar(
 
             // Right apps
             rightItems.forEach { item ->
+              val isItemGhost = (isDragging && item.id == draggedItem?.id) ||
+                  (unifiedDragState.isDragging && unifiedDragState.draggedDockItem?.id == item.id)
               DockAppSlot(
                 item = item,
                 allApps = allApps,
                 appLookup = appLookup,
-                isGhost = isDragging && item.id == draggedItem?.id,
+                isGhost = isItemGhost,
                 getBitmap = getBitmap,
                 onLaunchApp = onLaunchApp,
                 onPositioned = { rect -> slotBounds[item.id] = rect },
+                parentCoordinates = dockBarBoxCoordinates,
                 appTheme = appTheme
               )
             }
           } else {
             // No drawer button in dock (Swipe-up access mode)
             itemsToRender.forEach { item ->
+              val isItemGhost = (isDragging && item.id == draggedItem?.id) ||
+                  (unifiedDragState.isDragging && unifiedDragState.draggedDockItem?.id == item.id)
               DockAppSlot(
                 item = item,
                 allApps = allApps,
                 appLookup = appLookup,
-                isGhost = isDragging && item.id == draggedItem?.id,
+                isGhost = isItemGhost,
                 getBitmap = getBitmap,
                 onLaunchApp = onLaunchApp,
                 onPositioned = { rect -> slotBounds[item.id] = rect },
+                parentCoordinates = dockBarBoxCoordinates,
                 appTheme = appTheme
               )
             }
           }
-        }
-      }
-
-      // Floating dragged icon preview following user touch
-      if (isDragging && draggedItem != null) {
-        val item = draggedItem!!
-        val key = "${item.packageName}/${item.componentName}"
-        val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == item.packageName }
-        val bitmap = app?.let { getBitmap(it) }
-
-        Box(
-          modifier = Modifier
-            .offset {
-              IntOffset(
-                (currentPointerPos.x - touchOffsetInSlot.x).roundToInt(),
-                (currentPointerPos.y - touchOffsetInSlot.y).roundToInt()
-              )
-            }
-            .size(52.dp)
-            .graphicsLayer {
-              scaleX = 1.15f
-              scaleY = 1.15f
-              shadowElevation = 16.dp.toPx()
-            }
-            .zIndex(999f)
-            .testTag("dock_floating_dragged_item"),
-          contentAlignment = Alignment.Center
-        ) {
-          ThemedAppIcon(
-            app = app,
-            bitmap = bitmap,
-            appTheme = appTheme,
-            modifier = Modifier.fillMaxSize(),
-            fallbackText = app?.label?.take(1) ?: item.packageName.take(1).uppercase()
-          )
         }
       }
     }
@@ -415,6 +493,7 @@ private fun DockAppSlot(
   getBitmap: (DiscoveredApp) -> android.graphics.Bitmap?,
   onLaunchApp: (DiscoveredApp) -> Unit,
   onPositioned: (Rect) -> Unit,
+  parentCoordinates: LayoutCoordinates? = null,
   modifier: Modifier = Modifier,
   appTheme: String = Space.THEME_DEFAULT
 ) {
@@ -425,7 +504,13 @@ private fun DockAppSlot(
     modifier = modifier
       .size(50.dp)
       .onGloballyPositioned { coords ->
-        onPositioned(Rect(Offset.Zero, coords.size.toSize()))
+        val parent = parentCoordinates
+        if (parent != null && parent.isAttached && coords.isAttached) {
+          val localOffset = parent.localPositionOf(coords, Offset.Zero)
+          onPositioned(Rect(localOffset, coords.size.toSize()))
+        } else {
+          onPositioned(Rect(Offset.Zero, coords.size.toSize()))
+        }
       }
       .clip(ShapeRoundMd)
       .then(

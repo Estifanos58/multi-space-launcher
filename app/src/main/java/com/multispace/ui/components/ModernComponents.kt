@@ -119,17 +119,18 @@ fun ModernCard(
 fun ModernGlassCard(
   modifier: Modifier = Modifier,
   shape: Shape = ShapeRoundLg,
+  border: BorderStroke? = null,
   content: @Composable () -> Unit
 ) {
   val isDark = isSystemInDarkTheme()
   val bg = if (isDark) GlassDarkSurface else GlassLightSurface
-  val border = if (isDark) GlassDarkBorder else GlassLightBorder
+  val defaultBorder = if (isDark) GlassDarkBorder else GlassLightBorder
 
   Surface(
     modifier = modifier,
     shape = shape,
     color = bg,
-    border = BorderStroke(AppDimens.BorderThin, border),
+    border = border ?: BorderStroke(AppDimens.BorderThin, defaultBorder),
     tonalElevation = AppDimens.ElevationMed
   ) {
     content()

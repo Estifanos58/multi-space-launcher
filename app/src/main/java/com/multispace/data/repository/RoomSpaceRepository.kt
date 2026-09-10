@@ -1080,6 +1080,152 @@ class RoomSpaceRepository(
     }
   }
 
+  override suspend fun updateSpaceWallpaper(
+    spaceId: String,
+    wallpaperType: String,
+    wallpaperColor: Long?,
+    wallpaperImageUri: String?
+  ): Result<Unit> {
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      val safeType = when (wallpaperType) {
+        Space.BACKGROUND_COLOR, Space.BACKGROUND_IMAGE -> wallpaperType
+        else -> Space.BACKGROUND_DEFAULT
+      }
+
+      val updated = existing.copy(
+        homeWallpaperType = safeType,
+        homeWallpaperColor = if (safeType == Space.BACKGROUND_COLOR) wallpaperColor else null,
+        homeWallpaperImageUri = if (safeType == Space.BACKGROUND_IMAGE) wallpaperImageUri else null,
+        backgroundType = safeType,
+        backgroundColor = if (safeType == Space.BACKGROUND_COLOR) wallpaperColor else null,
+        backgroundImageUri = if (safeType == Space.BACKGROUND_IMAGE) wallpaperImageUri else null,
+        updatedAt = System.currentTimeMillis()
+      )
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Updated wallpaper for Space '${existing.name}' ($spaceId): type=$safeType, uri=$wallpaperImageUri")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update wallpaper for Space ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun updateSpaceTheme(
+    spaceId: String,
+    appTheme: String,
+    gridColumns: Int?,
+    iconSize: String?,
+    labelVisibility: Boolean?
+  ): Result<Unit> {
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      val safeGridColumns = (gridColumns ?: existing.gridColumns).coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
+      val safeIconSize = when (iconSize ?: existing.iconSize) {
+        Space.ICON_SIZE_SMALL, Space.ICON_SIZE_LARGE -> iconSize ?: existing.iconSize
+        else -> Space.ICON_SIZE_MEDIUM
+      }
+
+      val updated = existing.copy(
+        appTheme = appTheme,
+        gridColumns = safeGridColumns,
+        iconSize = safeIconSize,
+        labelVisibility = labelVisibility ?: existing.labelVisibility,
+        updatedAt = System.currentTimeMillis()
+      )
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Updated theme for Space '${existing.name}' ($spaceId): theme=$appTheme, cols=$safeGridColumns, iconSize=$safeIconSize")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update theme for Space ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun addPage(spaceId: String): Result<Int> {
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      val currentPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+      val maxPlacementPage = currentPlacements.maxOfOrNull { it.pageIndex } ?: 0
+      val currentPages = maxOf(existing.pageCount, maxPlacementPage + 1)
+
+      if (currentPages >= Space.MAX_PAGES) {
+        return Result.failure(IllegalStateException("Maximum of ${Space.MAX_PAGES} pages allowed."))
+      }
+
+      val newPageCount = currentPages + 1
+      val updated = existing.copy(
+        pageCount = newPageCount,
+        updatedAt = System.currentTimeMillis()
+      )
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Created Layer 1 Page index ${newPageCount - 1} for Space '${existing.name}' ($spaceId). Total pages: $newPageCount")
+      Result.success(newPageCount - 1)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to create page for Space ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun deletePage(spaceId: String, pageIndex: Int): Result<Unit> {
+    if (pageIndex == 0) {
+      return Result.failure(IllegalArgumentException("Page 1 cannot be deleted"))
+    }
+    return try {
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      // 1. Remove placements specifically on target page from Layer 1
+      layoutDao.deletePlacementsForPage(spaceId, SpaceItemPlacement.LAYER_HOME, pageIndex)
+
+      // 2. Decrement page indices of any placements beyond target page
+      layoutDao.decrementPageIndicesAbove(spaceId, SpaceItemPlacement.LAYER_HOME, pageIndex)
+
+      // 3. Decrement pageCount in space
+      val newPageCount = maxOf(1, existing.pageCount - 1)
+      val updated = existing.copy(
+        pageCount = newPageCount,
+        updatedAt = System.currentTimeMillis()
+      )
+      spaceDao.updateSpace(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Deleted Layer 1 Page index $pageIndex for Space '${existing.name}' ($spaceId). New page count: $newPageCount")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to delete page $pageIndex for Space ($spaceId)", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun updateWidgetSpan(
+    placementId: String,
+    spanX: Int,
+    spanY: Int,
+    positionIndex: Int?
+  ): Result<Unit> {
+    return try {
+      val entity = layoutDao.getPlacementById(placementId)
+        ?: return Result.failure(IllegalArgumentException("Placement with id '$placementId' not found"))
+
+      val updated = entity.copy(
+        spanX = spanX.coerceAtLeast(1),
+        spanY = spanY.coerceAtLeast(1),
+        positionIndex = positionIndex ?: entity.positionIndex
+      )
+      layoutDao.updatePlacement(updated)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Updated widget placement ($placementId) span to ${spanX}x${spanY}")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update widget span for placement $placementId", e)
+      Result.failure(e)
+    }
+  }
+
   override suspend fun updatePageTurnSettings(
     spaceId: String,
     effect: PageTurnEffect,
@@ -1974,104 +2120,90 @@ class RoomSpaceRepository(
     }
   }
 
-  override suspend fun addPage(spaceId: String): Result<Int> {
-    return try {
-      val existing = spaceDao.getSpaceById(spaceId)
-        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
-      val currentPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
-      val maxPageIndex = currentPlacements.maxOfOrNull { it.pageIndex } ?: 0
-      val newPageCount = maxOf(existing.pageCount, maxPageIndex + 1) + 1
-      val updated = existing.copy(pageCount = newPageCount, updatedAt = System.currentTimeMillis())
-      spaceDao.updateSpace(updated)
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Added page to Space $spaceId, new pageCount: $newPageCount")
-      Result.success(newPageCount)
-    } catch (e: Exception) {
-      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to add page for Space $spaceId", e)
-      Result.failure(e)
-    }
-  }
-
-  override suspend fun deletePage(spaceId: String, pageIndex: Int): Result<Unit> {
-    return try {
-      if (pageIndex == 0) {
-        return Result.failure(IllegalArgumentException("Page 1 is immutable and cannot be deleted"))
-      }
-      val existing = spaceDao.getSpaceById(spaceId)
-        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
-
-      val currentPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
-      // Delete all placements on this page
-      val toDelete = currentPlacements.filter { it.pageIndex == pageIndex }
-      for (p in toDelete) {
-        layoutDao.deletePlacementById(p.id)
-      }
-      // Shift all placements on pages > pageIndex down by 1
-      val toShift = currentPlacements.filter { it.pageIndex > pageIndex }
-      for (p in toShift) {
-        layoutDao.updatePlacement(p.copy(pageIndex = p.pageIndex - 1))
-      }
-      val remainingPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
-      val maxRemaining = remainingPlacements.maxOfOrNull { it.pageIndex } ?: 0
-      val newPageCount = maxOf(1, maxOf(existing.pageCount - 1, maxRemaining + 1))
-      val updated = existing.copy(pageCount = newPageCount, updatedAt = System.currentTimeMillis())
-      spaceDao.updateSpace(updated)
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Deleted page $pageIndex from Space $spaceId, new pageCount: $newPageCount")
-      Result.success(Unit)
-    } catch (e: Exception) {
-      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to delete page $pageIndex for Space $spaceId", e)
-      Result.failure(e)
-    }
-  }
-
-  override suspend fun updateSpaceTheme(
+  override suspend fun moveAppFromHomeToDock(
     spaceId: String,
-    appTheme: String,
-    gridColumns: Int?,
-    iconSize: String?,
-    labelVisibility: Boolean?
+    placementId: String,
+    app: DiscoveredApp,
+    targetDockIndex: Int
   ): Result<Unit> {
     return try {
-      val existing = spaceDao.getSpaceById(spaceId)
-        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
-      val updated = existing.copy(
-        appTheme = appTheme,
-        gridColumns = gridColumns?.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS) ?: existing.gridColumns,
-        iconSize = iconSize ?: existing.iconSize,
-        labelVisibility = labelVisibility ?: existing.labelVisibility,
-        updatedAt = System.currentTimeMillis()
-      )
-      spaceDao.updateSpace(updated)
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Updated theme for Space $spaceId: theme=$appTheme, cols=${updated.gridColumns}")
+      val space = spaceDao.getSpaceById(spaceId)
+      val capacity = space?.dockCapacity ?: Space.DEFAULT_DOCK_CAPACITY
+      val currentDock = layoutDao.getDockItemsForSpace(spaceId).distinctBy { it.packageName }.toMutableList()
+
+      // Find original placement details
+      val originalPlacement = layoutDao.getPlacementById(placementId)
+      val originalPage = originalPlacement?.pageIndex ?: 0
+      val originalPos = originalPlacement?.positionIndex ?: 0
+
+      // If dock is full and we're adding a new item, find which dock item will be displaced
+      var displacedDockItem: SpaceDockItemEntity? = null
+      if (currentDock.none { it.packageName == app.packageName } && currentDock.size >= capacity) {
+        val removeIdx = if (targetDockIndex in 0 until currentDock.size) targetDockIndex else currentDock.lastIndex
+        displacedDockItem = currentDock.getOrNull(removeIdx)
+      }
+
+      // 1. Remove placement from home desktop
+      removePlacement(placementId)
+      // Also purge any duplicate placement for this package from home
+      val homePlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+      val duplicates = homePlacements.filter { it.packageName == app.packageName }
+      for (dup in duplicates) {
+        layoutDao.deletePlacementById(dup.id)
+      }
+
+      // 2. Add app to dock
+      addAppToDock(spaceId, app, targetDockIndex)
+
+      // 3. If a dock item was displaced, place it on the desktop at the original spot
+      if (displacedDockItem != null) {
+        val displacedPkg = displacedDockItem.packageName
+        val virtualId = "virtual:$displacedPkg"
+        val cols = space?.gridColumns ?: Space.DEFAULT_GRID_COLUMNS
+        val effectivePageSize = cols * 5
+        moveAppToPage(
+          spaceId = spaceId,
+          placementId = virtualId,
+          targetPage = originalPage,
+          targetPosition = originalPos,
+          pageSize = effectivePageSize
+        )
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Swapped displaced dock item '$displacedPkg' to desktop at page $originalPage, pos $originalPos")
+      }
+
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Moved app '${app.label}' from Home ($placementId) to Dock at index $targetDockIndex")
       Result.success(Unit)
     } catch (e: Exception) {
-      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update theme for Space $spaceId", e)
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to move app from Home to Dock", e)
       Result.failure(e)
     }
   }
 
-  override suspend fun updateSpaceWallpaper(
+  override suspend fun moveAppFromDockToHome(
     spaceId: String,
-    wallpaperType: String,
-    wallpaperColor: Long?,
-    wallpaperImageUri: String?
+    dockItemId: String,
+    app: DiscoveredApp,
+    targetPage: Int,
+    targetPosition: Int,
+    pageSize: Int?
   ): Result<Unit> {
     return try {
-      val existing = spaceDao.getSpaceById(spaceId)
-        ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
-      val updated = existing.copy(
-        backgroundType = wallpaperType,
-        backgroundColor = wallpaperColor,
-        backgroundImageUri = wallpaperImageUri,
-        homeWallpaperType = wallpaperType,
-        homeWallpaperColor = wallpaperColor,
-        homeWallpaperImageUri = wallpaperImageUri,
-        updatedAt = System.currentTimeMillis()
+      // 1. Remove from dock
+      removeAppFromDock(spaceId, dockItemId)
+
+      // 2. Insert into home placements with cascade
+      val virtualId = "virtual:${app.packageName}"
+      moveAppToPage(
+        spaceId = spaceId,
+        placementId = virtualId,
+        targetPage = targetPage,
+        targetPosition = targetPosition,
+        pageSize = pageSize
       )
-      spaceDao.updateSpace(updated)
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Updated wallpaper for Space $spaceId: type=$wallpaperType")
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Moved app '${app.label}' from Dock ($dockItemId) to Home page $targetPage, pos $targetPosition")
       Result.success(Unit)
     } catch (e: Exception) {
-      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update wallpaper for Space $spaceId", e)
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to move app from Dock to Home", e)
       Result.failure(e)
     }
   }
@@ -2140,52 +2272,6 @@ class RoomSpaceRepository(
       Result.success(widgetPlacement)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to add widget to Space $spaceId", e)
-      Result.failure(e)
-    }
-  }
-
-  override suspend fun updateWidgetSpan(
-    placementId: String,
-    spanX: Int,
-    spanY: Int,
-    positionIndex: Int?
-  ): Result<Unit> {
-    return try {
-      val existing = layoutDao.getPlacementById(placementId)
-      if (existing != null) {
-        val space = spaceDao.getSpaceById(existing.spaceId)
-        val cols = space?.gridColumns ?: Space.DEFAULT_GRID_COLUMNS
-        val effectivePageSize = cols * 5
-        val newPos = positionIndex ?: existing.positionIndex
-        val updatedEntity = existing.copy(spanX = spanX, spanY = spanY, positionIndex = newPos)
-
-        val allHome = layoutDao.getPlacementsForSpaceLayer(existing.spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
-        val toInsert = PlacementCascadeHelper.cascadeInsertGeneric(
-          existingItems = allHome,
-          itemToInsert = updatedEntity,
-          getId = { it.id },
-          getPage = { it.pageIndex },
-          getPosition = { it.positionIndex },
-          copyItem = { entity, page, pos -> entity.copy(pageIndex = page, positionIndex = pos) },
-          getSpanX = { if (it.id == placementId) spanX else (if (it.itemType == SpaceItemPlacement.ITEM_TYPE_WIDGET) it.spanX else 1) },
-          getSpanY = { if (it.id == placementId) spanY else (if (it.itemType == SpaceItemPlacement.ITEM_TYPE_WIDGET) it.spanY else 1) },
-          targetPage = existing.pageIndex,
-          targetPosition = newPos,
-          pageSize = effectivePageSize,
-          cols = cols
-        )
-        layoutDao.insertPlacements(toInsert)
-      } else {
-        if (positionIndex != null) {
-          layoutDao.updateWidgetSpanAndPosition(placementId, spanX, spanY, positionIndex)
-        } else {
-          layoutDao.updateWidgetSpan(placementId, spanX, spanY)
-        }
-      }
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Updated widget span: id=$placementId, spanX=$spanX, spanY=$spanY, pos=$positionIndex")
-      Result.success(Unit)
-    } catch (e: Exception) {
-      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update widget span for $placementId", e)
       Result.failure(e)
     }
   }

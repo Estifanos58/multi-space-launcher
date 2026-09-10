@@ -123,6 +123,10 @@ data class Space(
     const val MIN_DOCK_CAPACITY = 3
     const val MAX_DOCK_CAPACITY = 7
 
+    // Page Limits
+    const val MAX_PAGES = 10
+    const val MIN_PAGES = 1
+
     // Layout Presets
     const val PRESET_DEFAULT = "DEFAULT"
     const val PRESET_APPLE = "APPLE_INSPIRED"

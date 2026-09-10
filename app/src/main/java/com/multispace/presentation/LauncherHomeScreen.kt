@@ -4,6 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -23,6 +26,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -34,8 +39,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import kotlin.math.roundToInt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -171,6 +179,9 @@ fun LauncherHomeScreen(
     }
   }
 
+  // Unified drag state orchestrating Layer 1 Desktop and DockBar cross-component drag-and-drop
+  val unifiedDragState = remember { UnifiedDragState() }
+
   // Draggable gesture state for swipe-up into Layer 2
   var swipeOffsetY by remember { mutableStateOf(0f) }
   val draggableState = rememberDraggableState { delta ->
@@ -190,6 +201,7 @@ fun LauncherHomeScreen(
       .draggable(
         state = draggableState,
         orientation = Orientation.Vertical,
+        enabled = !unifiedDragState.isDragging,
         onDragStopped = { swipeOffsetY = 0f }
       )
   ) {
@@ -317,6 +329,18 @@ fun LauncherHomeScreen(
             onReorderDock = { reordered ->
               activeSpace?.let { spaceViewModel.reorderDockItems(it.id, reordered) }
             },
+            onDropFromDockToDesktop = { dockItem, app, targetPage, targetPos ->
+              activeSpace?.let { space ->
+                spaceViewModel.moveAppFromDockToHome(
+                  spaceId = space.id,
+                  dockItemId = dockItem.id,
+                  app = app,
+                  targetPage = targetPage,
+                  targetPosition = targetPos
+                )
+              }
+            },
+            unifiedDragState = unifiedDragState,
             useLayer2 = activeSpace?.useLayer2 ?: true,
             appTheme = activeSpace?.appTheme ?: Space.THEME_DEFAULT,
             modifier = Modifier.navigationBarsPadding()
@@ -549,12 +573,67 @@ fun LauncherHomeScreen(
                     },
                     onOpenAppInfo = { app ->
                       discoveryViewModel.openAppInfo(app)
+                    },
+                    unifiedDragState = unifiedDragState,
+                    onDropItemToDock = { placement, app, targetDockIndex ->
+                      activeSpace?.let { space ->
+                        spaceViewModel.moveAppFromHomeToDock(
+                          spaceId = space.id,
+                          placementId = placement.id,
+                          app = app,
+                          targetDockIndex = targetDockIndex
+                        )
+                      }
                     }
                   )
                 }
               }
             }
           }
+        }
+      }
+    }
+
+    // Unified floating drag follow overlay (used when dragging an app out of the DockBar)
+    if (unifiedDragState.isDragging && unifiedDragState.dragSource == DragSource.DOCK_BAR && unifiedDragState.draggedApp != null) {
+      val app = unifiedDragState.draggedApp!!
+      val bitmap = discoveryViewModel.getAppIconBitmap(app)
+      val dragScale by animateFloatAsState(
+        targetValue = if (unifiedDragState.isOverBin) 0.85f else 1.10f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "unifiedDragScale"
+      )
+
+      Box(
+        modifier = Modifier
+          .fillMaxSize()
+          .zIndex(9999f)
+      ) {
+        Box(
+          modifier = Modifier
+            .offset {
+              val rootPos = unifiedDragState.rootPointerPos
+              val touchOffset = unifiedDragState.touchOffsetInItem
+              IntOffset(
+                x = (rootPos.x - touchOffset.x).roundToInt(),
+                y = (rootPos.y - touchOffset.y).roundToInt()
+              )
+            }
+            .scale(dragScale)
+            .shadow(16.dp, CircleShape)
+            .size(56.dp)
+            .background(
+              if (unifiedDragState.isOverBin) CrimsonNova.copy(alpha = 0.85f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+              CircleShape
+            ),
+          contentAlignment = Alignment.Center
+        ) {
+          ThemedAppIcon(
+            app = app,
+            bitmap = bitmap,
+            appTheme = activeSpace?.appTheme ?: Space.THEME_DEFAULT,
+            modifier = Modifier.size(46.dp)
+          )
         }
       }
     }

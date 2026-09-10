@@ -832,15 +832,50 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
 
   // --- Dock Management ---
 
-  fun addAppToDock(spaceId: String, app: DiscoveredApp) {
+  fun addAppToDock(spaceId: String, app: DiscoveredApp, orderIndex: Int = -1) {
     viewModelScope.launch {
-      val result = spaceRepository.addAppToDock(spaceId, app)
+      val result = spaceRepository.addAppToDock(spaceId, app, orderIndex)
       result.fold(
         onSuccess = {
           _userFeedback.tryEmit("Added '${app.label}' to Dock.")
         },
         onFailure = { error ->
           _userFeedback.tryEmit("Failed to add to Dock: ${error.message}")
+        }
+      )
+    }
+  }
+
+  fun moveAppFromHomeToDock(spaceId: String, placementId: String, app: DiscoveredApp, targetDockIndex: Int = -1) {
+    viewModelScope.launch {
+      val result = spaceRepository.moveAppFromHomeToDock(spaceId, placementId, app, targetDockIndex)
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("Moved '${app.label}' to Dock.")
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Failed to move to Dock: ${error.message}")
+        }
+      )
+    }
+  }
+
+  fun moveAppFromDockToHome(
+    spaceId: String,
+    dockItemId: String,
+    app: DiscoveredApp,
+    targetPage: Int,
+    targetPosition: Int,
+    pageSize: Int? = null
+  ) {
+    viewModelScope.launch {
+      val result = spaceRepository.moveAppFromDockToHome(spaceId, dockItemId, app, targetPage, targetPosition, pageSize)
+      result.fold(
+        onSuccess = {
+          _userFeedback.tryEmit("Moved '${app.label}' to Home.")
+        },
+        onFailure = { error ->
+          _userFeedback.tryEmit("Failed to move to Home: ${error.message}")
         }
       )
     }
