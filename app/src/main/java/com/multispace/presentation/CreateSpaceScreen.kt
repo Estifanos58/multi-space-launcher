@@ -1448,16 +1448,10 @@ fun CreateSpaceScreen(
                 } else {
                   coroutineScope.launch {
                     delay(350)
-                    val dialer = allApps.firstOrNull { it.packageName.contains("dialer") || it.packageName.contains("phone") || it.label.contains("Phone", ignoreCase = true) }
-                    val messaging = allApps.firstOrNull { it.packageName.contains("messaging") || it.packageName.contains("mms") || it.packageName.contains("message") || it.label.contains("Messages", ignoreCase = true) }
-                    val browser = allApps.firstOrNull { it.packageName.contains("chrome") || it.packageName.contains("browser") || it.label.contains("Chrome", ignoreCase = true) || it.label.contains("Browser", ignoreCase = true) }
-                    val camera = allApps.firstOrNull { it.packageName.contains("camera") || it.label.contains("Camera", ignoreCase = true) }
-                    val settings = allApps.firstOrNull { it.packageName.contains("settings") || it.label.contains("Settings", ignoreCase = true) }
-
-                    val dockCandidates = listOfNotNull(dialer, messaging, browser, camera, settings).distinctBy { it.packageName }
+                    val dockCandidates = com.multispace.platform.DefaultAppCapabilityResolver.resolveDockApps(allApps, 5, context)
                     val successes = mutableListOf<String>()
                     if (dockCandidates.isNotEmpty()) {
-                      successes.add("Identified and populated essential bottom Dock apps (${dockCandidates.size} apps: Phone, Messages, Browser, Camera, Settings)")
+                      successes.add("Identified and populated essential bottom Dock apps (${dockCandidates.size} apps: ${dockCandidates.joinToString { it.label }})")
                     }
                     successes.add("Imported ${allApps.size} launchable application shortcuts onto organized Home pages")
 

@@ -24,26 +24,42 @@ object AppLogger {
   }
 
   fun d(category: Category, message: String) {
-    Log.d("$TAG_PREFIX:${category.tag}", message)
+    try {
+      Log.d("$TAG_PREFIX:${category.tag}", message)
+    } catch (_: Throwable) {
+      // Safe fallback in unit tests
+    }
   }
 
   fun i(category: Category, message: String) {
-    Log.i("$TAG_PREFIX:${category.tag}", message)
+    try {
+      Log.i("$TAG_PREFIX:${category.tag}", message)
+    } catch (_: Throwable) {
+      // Safe fallback in unit tests
+    }
   }
 
   fun w(category: Category, message: String, throwable: Throwable? = null) {
-    if (throwable != null) {
-      Log.w("$TAG_PREFIX:${category.tag}", message, throwable)
-    } else {
-      Log.w("$TAG_PREFIX:${category.tag}", message)
+    try {
+      if (throwable != null) {
+        Log.w("$TAG_PREFIX:${category.tag}", message, throwable)
+      } else {
+        Log.w("$TAG_PREFIX:${category.tag}", message)
+      }
+    } catch (_: Throwable) {
+      // Safe fallback in unit tests
     }
   }
 
   fun e(category: Category, message: String, throwable: Throwable? = null) {
-    if (throwable != null) {
-      Log.e("$TAG_PREFIX:${category.tag}", message, throwable)
-    } else {
-      Log.e("$TAG_PREFIX:${category.tag}", message)
+    try {
+      if (throwable != null) {
+        Log.e("$TAG_PREFIX:${category.tag}", message, throwable)
+      } else {
+        Log.e("$TAG_PREFIX:${category.tag}", message)
+      }
+    } catch (_: Throwable) {
+      // Safe fallback in unit tests
     }
   }
 }

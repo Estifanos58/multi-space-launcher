@@ -1,5 +1,6 @@
 package com.multispace.data.repository
 
+import android.content.Context
 import com.multispace.data.dao.SpaceDao
 import com.multispace.data.dao.SpaceLayoutDao
 import com.multispace.data.dao.SpaceMembershipDao
@@ -24,6 +25,8 @@ import com.multispace.domain.model.SpaceItemPlacement
 import com.multispace.domain.model.SpaceMembership
 import com.multispace.domain.model.WallpaperCatalog
 import com.multispace.domain.repository.SpaceRepository
+import com.multispace.platform.AppDiscoveryManager
+import com.multispace.platform.DefaultAppCapabilityResolver
 import com.multispace.platform.PinSecurityManager
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
@@ -35,7 +38,8 @@ class RoomSpaceRepository(
   private val spaceDao: SpaceDao,
   private val membershipDao: SpaceMembershipDao,
   private val layoutDao: SpaceLayoutDao,
-  private val preferences: LauncherPreferences
+  private val preferences: LauncherPreferences,
+  private val context: Context? = null
 ) : SpaceRepository {
 
   override val allSpacesFlow: Flow<List<Space>> = spaceDao.getAllSpacesFlow().map { entities ->
@@ -59,7 +63,7 @@ class RoomSpaceRepository(
     return try {
       val count = spaceDao.getSpaceCount()
       if (count == 0) {
-        AppLogger.i(AppLogger.Category.LAUNCHER, "No Spaces found in database. Initializing Default Space with Phone's Home Layout.")
+        AppLogger.i(AppLogger.Category.LAUNCHER, "No Spaces found in database. Initializing Default Space with default apps.")
         val defaultSpace = Space(
           id = Space.DEFAULT_SPACE_ID,
           name = Space.DEFAULT_SPACE_NAME,
@@ -83,10 +87,15 @@ class RoomSpaceRepository(
         spaceDao.insertSpace(SpaceEntity.fromDomain(defaultSpace))
         preferences.setActiveSpaceId(Space.DEFAULT_SPACE_ID)
 
-        if (initialApps.isNotEmpty()) {
-          val distinctApps = initialApps.distinctBy { it.packageName }
-          importCurrentHomeLayout(Space.DEFAULT_SPACE_ID, distinctApps)
-        }
+        initializeNewSpaceDefaults(
+          spaceId = Space.DEFAULT_SPACE_ID,
+          spaceName = Space.DEFAULT_SPACE_NAME,
+          layoutPreset = Space.PRESET_DEFAULT,
+          dockCapacity = 5,
+          gridColumns = 4,
+          candidateApps = initialApps
+        )
+
         Result.success(defaultSpace)
       } else {
         val spaces = spaceDao.getAllSpaces()
@@ -99,15 +108,21 @@ class RoomSpaceRepository(
         // Clean up any historical duplicate dock items in the default space
         cleanupDuplicateDockItems(Space.DEFAULT_SPACE_ID)
 
-        // If the default space has no placements and no dock items yet, auto-import phone layout
+        // If the default space has no placements and no dock items yet, auto-initialize
         val defaultEntity = spaces.firstOrNull { it.id == Space.DEFAULT_SPACE_ID }
-        if (defaultEntity != null && initialApps.isNotEmpty()) {
+        if (defaultEntity != null) {
           val placements = layoutDao.getPlacementsForSpaceLayer(Space.DEFAULT_SPACE_ID, SpaceItemPlacement.LAYER_HOME)
           val dockItems = layoutDao.getDockItemsForSpace(Space.DEFAULT_SPACE_ID)
           if (placements.isEmpty() && dockItems.isEmpty()) {
-            AppLogger.i(AppLogger.Category.LAUNCHER, "Default Space unconfigured: automatically importing Phone's Home Layout")
-            val distinctApps = initialApps.distinctBy { it.packageName }
-            importCurrentHomeLayout(Space.DEFAULT_SPACE_ID, distinctApps)
+            AppLogger.i(AppLogger.Category.LAUNCHER, "Default Space unconfigured: initializing default DockBar and Layer 1 apps")
+            initializeNewSpaceDefaults(
+              spaceId = Space.DEFAULT_SPACE_ID,
+              spaceName = Space.DEFAULT_SPACE_NAME,
+              layoutPreset = Space.PRESET_DEFAULT,
+              dockCapacity = defaultEntity.dockCapacity,
+              gridColumns = defaultEntity.gridColumns,
+              candidateApps = initialApps
+            )
           }
         }
 
@@ -116,6 +131,194 @@ class RoomSpaceRepository(
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to initialize default Space", e)
       Result.failure(e)
+    }
+  }
+
+  /**
+   * Initializes default DockBar apps and default Layer 1 apps for a newly created Space.
+   *
+   * 1. DockBar Apps:
+   *    Initializes with up to 4 core apps (Browser -> Camera -> Phone -> Messages).
+   *    If dockCapacity > 4, fills newly available positions with sensible everyday apps:
+   *    Contacts -> Gallery/Photos -> Files -> Clock -> Calculator -> Calendar -> Maps.
+   *
+   * 2. Layer 1 Apps:
+   *    Initializes with a curated set of 8-12 apps with Space-type specific subsets (Personal, Work, Study, Default).
+   *
+   * 3. Registers Space memberships for all placed apps without duplication.
+   */
+  private suspend fun initializeNewSpaceDefaults(
+    spaceId: String,
+    spaceName: String,
+    layoutPreset: String,
+    dockCapacity: Int,
+    gridColumns: Int,
+    candidateApps: List<DiscoveredApp>
+  ) {
+    val appsToUse = if (candidateApps.isNotEmpty()) {
+      candidateApps.distinctBy { it.packageName }
+    } else if (context != null) {
+      try {
+        AppDiscoveryManager(context).loadInstalledApps().distinctBy { it.packageName }
+      } catch (e: Exception) {
+        AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to load apps for new Space defaults: ${e.message}")
+        emptyList()
+      }
+    } else {
+      emptyList()
+    }
+
+    if (appsToUse.isEmpty()) {
+      AppLogger.w(AppLogger.Category.LAUNCHER, "No installed apps available to initialize Space '$spaceName' ($spaceId)")
+      return
+    }
+
+    // 1. Resolve Default DockBar Apps
+    val dockApps = DefaultAppCapabilityResolver.resolveDockApps(
+      installedApps = appsToUse,
+      dockCapacity = dockCapacity,
+      context = context
+    )
+    val dockEntities = dockApps.mapIndexed { idx, app ->
+      SpaceDockItemEntity(
+        id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
+        spaceId = spaceId,
+        orderIndex = idx,
+        packageName = app.packageName,
+        componentName = app.activityName,
+        userHandleId = app.userHandleId
+      )
+    }
+    if (dockEntities.isNotEmpty()) {
+      layoutDao.insertDockItems(dockEntities)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Initialized ${dockEntities.size} default DockBar apps for Space '$spaceName' ($spaceId): ${dockApps.map { it.label }}")
+    }
+
+    // 2. Resolve Default Layer 1 Curated Apps
+    val layer1Apps = DefaultAppCapabilityResolver.resolveLayer1Apps(
+      installedApps = appsToUse,
+      spaceName = spaceName,
+      layoutPreset = layoutPreset,
+      context = context
+    )
+    val pageSize = (gridColumns * 5).coerceAtLeast(1)
+    val homeEntities = layer1Apps.mapIndexed { idx, app ->
+      SpaceItemPlacementEntity(
+        id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+        spaceId = spaceId,
+        layer = SpaceItemPlacement.LAYER_HOME,
+        pageIndex = idx / pageSize,
+        positionIndex = idx % pageSize,
+        itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+        packageName = app.packageName,
+        componentName = app.activityName,
+        userHandleId = app.userHandleId
+      )
+    }
+    if (homeEntities.isNotEmpty()) {
+      layoutDao.insertPlacements(homeEntities)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Initialized ${homeEntities.size} default Layer 1 apps for Space '$spaceName' ($spaceId): ${layer1Apps.map { it.label }}")
+    }
+
+    // 3. Register Memberships for all placed apps (both Dock and Layer 1)
+    val allPlacedApps = (dockApps + layer1Apps).distinctBy { it.packageName }
+    if (allPlacedApps.isNotEmpty()) {
+      val memberships = allPlacedApps.mapIndexed { idx, app ->
+        SpaceMembershipEntity(
+          spaceId = spaceId,
+          packageName = app.packageName,
+          componentName = app.activityName,
+          userHandleId = app.userHandleId,
+          orderIndex = idx,
+          addedAt = System.currentTimeMillis()
+        )
+      }
+      membershipDao.insertMemberships(memberships)
+      AppLogger.d(AppLogger.Category.LAUNCHER, "Registered ${memberships.size} memberships for Space '$spaceName' ($spaceId)")
+    }
+  }
+
+  /**
+   * Expands the DockBar capacity when the user increases it above current count,
+   * preserving original dock apps and filling newly available positions with sensible everyday apps:
+   * Contacts -> Gallery/Photos -> Files -> Clock -> Calculator -> Calendar -> Maps.
+   */
+  private suspend fun expandDockItemsIfNeeded(
+    spaceId: String,
+    newCapacity: Int,
+    appsToSearch: List<DiscoveredApp> = emptyList()
+  ) {
+    val existingDockEntities = layoutDao.getDockItemsForSpace(spaceId).sortedBy { it.orderIndex }
+    if (existingDockEntities.size >= newCapacity) {
+      return
+    }
+
+    val installedApps = if (appsToSearch.isNotEmpty()) {
+      appsToSearch
+    } else if (context != null) {
+      try {
+        AppDiscoveryManager(context).loadInstalledApps()
+      } catch (e: Exception) {
+        emptyList()
+      }
+    } else {
+      emptyList()
+    }
+
+    if (installedApps.isEmpty()) return
+
+    val existingDockApps = existingDockEntities.map { entity ->
+      installedApps.firstOrNull { it.packageName == entity.packageName }
+        ?: DiscoveredApp(
+          id = "${entity.packageName}/${entity.componentName}#${entity.userHandleId}",
+          packageName = entity.packageName,
+          activityName = entity.componentName,
+          label = entity.packageName.substringAfterLast('.').replaceFirstChar { it.uppercase() },
+          userHandleId = entity.userHandleId
+        )
+    }
+
+    val resolvedDock = DefaultAppCapabilityResolver.resolveDockApps(
+      installedApps = installedApps,
+      dockCapacity = newCapacity,
+      context = context,
+      existingDockApps = existingDockApps
+    )
+
+    val existingPkgs = existingDockEntities.map { it.packageName }.toSet()
+    val newDockApps = resolvedDock.filterNot { existingPkgs.contains(it.packageName) }
+    if (newDockApps.isEmpty()) return
+
+    var currentMaxIndex = existingDockEntities.maxOfOrNull { it.orderIndex } ?: -1
+    val newEntities = newDockApps.map { app ->
+      currentMaxIndex++
+      SpaceDockItemEntity(
+        id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
+        spaceId = spaceId,
+        orderIndex = currentMaxIndex,
+        packageName = app.packageName,
+        componentName = app.activityName,
+        userHandleId = app.userHandleId
+      )
+    }
+    layoutDao.insertDockItems(newEntities)
+    AppLogger.i(AppLogger.Category.LAUNCHER, "Expanded DockBar for Space ($spaceId) from ${existingDockEntities.size} to ${existingDockEntities.size + newEntities.size} apps: ${newDockApps.map { it.label }}")
+
+    val existingMemberships = membershipDao.getMembershipsForSpace(spaceId).map { it.packageName }.toSet()
+    val newMemberships = newDockApps
+      .filterNot { existingMemberships.contains(it.packageName) }
+      .mapIndexed { idx, app ->
+        SpaceMembershipEntity(
+          spaceId = spaceId,
+          packageName = app.packageName,
+          componentName = app.activityName,
+          userHandleId = app.userHandleId,
+          orderIndex = existingMemberships.size + idx,
+          addedAt = System.currentTimeMillis()
+        )
+      }
+    if (newMemberships.isNotEmpty()) {
+      membershipDao.insertMemberships(newMemberships)
     }
   }
 
@@ -144,7 +347,11 @@ class RoomSpaceRepository(
     }
   }
 
-  override suspend fun createSpace(name: String, layoutType: String): Result<Space> {
+  override suspend fun createSpace(
+    name: String,
+    layoutType: String,
+    initialApps: List<DiscoveredApp>
+  ): Result<Space> {
     val trimmed = name.trim()
     if (trimmed.isEmpty()) {
       return Result.failure(IllegalArgumentException("Space name cannot be empty"))
@@ -158,10 +365,22 @@ class RoomSpaceRepository(
         orderIndex = orderIndex,
         createdAt = System.currentTimeMillis(),
         updatedAt = System.currentTimeMillis(),
-        layoutType = layoutType
+        layoutType = layoutType,
+        gridColumns = Space.DEFAULT_GRID_COLUMNS,
+        dockCapacity = Space.DEFAULT_DOCK_CAPACITY
       )
       spaceDao.insertSpace(SpaceEntity.fromDomain(space))
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Created new Space: '$trimmed' ($newId)")
+
+      initializeNewSpaceDefaults(
+        spaceId = newId,
+        spaceName = trimmed,
+        layoutPreset = Space.PRESET_DEFAULT,
+        dockCapacity = Space.DEFAULT_DOCK_CAPACITY,
+        gridColumns = Space.DEFAULT_GRID_COLUMNS,
+        candidateApps = initialApps
+      )
+
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Created new Space: '$trimmed' ($newId) with default apps")
       Result.success(space)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to create Space: '$name'", e)
@@ -280,51 +499,16 @@ class RoomSpaceRepository(
       )
       spaceDao.insertSpace(SpaceEntity.fromDomain(space))
 
-      val uniqueInitialApps = initialApps.distinctBy { it.packageName }
-      if (uniqueInitialApps.isNotEmpty()) {
-        val memberships = uniqueInitialApps.mapIndexed { idx, app ->
-          SpaceMembershipEntity(
-            spaceId = newId,
-            packageName = app.packageName,
-            componentName = app.activityName,
-            userHandleId = app.userHandleId,
-            orderIndex = idx,
-            addedAt = System.currentTimeMillis()
-          )
-        }
-        membershipDao.insertMemberships(memberships)
+      initializeNewSpaceDefaults(
+        spaceId = newId,
+        spaceName = trimmed,
+        layoutPreset = layoutPreset,
+        dockCapacity = dockCapacity,
+        gridColumns = gridColumns,
+        candidateApps = initialApps
+      )
 
-        // Also populate default dock items & initial home placements for this preset
-        val dockEntities = uniqueInitialApps.take(dockCapacity).mapIndexed { idx, app ->
-          SpaceDockItemEntity(
-            id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
-            spaceId = newId,
-            orderIndex = idx,
-            packageName = app.packageName,
-            componentName = app.activityName,
-            userHandleId = app.userHandleId
-          )
-        }
-        layoutDao.insertDockItems(dockEntities)
-
-        val pageSize = (gridColumns * 5).coerceAtLeast(1)
-        val homeEntities = uniqueInitialApps.mapIndexed { idx, app ->
-          SpaceItemPlacementEntity(
-            id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
-            spaceId = newId,
-            layer = SpaceItemPlacement.LAYER_HOME,
-            pageIndex = idx / pageSize,
-            positionIndex = idx % pageSize,
-            itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-            packageName = app.packageName,
-            componentName = app.activityName,
-            userHandleId = app.userHandleId
-          )
-        }
-        layoutDao.insertPlacements(homeEntities)
-      }
-
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Created configured Space: '$trimmed' ($newId) with preset '$layoutPreset' and ${uniqueInitialApps.size} apps")
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Created configured Space: '$trimmed' ($newId) with preset '$layoutPreset' and default apps")
       Result.success(space)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to create configured Space: '$name'", e)
@@ -569,7 +753,19 @@ class RoomSpaceRepository(
 
         val existingDock = layoutDao.getDockItemsForSpace(spaceId)
         if (existingDock.isEmpty()) {
-          val dockEntities = uniqueUpdatedApps.take(dockCapacity).mapIndexed { idx, app ->
+          val appsToUse = if (uniqueUpdatedApps.isNotEmpty()) {
+            uniqueUpdatedApps
+          } else if (context != null) {
+            try {
+              AppDiscoveryManager(context).loadInstalledApps()
+            } catch (e: Exception) {
+              emptyList()
+            }
+          } else {
+            emptyList()
+          }
+          val dockApps = DefaultAppCapabilityResolver.resolveDockApps(appsToUse, dockCapacity, context)
+          val dockEntities = dockApps.mapIndexed { idx, app ->
             SpaceDockItemEntity(
               id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
               spaceId = spaceId,
@@ -580,6 +776,8 @@ class RoomSpaceRepository(
             )
           }
           layoutDao.insertDockItems(dockEntities)
+        } else if (dockCapacity > existingDock.size) {
+          expandDockItemsIfNeeded(spaceId, dockCapacity, uniqueUpdatedApps)
         }
       }
 
@@ -1561,6 +1759,10 @@ class RoomSpaceRepository(
       val safeDockCapacity = dockCapacity.coerceIn(Space.MIN_DOCK_CAPACITY, Space.MAX_DOCK_CAPACITY)
       val safeGridColumns = gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
 
+      if (safeDockCapacity > existing.dockCapacity) {
+        expandDockItemsIfNeeded(spaceId, safeDockCapacity)
+      }
+
       val updated = existing.copy(
         layer1DisplayMode = layer1DisplayMode,
         layer2DisplayMode = layer2DisplayMode,
@@ -1671,17 +1873,12 @@ class RoomSpaceRepository(
       val partiallyImported = mutableListOf<String>()
       val restricted = mutableListOf<String>()
 
-      // Essential system categories detection
-      val dialer = uniqueApps.firstOrNull { it.packageName.contains("dialer") || it.packageName.contains("phone") || it.label.contains("Phone", ignoreCase = true) }
-      val messaging = uniqueApps.firstOrNull { it.packageName.contains("messaging") || it.packageName.contains("mms") || it.packageName.contains("message") || it.label.contains("Messages", ignoreCase = true) }
-      val browser = uniqueApps.firstOrNull { it.packageName.contains("chrome") || it.packageName.contains("browser") || it.label.contains("Chrome", ignoreCase = true) || it.label.contains("Browser", ignoreCase = true) }
-      val camera = uniqueApps.firstOrNull { it.packageName.contains("camera") || it.label.contains("Camera", ignoreCase = true) }
-      val settings = uniqueApps.firstOrNull { it.packageName.contains("settings") || it.label.contains("Settings", ignoreCase = true) }
-
-      val dockCandidates = listOfNotNull(dialer, messaging, browser, camera, settings).distinctBy { it.packageName }
+      val space = spaceDao.getSpaceById(spaceId)
+      val dockCapacity = space?.dockCapacity ?: 5
+      val dockCandidates = DefaultAppCapabilityResolver.resolveDockApps(uniqueApps, dockCapacity, context)
       if (dockCandidates.isNotEmpty()) {
         layoutDao.deleteAllDockItemsForSpace(spaceId)
-        val dockEntities = dockCandidates.take(5).mapIndexed { idx, app ->
+        val dockEntities = dockCandidates.mapIndexed { idx, app ->
           SpaceDockItemEntity(
             id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
             spaceId = spaceId,
@@ -1692,12 +1889,11 @@ class RoomSpaceRepository(
           )
         }
         layoutDao.insertDockItems(dockEntities)
-        successes.add("Identified and populated essential bottom Dock apps (${dockCandidates.size} apps: Phone, Messages, Browser, Camera, Settings)")
+        successes.add("Identified and populated essential bottom Dock apps (${dockCandidates.size} apps: ${dockCandidates.joinToString { it.label }})")
       }
 
       // Populate Layer 1 with launchable installed apps
       layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
-      val space = spaceDao.getSpaceById(spaceId)
       val cols = space?.gridColumns ?: 4
       val pageSize = cols * 5
 

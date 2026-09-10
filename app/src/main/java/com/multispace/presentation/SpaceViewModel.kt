@@ -34,7 +34,8 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     spaceDao = database.spaceDao(),
     membershipDao = database.spaceMembershipDao(),
     layoutDao = database.spaceLayoutDao(),
-    preferences = preferences
+    preferences = preferences,
+    context = application.applicationContext
   )
 
   private val _userFeedback = MutableSharedFlow<String>(extraBufferCapacity = 8)
@@ -154,7 +155,12 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
 
   fun createSpace(name: String) {
     viewModelScope.launch {
-      val result = spaceRepository.createSpace(name)
+      val apps = try {
+        com.multispace.platform.AppDiscoveryManager(getApplication<Application>().applicationContext).loadInstalledApps()
+      } catch (e: Exception) {
+        emptyList()
+      }
+      val result = spaceRepository.createSpace(name = name, initialApps = apps)
       result.fold(
         onSuccess = { created ->
           _userFeedback.tryEmit("Space '${created.name}' created successfully.")
@@ -265,7 +271,15 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
         pageTurnEffect = pageTurnEffect,
         pageTurnDurationMs = pageTurnDurationMs,
         pageTurnIntensity = pageTurnIntensity,
-        initialApps = initialApps
+        initialApps = if (initialApps.isNotEmpty()) {
+          initialApps
+        } else {
+          try {
+            com.multispace.platform.AppDiscoveryManager(getApplication<Application>().applicationContext).loadInstalledApps()
+          } catch (e: Exception) {
+            emptyList()
+          }
+        }
       )
       result.fold(
         onSuccess = { created ->
