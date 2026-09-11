@@ -13,6 +13,14 @@ import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.SpaceDockItem
 import com.multispace.domain.model.SpaceItemPlacement
 
+enum class DragLifecycleState {
+  IDLE,
+  PRESSED_ACTION_VISIBLE,
+  DRAGGING,
+  DROP,
+  CANCEL
+}
+
 enum class DragSource {
   LAYER1_DESKTOP,
   DOCK_BAR
@@ -26,6 +34,7 @@ enum class DragTargetZone {
 }
 
 class UnifiedDragState {
+  var lifecycleState by mutableStateOf(DragLifecycleState.IDLE)
   var isDragging by mutableStateOf(false)
   var dragSource by mutableStateOf(DragSource.LAYER1_DESKTOP)
 
@@ -60,6 +69,7 @@ class UnifiedDragState {
   var binBoundsInRoot by mutableStateOf<Rect?>(null)
 
   fun reset() {
+    lifecycleState = DragLifecycleState.IDLE
     isDragging = false
     dragSource = DragSource.LAYER1_DESKTOP
     draggedPlacement = null
