@@ -1,6 +1,7 @@
 package com.multispace.presentation
 
 import android.appwidget.AppWidgetManager
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -22,6 +23,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -107,7 +109,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.graphics.drawable.toBitmap
+import com.multispace.presentation.widget.BatteryStatusWidget
+import com.multispace.presentation.widget.CalendarWidget
+import com.multispace.presentation.widget.ClockDateWidget
+import com.multispace.presentation.widget.DesktopWidgetView
+import com.multispace.presentation.widget.QuickNotesWidget
+import com.multispace.presentation.widget.QuickSearchWidget
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -1248,6 +1259,73 @@ private fun CustomizeSpaceSubscreen(
 // --- WIDGETS SUB-SCREEN ---
 
 @Composable
+private fun CompanionWidgetPreview(
+  type: String,
+  spanX: Int,
+  spanY: Int,
+  space: Space,
+  modifier: Modifier = Modifier
+) {
+  BoxWithConstraints(
+    modifier = modifier.fillMaxWidth(),
+    contentAlignment = Alignment.Center
+  ) {
+    val cols = space.gridColumns.coerceIn(3, 8)
+    val appSpacing = 8.dp
+    val iconDp = when (space.iconSize) {
+      Space.ICON_SIZE_SMALL -> 44.dp
+      Space.ICON_SIZE_LARGE -> 62.dp
+      else -> 52.dp
+    }
+    val labelHeight = if (space.labelVisibility) 20.dp else 0.dp
+    val cellHeight = iconDp + labelHeight + 16.dp
+
+    val totalGaps = appSpacing * (cols - 1)
+    val cellWidth = (maxWidth - totalGaps) / cols
+
+    val widthDp = (cellWidth * spanX + appSpacing * (spanX - 1)).coerceAtMost(maxWidth)
+    val heightDp = cellHeight * spanY + appSpacing * (spanY - 1)
+
+    val dummyPlacement = remember(type, spanX, spanY, space.id) {
+      SpaceItemPlacement(
+        id = "preview_$type",
+        spaceId = space.id,
+        itemType = SpaceItemPlacement.ITEM_TYPE_WIDGET,
+        spanX = spanX,
+        spanY = spanY,
+        customWidgetType = type
+      )
+    }
+
+    Box(
+      modifier = Modifier.size(width = widthDp, height = heightDp)
+    ) {
+      DesktopWidgetView(
+        placement = dummyPlacement,
+        space = space,
+        onRemove = null,
+        appWidgetHost = null,
+        isResizeMode = false
+      )
+
+      // Invisible touch interceptor so preview interactions don't launch external activities
+      Box(
+        modifier = Modifier
+          .fillMaxSize()
+          .pointerInput(Unit) {
+            awaitPointerEventScope {
+              while (true) {
+                val event = awaitPointerEvent()
+                event.changes.forEach { it.consume() }
+              }
+            }
+          }
+      )
+    }
+  }
+}
+
+@Composable
 private fun WidgetsSubscreen(
   space: Space,
   currentPage: Int,
@@ -1261,27 +1339,27 @@ private fun WidgetsSubscreen(
     Triple(
       SpaceItemPlacement.WIDGET_CLOCK_DATE,
       "Digital Clock & Date",
-      "Large elegant time and current date display (2x1)"
+      "Large elegant time and current date display"
     ) to (2 to 1),
     Triple(
       SpaceItemPlacement.WIDGET_QUICK_SEARCH,
       "Quick Search Bar",
-      "Web and app launcher search pill (4x1)"
+      "Web and app launcher search pill"
     ) to (4 to 1),
     Triple(
       SpaceItemPlacement.WIDGET_CALENDAR,
       "Calendar Card",
-      "Date, day of week, and month indicator (2x2)"
+      "Date, day of week, and month indicator"
     ) to (2 to 2),
     Triple(
       SpaceItemPlacement.WIDGET_BATTERY_STATUS,
       "Battery Status",
-      "Live battery percentage and charging status (2x1)"
+      "Live battery percentage and charging status"
     ) to (2 to 1),
     Triple(
       SpaceItemPlacement.WIDGET_QUICK_NOTES,
       "Quick Notes",
-      "Compact notepad for desktop reminders (4x2)"
+      "Compact notepad for desktop reminders"
     ) to (4 to 2)
   )
 
@@ -1339,88 +1417,117 @@ private fun WidgetsSubscreen(
       val (spanX, spanY) = size
 
       Card(
-        shape = ShapeRoundMd,
+        shape = ShapeRoundLg,
         colors = CardDefaults.cardColors(
           containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
         modifier = Modifier
           .fillMaxWidth()
-          .clickable {
-            onAddWidget(selectedTargetPage, type, spanX, spanY, -1, null, null)
-          }
           .testTag("widget_item_$type")
       ) {
-        Row(
+        Column(
           modifier = Modifier
             .fillMaxWidth()
-            .padding(AppDimens.Spacing12),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.SpaceBetween
+            .padding(AppDimens.Spacing16),
+          verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
         ) {
+          // --- TOP: Widget Title, Icon, Description & Dimension Badge ---
           Row(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+            horizontalArrangement = Arrangement.SpaceBetween
           ) {
-            Box(
-              modifier = Modifier
-                .size(40.dp)
-                .clip(ShapeRoundMd)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-              contentAlignment = Alignment.Center
+            Row(
+              modifier = Modifier.weight(1f),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
             ) {
-              Icon(
-                imageVector = when (type) {
-                  SpaceItemPlacement.WIDGET_CLOCK_DATE -> Icons.Default.Schedule
-                  SpaceItemPlacement.WIDGET_QUICK_SEARCH -> Icons.Default.Search
-                  SpaceItemPlacement.WIDGET_CALENDAR -> Icons.Default.CalendarToday
-                  SpaceItemPlacement.WIDGET_BATTERY_STATUS -> Icons.Default.AutoAwesome
-                  else -> Icons.Default.Notes
-                },
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(20.dp)
-              )
-            }
-
-            Column {
-              Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing6)
+              Box(
+                modifier = Modifier
+                  .size(38.dp)
+                  .clip(ShapeRoundSm)
+                  .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
               ) {
-                Text(
-                  text = title,
-                  style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                  color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                  text = "${spanX}x$spanY",
-                  style = MaterialTheme.typography.labelSmall,
-                  color = MaterialTheme.colorScheme.primary,
-                  fontWeight = FontWeight.SemiBold
+                Icon(
+                  imageVector = when (type) {
+                    SpaceItemPlacement.WIDGET_CLOCK_DATE -> Icons.Default.Schedule
+                    SpaceItemPlacement.WIDGET_QUICK_SEARCH -> Icons.Default.Search
+                    SpaceItemPlacement.WIDGET_CALENDAR -> Icons.Default.CalendarToday
+                    SpaceItemPlacement.WIDGET_BATTERY_STATUS -> Icons.Default.AutoAwesome
+                    else -> Icons.Default.Notes
+                  },
+                  contentDescription = null,
+                  tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                  modifier = Modifier.size(20.dp)
                 )
               }
-              Spacer(modifier = Modifier.height(2.dp))
+
+              Column(modifier = Modifier.weight(1f)) {
+                Text(
+                  text = title,
+                  style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                  color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                  text = description,
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  fontSize = 11.5.sp
+                )
+              }
+            }
+
+            Surface(
+              shape = ShapeRoundSm,
+              color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+              modifier = Modifier.padding(start = AppDimens.Spacing8)
+            ) {
               Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp
+                text = "${spanX}x$spanY",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.padding(horizontal = AppDimens.Spacing8, vertical = 4.dp)
               )
             }
           }
 
-          FilledTonalButton(
+          // --- MIDDLE: Widget Preview ---
+          CompanionWidgetPreview(
+            type = type,
+            spanX = spanX,
+            spanY = spanY,
+            space = space
+          )
+
+          // --- BOTTOM: Add Button ---
+          Button(
             onClick = {
               onAddWidget(selectedTargetPage, type, spanX, spanY, -1, null, null)
             },
             shape = ShapeRoundSm,
-            contentPadding = PaddingValues(horizontal = AppDimens.Spacing12, vertical = 4.dp),
-            modifier = Modifier.height(34.dp).testTag("btn_add_widget_$type")
+            colors = ButtonDefaults.buttonColors(
+              containerColor = MaterialTheme.colorScheme.primary,
+              contentColor = MaterialTheme.colorScheme.onPrimary
+            ),
+            contentPadding = PaddingValues(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing8),
+            modifier = Modifier
+              .fillMaxWidth()
+              .height(42.dp)
+              .testTag("btn_add_widget_$type")
           ) {
-            Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("Add", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+            Icon(
+              imageVector = Icons.Default.Add,
+              contentDescription = null,
+              modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(AppDimens.Spacing8))
+            Text(
+              text = "Add to Page ${selectedTargetPage + 1}",
+              style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+            )
           }
         }
       }
@@ -1435,47 +1542,198 @@ private fun WidgetsSubscreen(
       )
 
       installedProviders.forEach { provider ->
+        val providerPackage = provider.provider.packageName
+        val providerClass = provider.provider.className
+        val label = provider.loadLabel(context.packageManager)
+
         Card(
-          shape = ShapeRoundMd,
+          shape = ShapeRoundLg,
           colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
           ),
-          modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-              onAddWidget(
-                selectedTargetPage,
-                "SYSTEM_WIDGET",
-                2,
-                2,
-                -1,
-                provider.provider.packageName,
-                provider.provider.className
-              )
-            }
+          border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+          modifier = Modifier.fillMaxWidth()
         ) {
-          Row(
+          Column(
             modifier = Modifier
               .fillMaxWidth()
-              .padding(AppDimens.Spacing12),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+              .padding(AppDimens.Spacing16),
+            verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
           ) {
-            Column(modifier = Modifier.weight(1f)) {
-              Text(
-                text = provider.loadLabel(context.packageManager),
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface
-              )
-              Text(
-                text = provider.provider.packageName,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp
-              )
+            // --- TOP: System Widget Title, Icon, Package & Badge ---
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+              Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+              ) {
+                val appIcon = remember(provider) {
+                  try {
+                    provider.loadIcon(context, 0)
+                  } catch (e: Exception) {
+                    null
+                  }
+                }
+                Box(
+                  modifier = Modifier
+                    .size(38.dp)
+                    .clip(ShapeRoundSm)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                  contentAlignment = Alignment.Center
+                ) {
+                  if (appIcon != null) {
+                    val iconBitmap = remember(appIcon) { appIcon.toBitmap(72, 72).asImageBitmap() }
+                    androidx.compose.foundation.Image(
+                      bitmap = iconBitmap,
+                      contentDescription = null,
+                      modifier = Modifier.size(24.dp)
+                    )
+                  } else {
+                    Icon(
+                      imageVector = Icons.Default.Widgets,
+                      contentDescription = null,
+                      tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                      modifier = Modifier.size(20.dp)
+                    )
+                  }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(
+                    text = label,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                  )
+                  Spacer(modifier = Modifier.height(2.dp))
+                  Text(
+                    text = providerPackage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp,
+                    maxLines = 1
+                  )
+                }
+              }
+
+              Surface(
+                shape = ShapeRoundSm,
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                modifier = Modifier.padding(start = AppDimens.Spacing8)
+              ) {
+                Text(
+                  text = "System",
+                  style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                  color = MaterialTheme.colorScheme.onSecondaryContainer,
+                  modifier = Modifier.padding(horizontal = AppDimens.Spacing8, vertical = 4.dp)
+                )
+              }
             }
 
-            OutlinedButton(
+            // --- MIDDLE: System Widget Preview ---
+            val previewDrawable = remember(provider) {
+              try {
+                provider.loadPreviewImage(context, 0)
+              } catch (e: Exception) {
+                null
+              }
+            }
+
+            val sysSpanX = 2
+            val sysSpanY = 2
+            BoxWithConstraints(
+              modifier = Modifier.fillMaxWidth(),
+              contentAlignment = Alignment.Center
+            ) {
+              val cols = space.gridColumns.coerceIn(3, 8)
+              val appSpacing = 8.dp
+              val iconDp = when (space.iconSize) {
+                Space.ICON_SIZE_SMALL -> 44.dp
+                Space.ICON_SIZE_LARGE -> 62.dp
+                else -> 52.dp
+              }
+              val labelHeight = if (space.labelVisibility) 20.dp else 0.dp
+              val cellHeight = iconDp + labelHeight + 16.dp
+
+              val totalGaps = appSpacing * (cols - 1)
+              val cellWidth = (maxWidth - totalGaps) / cols
+
+              val widthDp = (cellWidth * sysSpanX + appSpacing * (sysSpanX - 1)).coerceAtMost(maxWidth)
+              val heightDp = cellHeight * sysSpanY + appSpacing * (sysSpanY - 1)
+
+              if (previewDrawable != null) {
+                val previewBitmap = remember(previewDrawable) {
+                  try {
+                    previewDrawable.toBitmap(400, 250).asImageBitmap()
+                  } catch (e: Exception) {
+                    null
+                  }
+                }
+                if (previewBitmap != null) {
+                  Card(
+                    shape = ShapeRoundLg,
+                    colors = CardDefaults.cardColors(
+                      containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                    modifier = Modifier.size(width = widthDp, height = heightDp)
+                  ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                      androidx.compose.foundation.Image(
+                        bitmap = previewBitmap,
+                        contentDescription = "Widget Preview",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                          .fillMaxSize()
+                          .padding(AppDimens.Spacing8)
+                      )
+                    }
+                  }
+                }
+              } else {
+                Card(
+                  shape = ShapeRoundLg,
+                  colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
+                  ),
+                  border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                  modifier = Modifier.size(width = widthDp, height = heightDp)
+                ) {
+                  Row(
+                    modifier = Modifier
+                      .fillMaxSize()
+                      .padding(AppDimens.Spacing16),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+                  ) {
+                    Icon(
+                      imageVector = Icons.Default.Widgets,
+                      contentDescription = null,
+                      tint = MaterialTheme.colorScheme.primary,
+                      modifier = Modifier.size(28.dp)
+                    )
+                    Column {
+                      Text(
+                        text = label,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                      )
+                      Text(
+                        text = "Android System Widget (2x2)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                      )
+                    }
+                  }
+                }
+              }
+            }
+
+            // --- BOTTOM: Add Button ---
+            Button(
               onClick = {
                 onAddWidget(
                   selectedTargetPage,
@@ -1483,17 +1741,30 @@ private fun WidgetsSubscreen(
                   2,
                   2,
                   -1,
-                  provider.provider.packageName,
-                  provider.provider.className
+                  providerPackage,
+                  providerClass
                 )
               },
               shape = ShapeRoundSm,
-              contentPadding = PaddingValues(horizontal = AppDimens.Spacing12, vertical = 4.dp),
-              modifier = Modifier.height(34.dp)
+              colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+              ),
+              contentPadding = PaddingValues(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing8),
+              modifier = Modifier
+                .fillMaxWidth()
+                .height(42.dp)
             ) {
-              Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-              Spacer(modifier = Modifier.width(4.dp))
-              Text("Add", style = MaterialTheme.typography.labelSmall)
+              Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+              )
+              Spacer(modifier = Modifier.width(AppDimens.Spacing8))
+              Text(
+                text = "Add to Page ${selectedTargetPage + 1}",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+              )
             }
           }
         }
