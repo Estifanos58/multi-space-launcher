@@ -920,6 +920,9 @@ fun Layer1HomeScreen(
                 dragLifecycleState = DragLifecycleState.CANCEL
                 unifiedDragState?.lifecycleState = DragLifecycleState.CANCEL
                 handleCancelDrag()
+              } else if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
+                // User held and released without dragging: action box stays visible until user touches elsewhere
+                pendingDragPlacement = null
               } else {
                 activeActionPlacement = null
                 pendingDragPlacement = null

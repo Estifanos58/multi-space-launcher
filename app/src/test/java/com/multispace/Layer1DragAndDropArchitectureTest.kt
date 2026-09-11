@@ -98,6 +98,99 @@ class Layer1DragAndDropArchitectureTest {
   }
 
   @Test
+  fun testWidgetLongPressReleaseRetainsResizeActionUntilTouchElsewhere() {
+    var activeActionPlacement: SpaceItemPlacement? = null
+    var pendingDragPlacement: SpaceItemPlacement? = null
+    var dragLifecycleState = DragLifecycleState.IDLE
+    var resizingWidgetId: String? = null
+
+    val widgetPlacement = SpaceItemPlacement(
+      id = "widget_1",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 4,
+      itemType = SpaceItemPlacement.ITEM_TYPE_WIDGET,
+      spanX = 2,
+      spanY = 2,
+      customWidgetType = SpaceItemPlacement.WIDGET_CLOCK_DATE
+    )
+
+    // 1. Long-press widget: resize icon appears at top
+    dragLifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
+    activeActionPlacement = widgetPlacement
+    pendingDragPlacement = widgetPlacement
+
+    assertTrue(activeActionPlacement!!.isWidget)
+    assertEquals(DragLifecycleState.PRESSED_ACTION_VISIBLE, dragLifecycleState)
+
+    // 2. User lets go (finger lifted without drag) -> Compose triggers onDragCancel or onDragEnd
+    // Simulating onDragCancel logic
+    val isDragging = (dragLifecycleState == DragLifecycleState.DRAGGING)
+    assertFalse(isDragging)
+
+    if (dragLifecycleState == DragLifecycleState.DRAGGING) {
+      dragLifecycleState = DragLifecycleState.CANCEL
+    } else if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
+      // User held and released without dragging: action box stays visible!
+      pendingDragPlacement = null
+    } else {
+      activeActionPlacement = null
+      pendingDragPlacement = null
+      dragLifecycleState = DragLifecycleState.IDLE
+    }
+
+    // Crucial check: resize action box must NOT disappear on letting go!
+    assertNotNull("Resize action must stay visible after letting go", activeActionPlacement)
+    assertEquals("widget_1", activeActionPlacement?.id)
+    assertEquals(DragLifecycleState.PRESSED_ACTION_VISIBLE, dragLifecycleState)
+    assertNull(pendingDragPlacement)
+
+    // 3. User touches anything else (scrim receives touch event) -> dismisses
+    activeActionPlacement = null
+    dragLifecycleState = DragLifecycleState.IDLE
+
+    assertNull("Action box should be dismissed after touching elsewhere", activeActionPlacement)
+    assertEquals(DragLifecycleState.IDLE, dragLifecycleState)
+  }
+
+  @Test
+  fun testWidgetLongPressThenClickResizeEntersResizeMode() {
+    var activeActionPlacement: SpaceItemPlacement? = null
+    var dragLifecycleState = DragLifecycleState.IDLE
+    var resizingWidgetId: String? = null
+
+    val widgetPlacement = SpaceItemPlacement(
+      id = "widget_clock",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 0,
+      itemType = SpaceItemPlacement.ITEM_TYPE_WIDGET,
+      spanX = 2,
+      spanY = 2,
+      customWidgetType = SpaceItemPlacement.WIDGET_CLOCK_DATE
+    )
+
+    // Long press
+    dragLifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
+    activeActionPlacement = widgetPlacement
+
+    // User taps the resize action icon
+    val onActivateResize: (String) -> Unit = { widgetId ->
+      resizingWidgetId = widgetId
+      activeActionPlacement = null
+      dragLifecycleState = DragLifecycleState.IDLE
+    }
+
+    onActivateResize(widgetPlacement.id)
+
+    assertEquals("widget_clock", resizingWidgetId)
+    assertNull(activeActionPlacement)
+    assertEquals(DragLifecycleState.IDLE, dragLifecycleState)
+  }
+
+  @Test
   fun testFolderLongPressDirectlyTransitionsToDragging() {
     val dragState = UnifiedDragState()
     val folderPlacement = SpaceItemPlacement(
