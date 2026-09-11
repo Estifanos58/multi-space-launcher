@@ -1,0 +1,221 @@
+package com.multispace.presentation.components
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.multispace.ui.theme.QuantumViolet
+import kotlin.math.roundToInt
+
+/**
+ * A fast-scrolling alphabetical index (A–Z) displayed along the rightmost edge of Layer 2
+ * in Vertical mode.
+ *
+ * Supports single-touch, press, and continuous dragging across letters, updating the
+ * scroll position of the app list to the first app starting with that letter.
+ *
+ * Letters with no matching apps have a visually distinct disabled/inactive appearance.
+ */
+@Composable
+fun AlphabetFastScroll(
+  alphabet: List<Char>,
+  activeLetters: Set<Char>,
+  onLetterSelected: (Char) -> Unit,
+  modifier: Modifier = Modifier
+) {
+  var isDragging by remember { mutableStateOf(false) }
+  var currentLetter by remember { mutableStateOf<Char?>(null) }
+  var dragY by remember { mutableFloatStateOf(0f) }
+  var totalHeightPx by remember { mutableFloatStateOf(0f) }
+
+  val density = LocalDensity.current
+
+  Box(
+    modifier = modifier
+      .width(32.dp)
+      .fillMaxHeight()
+      .testTag("layer2_alphabet_fast_scroll")
+  ) {
+    // 1. Vertical Alphabet Column Strip
+    Surface(
+      shape = RoundedCornerShape(16.dp),
+      color = if (isDragging) {
+        MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f)
+      } else {
+        MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.50f)
+      },
+      border = BorderStroke(
+        0.8.dp,
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDragging) 0.5f else 0.25f)
+      ),
+      modifier = Modifier
+        .align(Alignment.CenterEnd)
+        .fillMaxHeight()
+        .width(26.dp)
+        .onGloballyPositioned { coords ->
+          totalHeightPx = coords.size.height.toFloat()
+        }
+        .pointerInput(alphabet, activeLetters) {
+          awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val height = size.height.toFloat()
+            if (height > 0f) {
+              val initialFraction = (down.position.y / height).coerceIn(0f, 0.999f)
+              val index = (initialFraction * alphabet.size).toInt().coerceIn(0, alphabet.lastIndex)
+              val letter = alphabet[index]
+              isDragging = true
+              currentLetter = letter
+              dragY = down.position.y
+              onLetterSelected(letter)
+              down.consume()
+            }
+
+            while (true) {
+              val event = awaitPointerEvent()
+              val change = event.changes.firstOrNull() ?: break
+              if (!change.pressed) break
+
+              val y = change.position.y
+              dragY = y
+              val fraction = (y / height).coerceIn(0f, 0.999f)
+              val index = (fraction * alphabet.size).toInt().coerceIn(0, alphabet.lastIndex)
+              val letter = alphabet[index]
+              if (letter != currentLetter) {
+                currentLetter = letter
+                onLetterSelected(letter)
+              }
+              change.consume()
+            }
+
+            isDragging = false
+            currentLetter = null
+          }
+        }
+    ) {
+      Column(
+        modifier = Modifier
+          .fillMaxSize()
+          .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.SpaceEvenly,
+        horizontalAlignment = Alignment.CenterHorizontally
+      ) {
+        alphabet.forEach { letter ->
+          val hasApps = activeLetters.contains(letter)
+          val isSelected = isDragging && currentLetter == letter
+
+          Box(
+            modifier = Modifier
+              .weight(1f)
+              .fillMaxWidth()
+              .testTag("layer2_alphabet_letter_$letter"),
+            contentAlignment = Alignment.Center
+          ) {
+            if (isSelected) {
+              Box(
+                modifier = Modifier
+                  .size(16.dp)
+                  .background(QuantumViolet, CircleShape)
+              )
+            }
+            Text(
+              text = letter.toString(),
+              fontSize = 9.sp,
+              fontWeight = when {
+                isSelected -> FontWeight.ExtraBold
+                hasApps -> FontWeight.Bold
+                else -> FontWeight.Normal
+              },
+              color = when {
+                isSelected -> Color.White
+                hasApps -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
+              },
+              textAlign = TextAlign.Center
+            )
+          }
+        }
+      }
+    }
+
+    // 2. Large Floating Letter Preview Bubble
+    AnimatedVisibility(
+      visible = isDragging && currentLetter != null,
+      enter = fadeIn() + scaleIn(),
+      exit = fadeOut() + scaleOut(),
+      modifier = Modifier
+        .align(Alignment.TopEnd)
+        .offset {
+          val bubbleSizePx = with(density) { 52.dp.toPx() }
+          val bubbleOffsetXPx = with(density) { (-64).dp.toPx() }
+          val clampedY = (dragY - bubbleSizePx / 2f).coerceIn(0f, (totalHeightPx - bubbleSizePx).coerceAtLeast(0f))
+          IntOffset(bubbleOffsetXPx.roundToInt(), clampedY.roundToInt())
+        }
+    ) {
+      val letter = currentLetter ?: 'A'
+      val hasApps = activeLetters.contains(letter)
+
+      Surface(
+        shape = CircleShape,
+        color = if (hasApps) QuantumViolet else MaterialTheme.colorScheme.surfaceContainerHighest,
+        shadowElevation = 8.dp,
+        border = BorderStroke(
+          1.5.dp,
+          if (hasApps) Color.White.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant
+        ),
+        modifier = Modifier
+          .size(52.dp)
+          .testTag("layer2_alphabet_bubble")
+      ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+          Text(
+            text = letter.toString(),
+            style = MaterialTheme.typography.titleLarge.copy(
+              fontSize = 24.sp,
+              fontWeight = FontWeight.Black
+            ),
+            color = if (hasApps) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+            textAlign = TextAlign.Center
+          )
+        }
+      }
+    }
+  }
+}

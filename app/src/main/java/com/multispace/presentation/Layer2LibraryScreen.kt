@@ -8,11 +8,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Dock
 import androidx.compose.material.icons.filled.Home
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
+import com.multispace.presentation.components.AlphabetFastScroll
 import com.multispace.ui.components.ModernCard
 import com.multispace.ui.components.ModernDialogContainer
 import com.multispace.ui.components.ModernEmptyState
@@ -43,6 +45,7 @@ import com.multispace.ui.theme.QuantumViolet
 import com.multispace.ui.theme.ShapeRoundLg
 import com.multispace.ui.theme.ShapeRoundMd
 import com.multispace.ui.theme.ShapeRoundSm
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -68,6 +71,37 @@ fun Layer2LibraryScreen(
       spaceApps.filter {
         it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
       }
+    }
+  }
+
+  val isVerticalMode = space.layer2DisplayMode != Space.DISPLAY_MODE_PAGE
+  val showAlphabetIndex = isVerticalMode && filteredApps.isNotEmpty()
+
+  val gridState = rememberLazyGridState()
+  val coroutineScope = rememberCoroutineScope()
+
+  val alphabet = remember { ('A'..'Z').toList() }
+
+  // Map each letter A-Z to the index of the first matching app in filteredApps,
+  // preserving the exact app-name sorting/order already used by Layer 2.
+  val letterToFirstIndex = remember(filteredApps) {
+    val map = mutableMapOf<Char, Int>()
+    filteredApps.forEachIndexed { index, app ->
+      val cleanLabel = app.label.trim().trim('"', '\'', '(', '[', '{')
+      val firstChar = cleanLabel.firstOrNull()?.uppercaseChar()
+      if (firstChar != null && firstChar in 'A'..'Z') {
+        if (!map.containsKey(firstChar)) {
+          map[firstChar] = index
+        }
+      }
+    }
+    map
+  }
+  val activeLetters = remember(letterToFirstIndex) { letterToFirstIndex.keys }
+
+  LaunchedEffect(searchQuery) {
+    if (filteredApps.isNotEmpty()) {
+      gridState.scrollToItem(0)
     }
   }
 
@@ -106,7 +140,7 @@ fun Layer2LibraryScreen(
           modifier = Modifier.fillMaxSize().testTag("layer2_back_button")
         ) {
           Icon(
-            imageVector = Icons.Default.ArrowBack,
+            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
             contentDescription = "Back to Home",
             tint = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.size(AppDimens.IconSm)
@@ -144,54 +178,85 @@ fun Layer2LibraryScreen(
         )
       }
     } else {
-      LazyVerticalGrid(
-        columns = GridCells.Fixed(space.gridColumns),
+      Box(
         modifier = Modifier
           .weight(1f)
           .fillMaxWidth()
-          .padding(horizontal = AppDimens.Spacing16)
-          .testTag("layer2_apps_grid"),
-        horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8),
-        verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16),
-        contentPadding = PaddingValues(
-          bottom = AppDimens.Spacing24 + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        )
       ) {
-        items(filteredApps, key = { "${it.packageName}/${it.activityName}" }) { app ->
-          Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-              .fillMaxWidth()
-              .clip(ShapeRoundMd)
-              .combinedClickable(
-                onClick = { onLaunchApp(app) },
-                onLongClick = { selectedAppForMenu = app }
-              )
-              .padding(AppDimens.Spacing4)
-              .testTag("layer2_app_${app.packageName}")
-          ) {
-            val bitmap = getBitmap(app)
-            ThemedAppIcon(
-              app = app,
-              bitmap = bitmap,
-              appTheme = space.appTheme,
-              modifier = iconSizeModifier,
-              fallbackText = app.label.take(1).uppercase()
+        LazyVerticalGrid(
+          state = gridState,
+          columns = GridCells.Fixed(space.gridColumns),
+          modifier = Modifier
+            .fillMaxSize()
+            .padding(
+              start = AppDimens.Spacing16,
+              end = if (showAlphabetIndex) 36.dp else AppDimens.Spacing16
             )
-
-            if (space.labelVisibility) {
-              Spacer(modifier = Modifier.height(AppDimens.Spacing4))
-              Text(
-                text = app.label,
-                style = MaterialTheme.typography.bodySmall,
-                fontSize = 11.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurface
+            .testTag("layer2_apps_grid"),
+          horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8),
+          verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16),
+          contentPadding = PaddingValues(
+            bottom = AppDimens.Spacing24 + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+          )
+        ) {
+          items(filteredApps, key = { "${it.packageName}/${it.activityName}" }) { app ->
+            Column(
+              horizontalAlignment = Alignment.CenterHorizontally,
+              modifier = Modifier
+                .fillMaxWidth()
+                .clip(ShapeRoundMd)
+                .combinedClickable(
+                  onClick = { onLaunchApp(app) },
+                  onLongClick = { selectedAppForMenu = app }
+                )
+                .padding(AppDimens.Spacing4)
+                .testTag("layer2_app_${app.packageName}")
+            ) {
+              val bitmap = getBitmap(app)
+              ThemedAppIcon(
+                app = app,
+                bitmap = bitmap,
+                appTheme = space.appTheme,
+                modifier = iconSizeModifier,
+                fallbackText = app.label.take(1).uppercase()
               )
+
+              if (space.labelVisibility) {
+                Spacer(modifier = Modifier.height(AppDimens.Spacing4))
+                Text(
+                  text = app.label,
+                  style = MaterialTheme.typography.bodySmall,
+                  fontSize = 11.sp,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                  textAlign = TextAlign.Center,
+                  color = MaterialTheme.colorScheme.onSurface
+                )
+              }
             }
           }
+        }
+
+        if (showAlphabetIndex) {
+          AlphabetFastScroll(
+            alphabet = alphabet,
+            activeLetters = activeLetters,
+            onLetterSelected = { letter ->
+              letterToFirstIndex[letter]?.let { targetIndex ->
+                coroutineScope.launch {
+                  gridState.scrollToItem(targetIndex)
+                }
+              }
+            },
+            modifier = Modifier
+              .align(Alignment.CenterEnd)
+              .fillMaxHeight()
+              .padding(
+                end = 4.dp,
+                top = AppDimens.Spacing8,
+                bottom = AppDimens.Spacing16 + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+              )
+          )
         }
       }
     }
