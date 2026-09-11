@@ -214,6 +214,18 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
     }
   }
 
+  fun uninstallApp(app: DiscoveredApp) {
+    try {
+      val intent = android.content.Intent(android.content.Intent.ACTION_DELETE).apply {
+        data = android.net.Uri.parse("package:${app.packageName}")
+        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      getApplication<Application>().startActivity(intent)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to initiate uninstall for ${app.packageName}", e)
+    }
+  }
+
   private fun applyFiltersAndSort(
     apps: List<DiscoveredApp>,
     query: String,

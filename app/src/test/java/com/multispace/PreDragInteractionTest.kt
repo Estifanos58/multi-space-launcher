@@ -37,8 +37,16 @@ class PreDragInteractionTest {
       openedAppInfoPackage = target.packageName
     }
 
+    var uninstalledAppPackage: String? = null
+    val onUninstallApp: (DiscoveredApp) -> Unit = { target ->
+      uninstalledAppPackage = target.packageName
+    }
+
     onOpenAppInfo(app)
     assertEquals("com.example.testapp", openedAppInfoPackage)
+
+    onUninstallApp(app)
+    assertEquals("com.example.testapp", uninstalledAppPackage)
   }
 
   @Test
@@ -95,6 +103,38 @@ class PreDragInteractionTest {
     val topIdealTop = topItemTop - gap - boxHeight // 10 - 8 - 44 = -42 < minMargin
     val topCalculatedY = if (topIdealTop >= minMargin) topIdealTop else (topItemBottom + gap)
     assertEquals(78f, topCalculatedY, 0.01f)
+  }
+
+  @Test
+  fun testAppDualActionOverlayBoundsCalculation() {
+    val appBoxWidth = 92f
+    val boxHeight = 44f
+    val gap = 8f
+    val minMargin = 16f
+    val viewportWidth = 400f
+
+    // App centered at 200f
+    val targetCenterX = 200f
+    val targetTop = 250f
+    val idealTop = targetTop - gap - boxHeight
+    val topY = if (idealTop >= minMargin) idealTop else (targetTop + 100f + gap)
+    val leftX = (targetCenterX - (appBoxWidth / 2f)).coerceIn(
+      minMargin,
+      (viewportWidth - appBoxWidth - minMargin).coerceAtLeast(minMargin)
+    )
+
+    assertEquals(198f, idealTop, 0.01f)
+    assertEquals(198f, topY, 0.01f)
+    assertEquals(154f, leftX, 0.01f)
+
+    // App near right boundary
+    val rightAppCenterX = 380f
+    val rightLeftX = (rightAppCenterX - (appBoxWidth / 2f)).coerceIn(
+      minMargin,
+      (viewportWidth - appBoxWidth - minMargin).coerceAtLeast(minMargin)
+    )
+    // 400 - 92 - 16 = 292
+    assertEquals(292f, rightLeftX, 0.01f)
   }
 
   @Test

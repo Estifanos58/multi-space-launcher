@@ -25,6 +25,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.OpenInFull
@@ -103,6 +104,7 @@ fun Layer1HomeScreen(
   onResizeWidget: (placementId: String, spanX: Int, spanY: Int, positionIndex: Int?) -> Unit = { _, _, _, _ -> },
   onOpenCustomization: (Int) -> Unit = {},
   onOpenAppInfo: (DiscoveredApp) -> Unit = {},
+  onUninstallApp: (DiscoveredApp) -> Unit = {},
   appWidgetHost: AppWidgetHost? = null,
   unifiedDragState: UnifiedDragState? = null,
   onDropItemToDock: ((placement: SpaceItemPlacement, app: DiscoveredApp, targetDockIndex: Int) -> Unit)? = null,
@@ -1403,6 +1405,25 @@ fun Layer1HomeScreen(
           dragLifecycleState = DragLifecycleState.IDLE
           unifiedDragState?.lifecycleState = DragLifecycleState.IDLE
         },
+        onUninstallApp = { appToUninstall ->
+          try {
+            onUninstallApp(appToUninstall)
+          } catch (e: Exception) {
+            // fallback
+          }
+          try {
+            val intent = Intent(Intent.ACTION_DELETE).apply {
+              data = Uri.parse("package:${appToUninstall.packageName}")
+              addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+          } catch (e: Exception) {
+            AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to initiate uninstall for ${appToUninstall.packageName}", e)
+          }
+          activeActionPlacement = null
+          dragLifecycleState = DragLifecycleState.IDLE
+          unifiedDragState?.lifecycleState = DragLifecycleState.IDLE
+        },
         onActivateResize = { widgetId ->
           resizingWidgetId = widgetId
           activeActionPlacement = null
@@ -1428,11 +1449,12 @@ private fun PreDragActionBoxOverlay(
   viewportWidth: Float,
   density: androidx.compose.ui.unit.Density,
   onOpenAppInfo: (DiscoveredApp) -> Unit,
+  onUninstallApp: (DiscoveredApp) -> Unit,
   onActivateResize: (String) -> Unit,
   onDismiss: () -> Unit,
   modifier: Modifier = Modifier
 ) {
-  val boxWidthDp = 44.dp
+  val boxWidthDp = if (placement.isWidget) 44.dp else 92.dp
   val boxHeightDp = 44.dp
   val boxWidthPx = with(density) { boxWidthDp.toPx() }
   val boxHeightPx = with(density) { boxHeightDp.toPx() }
@@ -1451,7 +1473,7 @@ private fun PreDragActionBoxOverlay(
   )
 
   Surface(
-    shape = RoundedCornerShape(12.dp),
+    shape = RoundedCornerShape(14.dp),
     color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.95f),
     tonalElevation = 6.dp,
     shadowElevation = 8.dp,
@@ -1464,11 +1486,11 @@ private fun PreDragActionBoxOverlay(
       .size(boxWidthDp, boxHeightDp)
       .testTag(if (placement.isWidget) "widget_action_box" else "app_action_box")
   ) {
-    Box(
-      modifier = Modifier.fillMaxSize(),
-      contentAlignment = Alignment.Center
-    ) {
-      if (placement.isWidget) {
+    if (placement.isWidget) {
+      Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+      ) {
         IconButton(
           onClick = {
             onActivateResize(placement.id)
@@ -1485,7 +1507,13 @@ private fun PreDragActionBoxOverlay(
             modifier = Modifier.size(20.dp)
           )
         }
-      } else {
+      }
+    } else {
+      Row(
+        modifier = Modifier.fillMaxSize(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceEvenly
+      ) {
         IconButton(
           onClick = {
             if (app != null) {
@@ -1494,14 +1522,40 @@ private fun PreDragActionBoxOverlay(
             onDismiss()
           },
           modifier = Modifier
-            .fillMaxSize()
+            .size(40.dp)
             .testTag("btn_app_info_action")
         ) {
           Icon(
             imageVector = Icons.Default.Info,
             contentDescription = "App Info",
             tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(22.dp)
+            modifier = Modifier.size(20.dp)
+          )
+        }
+
+        Box(
+          modifier = Modifier
+            .width(1.dp)
+            .height(20.dp)
+            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        )
+
+        IconButton(
+          onClick = {
+            if (app != null) {
+              onUninstallApp(app)
+            }
+            onDismiss()
+          },
+          modifier = Modifier
+            .size(40.dp)
+            .testTag("btn_app_uninstall_action")
+        ) {
+          Icon(
+            imageVector = Icons.Default.DeleteOutline,
+            contentDescription = "Uninstall App",
+            tint = MaterialTheme.colorScheme.error,
+            modifier = Modifier.size(20.dp)
           )
         }
       }

@@ -524,6 +524,9 @@ fun LauncherHomeScreen(
                   onAppInfo = { app ->
                     discoveryViewModel.openAppInfo(app)
                   },
+                  onUninstallApp = { app ->
+                    discoveryViewModel.uninstallApp(app)
+                  },
                   onCloseLayer2 = { spaceViewModel.setLayer(1) },
                   modifier = Modifier.fillMaxSize()
                 )
@@ -573,6 +576,9 @@ fun LauncherHomeScreen(
                     },
                     onOpenAppInfo = { app ->
                       discoveryViewModel.openAppInfo(app)
+                    },
+                    onUninstallApp = { app ->
+                      discoveryViewModel.uninstallApp(app)
                     },
                     unifiedDragState = unifiedDragState,
                     onDropItemToDock = { placement, app, targetDockIndex ->

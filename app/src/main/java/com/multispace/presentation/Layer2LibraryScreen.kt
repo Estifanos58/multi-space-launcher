@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Dock
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
@@ -57,6 +58,7 @@ fun Layer2LibraryScreen(
   onAddToHome: (DiscoveredApp) -> Unit,
   onAddToDock: (DiscoveredApp) -> Unit,
   onAppInfo: (DiscoveredApp) -> Unit,
+  onUninstallApp: (DiscoveredApp) -> Unit = {},
   onCloseLayer2: () -> Unit,
   modifier: Modifier = Modifier
 ) {
@@ -360,6 +362,28 @@ fun Layer2LibraryScreen(
               "App Information",
               style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
               color = MaterialTheme.colorScheme.onSurface
+            )
+          }
+        }
+
+        ModernCard(
+          onClick = {
+            onUninstallApp(app)
+            selectedAppForMenu = null
+          },
+          modifier = Modifier.fillMaxWidth(),
+          shape = ShapeRoundMd
+        ) {
+          Row(
+            modifier = Modifier.padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing12),
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+            Spacer(modifier = Modifier.width(AppDimens.Spacing12))
+            Text(
+              "Uninstall App",
+              style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+              color = MaterialTheme.colorScheme.error
             )
           }
         }
