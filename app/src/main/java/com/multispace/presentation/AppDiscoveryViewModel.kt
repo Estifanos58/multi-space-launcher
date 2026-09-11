@@ -10,6 +10,7 @@ import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.platform.AppDiscoveryManager
 import com.multispace.platform.AppLaunchManager
+import com.multispace.platform.AppUsageTracker
 import com.multispace.platform.LaunchResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -176,6 +177,7 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
 
     when (result) {
       is LaunchResult.Success -> {
+        AppUsageTracker.getInstance(getApplication()).recordLaunch(app)
         logEntry = "SUCCESS: Launched ${app.label} (${result.packageName}) via ${result.method}"
         feedbackMessage = null // Normal launch transition
       }
@@ -200,6 +202,10 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
     if (feedbackMessage != null) {
       _userFeedback.tryEmit(feedbackMessage)
     }
+  }
+
+  fun getMostUsedApps(apps: List<DiscoveredApp>, limit: Int = 8): List<DiscoveredApp> {
+    return AppUsageTracker.getInstance(getApplication()).getMostUsedApps(apps, limit)
   }
 
   fun openAppInfo(app: DiscoveredApp) {

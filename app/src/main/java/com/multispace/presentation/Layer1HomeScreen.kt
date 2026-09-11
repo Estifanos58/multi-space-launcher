@@ -153,67 +153,42 @@ fun Layer1HomeScreen(
     val availableGridWidthDp = (maxWidth - gridHorizontalPadding * 2).coerceAtLeast(100.dp)
     val cellWidth = (availableGridWidthDp - appSpacing * (cols - 1)) / cols
 
-    // Ensure robust fallback placements if space has apps but no placements generated yet,
-    // guaranteeing no apps are duplicated or lost in Layer 1.
+    // Authoritative Layer 1 placements:
+    // When placements exist in Room, honor them directly (preserving preset curation, widgets, and user drag-and-drop moves).
+    // Never auto-inject unplaced apps or dock apps onto Page 0 over widgets or curated empty space.
     val effectivePlacements = remember(placements, allApps, space.id, pageSize) {
-      // Ensure no duplicate app packages exist in placements
-      val seenAppPkgs = mutableSetOf<String>()
-      val deduplicatedLocal = mutableListOf<SpaceItemPlacement>()
-      for (p in placements) {
-        if (p.isFolder || p.isWidget) {
-          deduplicatedLocal.add(p)
-        } else if (p.packageName != null) {
-          if (!seenAppPkgs.contains(p.packageName)) {
-            seenAppPkgs.add(p.packageName!!)
-            deduplicatedLocal.add(p)
-          }
-        } else {
-          deduplicatedLocal.add(p)
-        }
-      }
-
-      val placedPkgSet = seenAppPkgs.toSet()
-      val unplacedApps = allApps.distinctBy { it.packageName }.filter { app -> !placedPkgSet.contains(app.packageName) }
-
-      val fullList = deduplicatedLocal.toMutableList()
-      if (unplacedApps.isNotEmpty()) {
-        val occupiedPerPage = mutableMapOf<Int, MutableSet<Int>>()
-        for (p in fullList) {
-          occupiedPerPage.getOrPut(p.pageIndex) { mutableSetOf() }.add(p.positionIndex)
-        }
-
-        var curPage = 0
-        var curPos = 0
-        for (app in unplacedApps) {
-          var occupied = occupiedPerPage.getOrPut(curPage) { mutableSetOf() }
-          while (occupied.contains(curPos) && curPos < pageSize) {
-            curPos++
-          }
-          if (curPos >= pageSize) {
-            curPage++
-            curPos = 0
-            occupied = occupiedPerPage.getOrPut(curPage) { mutableSetOf() }
-            while (occupied.contains(curPos) && curPos < pageSize) {
-              curPos++
+      if (placements.isNotEmpty()) {
+        val seenAppPkgs = mutableSetOf<String>()
+        val deduplicated = mutableListOf<SpaceItemPlacement>()
+        for (p in placements) {
+          if (p.isFolder || p.isWidget) {
+            deduplicated.add(p)
+          } else if (p.packageName != null) {
+            if (!seenAppPkgs.contains(p.packageName)) {
+              seenAppPkgs.add(p.packageName!!)
+              deduplicated.add(p)
             }
+          } else {
+            deduplicated.add(p)
           }
-          val newPlacement = SpaceItemPlacement(
-            id = "virtual:${app.packageName}",
-            spaceId = space.id,
-            layer = SpaceItemPlacement.LAYER_HOME,
-            pageIndex = curPage,
-            positionIndex = curPos,
-            itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-            packageName = app.packageName,
-            componentName = app.activityName,
-            userHandleId = app.userHandleId
-          )
-          fullList.add(newPlacement)
-          occupied.add(curPos)
-          curPos++
         }
+        return@remember deduplicated
       }
-      fullList
+
+      // Fallback only if there are absolutely NO placements in Room yet
+      allApps.distinctBy { it.packageName }.mapIndexed { idx, app ->
+        SpaceItemPlacement(
+          id = "fallback:${app.packageName}",
+          spaceId = space.id,
+          layer = SpaceItemPlacement.LAYER_HOME,
+          pageIndex = idx / pageSize,
+          positionIndex = idx % pageSize,
+          itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+          packageName = app.packageName,
+          componentName = app.activityName,
+          userHandleId = app.userHandleId
+        )
+      }
     }
 
   // Single authoritative drag state machine: IDLE -> PRESSED_ACTION_VISIBLE -> DRAGGING -> DROP/CANCEL

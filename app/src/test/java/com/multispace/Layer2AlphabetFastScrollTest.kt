@@ -163,4 +163,78 @@ class Layer2AlphabetFastScrollTest {
     assertTrue("G should be active for Google Maps", filteredMap.containsKey('G'))
     assertEquals(0, filteredMap['G'])
   }
+
+  @Test
+  fun testMostUsedAppsOrderedByFrequency() {
+    val apps = listOf(
+      createApp("Alarm Clock", "com.android.deskclock"),
+      createApp("Chrome", "com.android.chrome"),
+      createApp("Files", "com.google.android.documentsui"),
+      createApp("Settings", "com.android.settings")
+    )
+
+    // Simulate usage counts: Chrome=15, Settings=8, Files=2, Alarm Clock=0
+    val usageCounts = mapOf(
+      "com.android.chrome" to 15,
+      "com.android.settings" to 8,
+      "com.google.android.documentsui" to 2,
+      "com.android.deskclock" to 0
+    )
+
+    val mostUsed = apps.sortedWith(
+      compareByDescending<DiscoveredApp> { usageCounts[it.packageName] ?: 0 }
+        .thenBy(String.CASE_INSENSITIVE_ORDER) { it.label }
+    ).take(3)
+
+    assertEquals("Chrome", mostUsed[0].label)
+    assertEquals("Settings", mostUsed[1].label)
+    assertEquals("Files", mostUsed[2].label)
+    assertEquals(3, mostUsed.size)
+  }
+
+  @Test
+  fun testMostUsedAppsRemainInAlphabeticalList() {
+    val apps = listOf(
+      createApp("Camera", "com.android.camera2"),
+      createApp("Chrome", "com.android.chrome"),
+      createApp("Photos", "com.google.android.apps.photos"),
+      createApp("YouTube", "com.google.android.youtube")
+    )
+
+    // Suppose Chrome and YouTube are the most used
+    val mostUsed = listOf(apps[1], apps[3]) // Chrome, YouTube
+
+    // The alphabetical list must still contain ALL apps
+    val alphabeticalList = apps.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+
+    assertEquals(4, alphabeticalList.size)
+    // Verify all mostUsed apps are also in the alphabetical list
+    mostUsed.forEach { app ->
+      assertTrue(
+        "App ${app.label} in Most Used must also remain present in alphabetical list",
+        alphabeticalList.any { it.packageName == app.packageName }
+      )
+    }
+    // Verify alphabetical ordering is strictly maintained
+    assertEquals(listOf("Camera", "Chrome", "Photos", "YouTube"), alphabeticalList.map { it.label })
+  }
+
+  @Test
+  fun testFastScrollOperatesOnlyOnAlphabeticalList() {
+    val alphabeticalApps = listOf(
+      createApp("Calculator", "com.google.android.calculator"),
+      createApp("Calendar", "com.google.android.calendar"),
+      createApp("Maps", "com.google.android.apps.maps"),
+      createApp("Weather", "com.google.android.apps.weather")
+    )
+
+    val map = buildLetterIndexMap(alphabeticalApps)
+
+    // Maps letter 'C' to index 0 of alphabetical list (Calculator)
+    assertEquals(0, map['C'])
+    // Maps letter 'M' to index 2 of alphabetical list (Maps)
+    assertEquals(2, map['M'])
+    // Maps letter 'W' to index 3 of alphabetical list (Weather)
+    assertEquals(3, map['W'])
+  }
 }

@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -70,26 +72,23 @@ fun AlphabetFastScroll(
 
   Box(
     modifier = modifier
-      .width(32.dp)
-      .fillMaxHeight()
+      .width(26.dp)
+      .wrapContentHeight()
       .testTag("layer2_alphabet_fast_scroll")
   ) {
-    // 1. Vertical Alphabet Column Strip
+    // 1. Vertical Alphabet Column Strip (Opaque container to prevent background content bleeding through)
     Surface(
-      shape = RoundedCornerShape(16.dp),
-      color = if (isDragging) {
-        MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f)
-      } else {
-        MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.50f)
-      },
+      shape = RoundedCornerShape(10.dp),
+      color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
       border = BorderStroke(
         0.8.dp,
-        MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDragging) 0.5f else 0.25f)
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
       ),
+      shadowElevation = 2.dp,
       modifier = Modifier
         .align(Alignment.CenterEnd)
-        .fillMaxHeight()
-        .width(26.dp)
+        .width(16.dp)
+        .height(350.dp)
         .onGloballyPositioned { coords ->
           totalHeightPx = coords.size.height.toFloat()
         }
@@ -151,22 +150,22 @@ fun AlphabetFastScroll(
             if (isSelected) {
               Box(
                 modifier = Modifier
-                  .size(16.dp)
-                  .background(QuantumViolet, CircleShape)
+                  .size(12.dp)
+                  .background(MaterialTheme.colorScheme.primary, CircleShape)
               )
             }
             Text(
               text = letter.toString(),
-              fontSize = 9.sp,
+              fontSize = 8.sp,
               fontWeight = when {
                 isSelected -> FontWeight.ExtraBold
                 hasApps -> FontWeight.Bold
                 else -> FontWeight.Normal
               },
               color = when {
-                isSelected -> Color.White
-                hasApps -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
+                isSelected -> MaterialTheme.colorScheme.onPrimary
+                hasApps -> MaterialTheme.colorScheme.onSurface
+                else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f)
               },
               textAlign = TextAlign.Center
             )
@@ -175,7 +174,7 @@ fun AlphabetFastScroll(
       }
     }
 
-    // 2. Large Floating Letter Preview Bubble
+    // 2. Compact Floating Letter Preview Bubble
     AnimatedVisibility(
       visible = isDragging && currentLetter != null,
       enter = fadeIn() + scaleIn(),
@@ -183,8 +182,8 @@ fun AlphabetFastScroll(
       modifier = Modifier
         .align(Alignment.TopEnd)
         .offset {
-          val bubbleSizePx = with(density) { 52.dp.toPx() }
-          val bubbleOffsetXPx = with(density) { (-64).dp.toPx() }
+          val bubbleSizePx = with(density) { 44.dp.toPx() }
+          val bubbleOffsetXPx = with(density) { (-50).dp.toPx() }
           val clampedY = (dragY - bubbleSizePx / 2f).coerceIn(0f, (totalHeightPx - bubbleSizePx).coerceAtLeast(0f))
           IntOffset(bubbleOffsetXPx.roundToInt(), clampedY.roundToInt())
         }
@@ -195,20 +194,20 @@ fun AlphabetFastScroll(
       Surface(
         shape = CircleShape,
         color = if (hasApps) QuantumViolet else MaterialTheme.colorScheme.surfaceContainerHighest,
-        shadowElevation = 8.dp,
+        shadowElevation = 6.dp,
         border = BorderStroke(
-          1.5.dp,
+          1.dp,
           if (hasApps) Color.White.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant
         ),
         modifier = Modifier
-          .size(52.dp)
+          .size(44.dp)
           .testTag("layer2_alphabet_bubble")
       ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
           Text(
             text = letter.toString(),
             style = MaterialTheme.typography.titleLarge.copy(
-              fontSize = 24.sp,
+              fontSize = 20.sp,
               fontWeight = FontWeight.Black
             ),
             color = if (hasApps) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),

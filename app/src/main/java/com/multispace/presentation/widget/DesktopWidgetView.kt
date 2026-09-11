@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BatteryChargingFull
@@ -114,9 +115,15 @@ fun DesktopWidgetView(
     Card(
       shape = ShapeRoundLg,
       colors = CardDefaults.cardColors(
-        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = if (isResizeMode) 0.95f else 0.88f)
+        containerColor = if (placement.customWidgetType == SpaceItemPlacement.WIDGET_QUICK_SEARCH && !isResizeMode) {
+          Color.Transparent
+        } else {
+          MaterialTheme.colorScheme.surface.copy(alpha = if (isResizeMode) 0.95f else 0.88f)
+        }
       ),
-      border = if (isResizeMode) {
+      border = if (placement.customWidgetType == SpaceItemPlacement.WIDGET_QUICK_SEARCH && !isResizeMode) {
+        null
+      } else if (isResizeMode) {
         androidx.compose.foundation.BorderStroke(2.5.dp, Color.White)
       } else {
         androidx.compose.foundation.BorderStroke(
@@ -478,52 +485,152 @@ fun DesktopWidgetView(
 
 @Composable
 fun ClockDateWidget(modifier: Modifier = Modifier) {
-  var currentTime by remember { mutableStateOf("") }
+  val context = LocalContext.current
+  var currentTimeDigits by remember { mutableStateOf("") }
+  var currentAmPm by remember { mutableStateOf("") }
   var currentDate by remember { mutableStateOf("") }
 
   LaunchedEffect(Unit) {
-    val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
-    val dateFormat = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault())
+    val timeFormat = SimpleDateFormat("h:mm", Locale.getDefault())
+    val amPmFormat = SimpleDateFormat("a", Locale.getDefault())
+    val dateFormat = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
     while (true) {
       val now = Date()
-      currentTime = timeFormat.format(now)
+      currentTimeDigits = timeFormat.format(now)
+      currentAmPm = amPmFormat.format(now).uppercase()
       currentDate = dateFormat.format(now)
       delay(1000L)
     }
   }
 
-  Column(
+  Row(
     modifier = modifier
       .fillMaxSize()
       .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing12),
-    verticalArrangement = Arrangement.Center,
-    horizontalAlignment = Alignment.Start
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.SpaceBetween
   ) {
-    Row(
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
+    // Left Section: Clock & Date
+    Column(
+      modifier = Modifier
+        .weight(1.1f)
+        .clip(RoundedCornerShape(8.dp))
+        .clickable {
+          try {
+            val intent = Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS).apply {
+              flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+          } catch (_: Exception) {
+            try {
+              val fallback = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_APP_CALENDAR)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+              }
+              context.startActivity(fallback)
+            } catch (_: Exception) {}
+          }
+        },
+      verticalArrangement = Arrangement.Center,
+      horizontalAlignment = Alignment.Start
     ) {
-      Icon(
-        imageVector = Icons.Default.Schedule,
-        contentDescription = null,
-        tint = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.size(24.dp)
-      )
+      Row(
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+      ) {
+        Text(
+          text = currentTimeDigits.ifEmpty { "10:08" },
+          style = MaterialTheme.typography.headlineLarge.copy(
+            fontWeight = FontWeight.Bold,
+            fontSize = 30.sp,
+            letterSpacing = (-0.5).sp
+          ),
+          color = MaterialTheme.colorScheme.onSurface,
+          maxLines = 1
+        )
+        Text(
+          text = currentAmPm.ifEmpty { "AM" },
+          style = MaterialTheme.typography.labelSmall.copy(
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 11.sp
+          ),
+          color = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.padding(bottom = 5.dp)
+        )
+      }
+      Spacer(modifier = Modifier.height(2.dp))
       Text(
-        text = currentTime.ifEmpty { "12:00 PM" },
-        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-        color = MaterialTheme.colorScheme.onSurface,
-        fontSize = 26.sp,
-        letterSpacing = (-0.5).sp
+        text = currentDate.ifEmpty { "Thu, Sep 11" },
+        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1
       )
     }
-    Spacer(modifier = Modifier.height(AppDimens.Spacing4))
-    Text(
-      text = currentDate.ifEmpty { "Today" },
-      style = MaterialTheme.typography.bodyMedium,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-      fontWeight = FontWeight.Medium
+
+    // Subtle Vertical Divider
+    Box(
+      modifier = Modifier
+        .height(34.dp)
+        .width(1.dp)
+        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
     )
+
+    // Right Section: Weather (Sun / Cloud glyph, 72°, Condition & Location)
+    Column(
+      modifier = Modifier
+        .weight(0.9f)
+        .clip(RoundedCornerShape(8.dp))
+        .clickable {
+          try {
+            val intent = Intent(
+              Intent.ACTION_VIEW,
+              android.net.Uri.parse("https://www.google.com/search?q=weather")
+            ).apply {
+              flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+          } catch (_: Exception) {}
+        }
+        .padding(start = AppDimens.Spacing12),
+      verticalArrangement = Arrangement.Center,
+      horizontalAlignment = Alignment.Start
+    ) {
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        // Sun & Cloud glyph
+        androidx.compose.foundation.Canvas(modifier = Modifier.size(24.dp)) {
+          drawCircle(
+            color = Color(0xFFFBBF24),
+            radius = size.minDimension * 0.35f,
+            center = androidx.compose.ui.geometry.Offset(size.width * 0.40f, size.height * 0.40f)
+          )
+          drawCircle(
+            color = Color.White.copy(alpha = 0.92f),
+            radius = size.minDimension * 0.28f,
+            center = androidx.compose.ui.geometry.Offset(size.width * 0.62f, size.height * 0.62f)
+          )
+        }
+
+        Text(
+          text = "72°",
+          style = MaterialTheme.typography.titleLarge.copy(
+            fontWeight = FontWeight.Bold,
+            fontSize = 22.sp
+          ),
+          color = MaterialTheme.colorScheme.onSurface
+        )
+      }
+      Spacer(modifier = Modifier.height(2.dp))
+      Text(
+        text = "Sunny • Cupertino",
+        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Normal),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+      )
+    }
   }
 }
 
@@ -535,14 +642,21 @@ fun QuickSearchWidget(
   Box(
     modifier = modifier
       .fillMaxSize()
-      .padding(horizontal = AppDimens.Spacing12, vertical = AppDimens.Spacing8),
+      .padding(horizontal = AppDimens.Spacing8, vertical = AppDimens.Spacing4),
     contentAlignment = Alignment.Center
   ) {
-    Row(
+    Surface(
+      shape = CircleShape,
+      color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f),
+      border = androidx.compose.foundation.BorderStroke(
+        1.dp,
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f)
+      ),
+      shadowElevation = 2.dp,
       modifier = Modifier
         .fillMaxWidth()
+        .height(48.dp)
         .clip(CircleShape)
-        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
         .clickable {
           try {
             val intent = Intent(Intent.ACTION_WEB_SEARCH).apply {
@@ -550,36 +664,63 @@ fun QuickSearchWidget(
               flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
-          } catch (e: Exception) {
-            // Fallback
+          } catch (_: Exception) {
+            try {
+              val browserIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+              }
+              context.startActivity(browserIntent)
+            } catch (_: Exception) {}
           }
         }
-        .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing12),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.SpaceBetween
     ) {
       Row(
+        modifier = Modifier
+          .fillMaxSize()
+          .padding(horizontal = AppDimens.Spacing16),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing10)
+        horizontalArrangement = Arrangement.SpaceBetween
       ) {
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+        ) {
+          androidx.compose.foundation.Canvas(modifier = Modifier.size(20.dp)) {
+            drawCircle(
+              color = Color(0xFF4285F4),
+              radius = size.minDimension * 0.42f,
+              style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.5f)
+            )
+            drawCircle(
+              color = Color(0xFFEA4335),
+              radius = 2.5f,
+              center = androidx.compose.ui.geometry.Offset(size.width * 0.65f, size.height * 0.35f)
+            )
+          }
+
+          Text(
+            text = "Search web or apps...",
+            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+          )
+        }
+
         Icon(
-          imageVector = Icons.Default.Search,
-          contentDescription = "Search",
-          tint = MaterialTheme.colorScheme.primary,
-          modifier = Modifier.size(20.dp)
-        )
-        Text(
-          text = "Search web or apps...",
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant
+          imageVector = Icons.Default.Mic,
+          contentDescription = "Voice Search",
+          tint = Color(0xFFEA4335),
+          modifier = Modifier
+            .size(20.dp)
+            .clickable {
+              try {
+                val voiceIntent = Intent(android.speech.RecognizerIntent.ACTION_WEB_SEARCH).apply {
+                  flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(voiceIntent)
+              } catch (_: Exception) {}
+            }
         )
       }
-      Icon(
-        imageVector = Icons.Default.Mic,
-        contentDescription = "Voice Search",
-        tint = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.size(18.dp)
-      )
     }
   }
 }

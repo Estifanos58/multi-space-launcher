@@ -5,6 +5,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as lazyRowItems
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -28,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -36,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
+import com.multispace.platform.AppUsageTracker
 import com.multispace.presentation.components.AlphabetFastScroll
 import com.multispace.ui.components.ModernCard
 import com.multispace.ui.components.ModernDialogContainer
@@ -60,13 +64,42 @@ fun Layer2LibraryScreen(
   onAppInfo: (DiscoveredApp) -> Unit,
   onUninstallApp: (DiscoveredApp) -> Unit = {},
   onCloseLayer2: () -> Unit,
+  mostUsedApps: List<DiscoveredApp>? = null,
   modifier: Modifier = Modifier
 ) {
   var searchQuery by remember { mutableStateOf("") }
   var selectedAppForMenu by remember { mutableStateOf<DiscoveredApp?>(null) }
 
-  val filteredApps = remember(spaceApps, searchQuery) {
-    if (searchQuery.isBlank()) {
+  val context = LocalContext.current
+  val usageTracker = remember(context) { AppUsageTracker.getInstance(context) }
+
+  // 1. Most Used Apps Section (ordered by usage/frequency, apps also remain in alphabetical list below)
+  val resolvedMostUsedApps = remember(spaceApps, searchQuery, mostUsedApps) {
+    if (mostUsedApps != null) {
+      if (searchQuery.isBlank()) {
+        mostUsedApps
+      } else {
+        val q = searchQuery.trim().lowercase()
+        mostUsedApps.filter {
+          it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
+        }
+      }
+    } else {
+      val pool = if (searchQuery.isBlank()) {
+        spaceApps
+      } else {
+        val q = searchQuery.trim().lowercase()
+        spaceApps.filter {
+          it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
+        }
+      }
+      usageTracker.getMostUsedApps(pool, limit = 8)
+    }
+  }
+
+  // 2. Alphabetical Apps Section (maintains normal alphabetical ordering by app name)
+  val alphabeticalApps = remember(spaceApps, searchQuery) {
+    val baseList = if (searchQuery.isBlank()) {
       spaceApps
     } else {
       val q = searchQuery.trim().lowercase()
@@ -74,21 +107,22 @@ fun Layer2LibraryScreen(
         it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
       }
     }
+    baseList.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
   }
 
   val isVerticalMode = space.layer2DisplayMode != Space.DISPLAY_MODE_PAGE
-  val showAlphabetIndex = isVerticalMode && filteredApps.isNotEmpty()
+  val showAlphabetIndex = isVerticalMode && alphabeticalApps.isNotEmpty()
 
   val gridState = rememberLazyGridState()
   val coroutineScope = rememberCoroutineScope()
 
   val alphabet = remember { ('A'..'Z').toList() }
 
-  // Map each letter A-Z to the index of the first matching app in filteredApps,
-  // preserving the exact app-name sorting/order already used by Layer 2.
-  val letterToFirstIndex = remember(filteredApps) {
+  // Map each letter A-Z to the index of the first matching app in alphabeticalApps.
+  // This operates ONLY on the alphabetical list, not the Most Used section.
+  val letterToFirstIndex = remember(alphabeticalApps) {
     val map = mutableMapOf<Char, Int>()
-    filteredApps.forEachIndexed { index, app ->
+    alphabeticalApps.forEachIndexed { index, app ->
       val cleanLabel = app.label.trim().trim('"', '\'', '(', '[', '{')
       val firstChar = cleanLabel.firstOrNull()?.uppercaseChar()
       if (firstChar != null && firstChar in 'A'..'Z') {
@@ -102,7 +136,7 @@ fun Layer2LibraryScreen(
   val activeLetters = remember(letterToFirstIndex) { letterToFirstIndex.keys }
 
   LaunchedEffect(searchQuery) {
-    if (filteredApps.isNotEmpty()) {
+    if (alphabeticalApps.isNotEmpty()) {
       gridState.scrollToItem(0)
     }
   }
@@ -160,10 +194,89 @@ fun Layer2LibraryScreen(
       )
     }
 
-    Spacer(modifier = Modifier.height(AppDimens.Spacing12))
+    Spacer(modifier = Modifier.height(AppDimens.Spacing8))
 
-    // Apps Grid
-    if (filteredApps.isEmpty()) {
+    // 1. Most Used Apps Row (at the very top, ordered by usage/frequency)
+    if (resolvedMostUsedApps.isNotEmpty()) {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .testTag("layer2_most_used_section")
+      ) {
+        Text(
+          text = "Most Used",
+          style = MaterialTheme.typography.labelMedium.copy(
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.5.sp
+          ),
+          color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+          modifier = Modifier.padding(horizontal = AppDimens.Spacing20, vertical = AppDimens.Spacing2)
+        )
+
+        LazyRow(
+          modifier = Modifier
+            .fillMaxWidth()
+            .testTag("layer2_most_used_row"),
+          contentPadding = PaddingValues(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing4),
+          horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+        ) {
+          lazyRowItems(
+            items = resolvedMostUsedApps,
+            key = { "most_used_${it.packageName}/${it.activityName}" }
+          ) { app ->
+            Column(
+              horizontalAlignment = Alignment.CenterHorizontally,
+              modifier = Modifier
+                .width(68.dp)
+                .clip(ShapeRoundMd)
+                .combinedClickable(
+                  onClick = { onLaunchApp(app) },
+                  onLongClick = { selectedAppForMenu = app }
+                )
+                .padding(vertical = AppDimens.Spacing4)
+                .testTag("layer2_most_used_app_${app.packageName}")
+            ) {
+              val bitmap = getBitmap(app)
+              ThemedAppIcon(
+                app = app,
+                bitmap = bitmap,
+                appTheme = space.appTheme,
+                modifier = iconSizeModifier,
+                fallbackText = app.label.take(1).uppercase()
+              )
+
+              if (space.labelVisibility) {
+                Spacer(modifier = Modifier.height(AppDimens.Spacing4))
+                Text(
+                  text = app.label,
+                  style = MaterialTheme.typography.bodySmall,
+                  fontSize = 11.sp,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                  textAlign = TextAlign.Center,
+                  color = MaterialTheme.colorScheme.onSurface
+                )
+              }
+            }
+          }
+        }
+
+        // Clear vertical padding and subtle/dim horizontal divider line separating Most Used from Alphabetical list
+        Spacer(modifier = Modifier.height(AppDimens.Spacing10))
+        HorizontalDivider(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppDimens.Spacing20)
+            .testTag("layer2_divider"),
+          thickness = 0.8.dp,
+          color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+        )
+        Spacer(modifier = Modifier.height(AppDimens.Spacing10))
+      }
+    }
+
+    // 2. Alphabetical section (below Most Used row, normal alphabetical ordering)
+    if (alphabeticalApps.isEmpty()) {
       Box(
         modifier = Modifier
           .fillMaxWidth()
@@ -192,7 +305,7 @@ fun Layer2LibraryScreen(
             .fillMaxSize()
             .padding(
               start = AppDimens.Spacing16,
-              end = if (showAlphabetIndex) 36.dp else AppDimens.Spacing16
+              end = if (showAlphabetIndex) 28.dp else AppDimens.Spacing16
             )
             .testTag("layer2_apps_grid"),
           horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8),
@@ -201,7 +314,7 @@ fun Layer2LibraryScreen(
             bottom = AppDimens.Spacing24 + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
           )
         ) {
-          items(filteredApps, key = { "${it.packageName}/${it.activityName}" }) { app ->
+          items(alphabeticalApps, key = { "${it.packageName}/${it.activityName}" }) { app ->
             Column(
               horizontalAlignment = Alignment.CenterHorizontally,
               modifier = Modifier
@@ -239,6 +352,7 @@ fun Layer2LibraryScreen(
           }
         }
 
+        // 3. Alphabet fast-scroll indicator (smaller, visually compact, vertically centered, operates only on alphabetical list)
         if (showAlphabetIndex) {
           AlphabetFastScroll(
             alphabet = alphabet,
@@ -252,12 +366,7 @@ fun Layer2LibraryScreen(
             },
             modifier = Modifier
               .align(Alignment.CenterEnd)
-              .fillMaxHeight()
-              .padding(
-                end = 4.dp,
-                top = AppDimens.Spacing8,
-                bottom = AppDimens.Spacing16 + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-              )
+              .padding(end = 4.dp)
           )
         }
       }

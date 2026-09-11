@@ -17,6 +17,7 @@ import com.multispace.domain.model.ImportReport
 import com.multispace.domain.model.LayoutPreset
 import com.multispace.domain.model.PageTurnEffect
 import com.multispace.domain.model.PlacementCascadeHelper
+import com.multispace.domain.model.PresetLayoutHelper
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceDockItem
 import com.multispace.domain.model.SpaceFolder
@@ -168,62 +169,28 @@ class RoomSpaceRepository(
       emptyList()
     }
 
-    if (appsToUse.isEmpty()) {
-      AppLogger.w(AppLogger.Category.LAUNCHER, "No installed apps available to initialize Space '$spaceName' ($spaceId)")
-      return
-    }
-
-    // 1. Resolve Default DockBar Apps
-    val dockApps = DefaultAppCapabilityResolver.resolveDockApps(
-      installedApps = appsToUse,
-      dockCapacity = dockCapacity,
-      context = context
+    val presetObj = LayoutPreset.getById(layoutPreset)
+    val layoutResult = PresetLayoutHelper.buildInitialLayout(
+      spaceId = spaceId,
+      preset = presetObj,
+      gridColumns = gridColumns,
+      availableApps = appsToUse,
+      dockCapacity = dockCapacity
     )
-    val dockEntities = dockApps.mapIndexed { idx, app ->
-      SpaceDockItemEntity(
-        id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
-        spaceId = spaceId,
-        orderIndex = idx,
-        packageName = app.packageName,
-        componentName = app.activityName,
-        userHandleId = app.userHandleId
-      )
-    }
-    if (dockEntities.isNotEmpty()) {
-      layoutDao.insertDockItems(dockEntities)
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Initialized ${dockEntities.size} default DockBar apps for Space '$spaceName' ($spaceId): ${dockApps.map { it.label }}")
+
+    if (layoutResult.dockItems.isNotEmpty()) {
+      layoutDao.insertDockItems(layoutResult.dockItems)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Initialized ${layoutResult.dockItems.size} default DockBar apps for Space '$spaceName' ($spaceId)")
     }
 
-    // 2. Resolve Default Layer 1 Curated Apps
-    val layer1Apps = DefaultAppCapabilityResolver.resolveLayer1Apps(
-      installedApps = appsToUse,
-      spaceName = spaceName,
-      layoutPreset = layoutPreset,
-      context = context
-    )
-    val pageSize = (gridColumns * 5).coerceAtLeast(1)
-    val homeEntities = layer1Apps.mapIndexed { idx, app ->
-      SpaceItemPlacementEntity(
-        id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
-        spaceId = spaceId,
-        layer = SpaceItemPlacement.LAYER_HOME,
-        pageIndex = idx / pageSize,
-        positionIndex = idx % pageSize,
-        itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-        packageName = app.packageName,
-        componentName = app.activityName,
-        userHandleId = app.userHandleId
-      )
-    }
-    if (homeEntities.isNotEmpty()) {
-      layoutDao.insertPlacements(homeEntities)
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Initialized ${homeEntities.size} default Layer 1 apps for Space '$spaceName' ($spaceId): ${layer1Apps.map { it.label }}")
+    if (layoutResult.placements.isNotEmpty()) {
+      layoutDao.insertPlacements(layoutResult.placements)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Initialized ${layoutResult.placements.size} default Layer 1 placements for Space '$spaceName' ($spaceId)")
     }
 
-    // 3. Register Memberships for all placed apps (both Dock and Layer 1)
-    val allPlacedApps = (dockApps + layer1Apps).distinctBy { it.packageName }
-    if (allPlacedApps.isNotEmpty()) {
-      val memberships = allPlacedApps.mapIndexed { idx, app ->
+    // 3. Register Memberships for all available apps
+    if (appsToUse.isNotEmpty()) {
+      val memberships = appsToUse.mapIndexed { idx, app ->
         SpaceMembershipEntity(
           spaceId = spaceId,
           packageName = app.packageName,
@@ -653,9 +620,9 @@ class RoomSpaceRepository(
       )
       spaceDao.updateSpace(updated)
 
-      membershipDao.deleteMembershipsForSpace(spaceId)
       val uniqueUpdatedApps = updatedApps.distinctBy { it.packageName }
       if (uniqueUpdatedApps.isNotEmpty()) {
+        membershipDao.deleteMembershipsForSpace(spaceId)
         val memberships = uniqueUpdatedApps.mapIndexed { idx, app ->
           SpaceMembershipEntity(
             spaceId = spaceId,
@@ -1966,39 +1933,24 @@ class RoomSpaceRepository(
       }
 
       val distinctActiveApps = activeApps.distinctBy { it.packageName }
-      if (distinctActiveApps.isNotEmpty()) {
-        layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
-        layoutDao.deleteAllDockItemsForSpace(spaceId)
+      layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+      layoutDao.deleteAllDockItemsForSpace(spaceId)
 
-        val pageSize = (preset.gridColumns * 5).coerceAtLeast(1)
-        val placements = distinctActiveApps.mapIndexed { idx, app ->
-          val page = idx / pageSize
-          val pos = idx % pageSize
-          SpaceItemPlacementEntity(
-            id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
-            spaceId = spaceId,
-            layer = SpaceItemPlacement.LAYER_HOME,
-            pageIndex = page,
-            positionIndex = pos,
-            itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-            packageName = app.packageName,
-            componentName = app.activityName,
-            userHandleId = app.userHandleId
-          )
-        }
-        layoutDao.insertPlacements(placements)
+      val presetObj = LayoutPreset.getById(preset.id)
+      val layoutResult = PresetLayoutHelper.buildInitialLayout(
+        spaceId = spaceId,
+        preset = presetObj,
+        gridColumns = preset.gridColumns,
+        availableApps = distinctActiveApps,
+        dockCapacity = preset.dockCapacity
+      )
 
-        val dockItems = distinctActiveApps.take(preset.dockCapacity).mapIndexed { idx, app ->
-          SpaceDockItemEntity(
-            id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
-            spaceId = spaceId,
-            orderIndex = idx,
-            packageName = app.packageName,
-            componentName = app.activityName,
-            userHandleId = app.userHandleId
-          )
-        }
-        layoutDao.insertDockItems(dockItems)
+      if (layoutResult.placements.isNotEmpty()) {
+        layoutDao.insertPlacements(layoutResult.placements)
+      }
+
+      if (layoutResult.dockItems.isNotEmpty()) {
+        layoutDao.insertDockItems(layoutResult.dockItems)
       }
 
       AppLogger.i(AppLogger.Category.LAUNCHER, "Applied layout preset '${preset.name}' to Space '${existing.name}' ($spaceId)")
@@ -2021,45 +1973,30 @@ class RoomSpaceRepository(
 
       val space = spaceDao.getSpaceById(spaceId)
       val dockCapacity = space?.dockCapacity ?: 5
-      val dockCandidates = DefaultAppCapabilityResolver.resolveDockApps(uniqueApps, dockCapacity, context)
-      if (dockCandidates.isNotEmpty()) {
-        layoutDao.deleteAllDockItemsForSpace(spaceId)
-        val dockEntities = dockCandidates.mapIndexed { idx, app ->
-          SpaceDockItemEntity(
-            id = "dock_" + UUID.randomUUID().toString().replace("-", "").take(10),
-            spaceId = spaceId,
-            orderIndex = idx,
-            packageName = app.packageName,
-            componentName = app.activityName,
-            userHandleId = app.userHandleId
-          )
-        }
-        layoutDao.insertDockItems(dockEntities)
-        successes.add("Identified and populated essential bottom Dock apps (${dockCandidates.size} apps: ${dockCandidates.joinToString { it.label }})")
-      }
-
-      // Populate Layer 1 with launchable installed apps
-      layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
       val cols = space?.gridColumns ?: 4
-      val pageSize = cols * 5
+      val presetId = space?.layoutPreset ?: Space.PRESET_DEFAULT
+      val presetObj = LayoutPreset.getById(presetId)
 
-      val placements = uniqueApps.mapIndexed { idx, app ->
-        val page = idx / pageSize
-        val pos = idx % pageSize
-        SpaceItemPlacementEntity(
-          id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
-          spaceId = spaceId,
-          layer = SpaceItemPlacement.LAYER_HOME,
-          pageIndex = page,
-          positionIndex = pos,
-          itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-          packageName = app.packageName,
-          componentName = app.activityName,
-          userHandleId = app.userHandleId
-        )
+      layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+      layoutDao.deleteAllDockItemsForSpace(spaceId)
+
+      val layoutResult = PresetLayoutHelper.buildInitialLayout(
+        spaceId = spaceId,
+        preset = presetObj,
+        gridColumns = cols,
+        availableApps = uniqueApps,
+        dockCapacity = dockCapacity
+      )
+
+      if (layoutResult.dockItems.isNotEmpty()) {
+        layoutDao.insertDockItems(layoutResult.dockItems)
+        successes.add("Identified and populated essential bottom Dock apps (${layoutResult.dockItems.size} apps)")
       }
-      layoutDao.insertPlacements(placements)
-      successes.add("Imported ${uniqueApps.size} launchable application shortcuts onto organized Home pages")
+
+      if (layoutResult.placements.isNotEmpty()) {
+        layoutDao.insertPlacements(layoutResult.placements)
+        successes.add("Initialized ${layoutResult.placements.size} placements using preset '${presetObj.name}'")
+      }
 
       // Ensure all imported apps are registered as memberships in this Space
       if (uniqueApps.isNotEmpty()) {
@@ -2096,7 +2033,7 @@ class RoomSpaceRepository(
         successItems = successes,
         partiallyImportedItems = partiallyImported,
         restrictedItems = restricted,
-        summary = "Successfully imported ${allInstalledApps.size} apps and ${dockCandidates.size} dock shortcuts from standard Android configuration."
+        summary = "Successfully imported ${allInstalledApps.size} apps and ${layoutResult.dockItems.size} dock shortcuts from standard Android configuration."
       )
 
       AppLogger.i(AppLogger.Category.LAUNCHER, "Imported Android home layout: ${report.summary}")

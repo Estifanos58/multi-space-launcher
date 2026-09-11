@@ -528,6 +528,7 @@ fun LauncherHomeScreen(
                     discoveryViewModel.uninstallApp(app)
                   },
                   onCloseLayer2 = { spaceViewModel.setLayer(1) },
+                  mostUsedApps = discoveryViewModel.getMostUsedApps(spaceScopedApps),
                   modifier = Modifier.fillMaxSize()
                 )
               } else {

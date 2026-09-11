@@ -383,7 +383,14 @@ fun CreateSpaceScreen(
 
   // Tab 3: Apps & Layout State
   var appSearchQuery by rememberSaveable { mutableStateOf("") }
-  var selectedAppsSet by remember { mutableStateOf(setOf<String>()) }
+  val initialAppsSet = remember(editingSpace, allApps) {
+    if (editingSpace != null) {
+      emptySet<String>()
+    } else {
+      allApps.map { it.id }.toSet()
+    }
+  }
+  var selectedAppsSet by remember(initialAppsSet) { mutableStateOf(initialAppsSet) }
   var gridColumns by rememberSaveable { mutableIntStateOf(editingSpace?.gridColumns ?: Space.DEFAULT_GRID_COLUMNS) }
   var iconSize by rememberSaveable { mutableStateOf(editingSpace?.iconSize ?: Space.ICON_SIZE_MEDIUM) }
   var showLabels by rememberSaveable { mutableStateOf(editingSpace?.labelVisibility ?: true) }
@@ -1119,7 +1126,7 @@ fun CreateSpaceScreen(
                           pageTurnEffect = pageTurnEffect,
                           pageTurnDurationMs = pageTurnDurationMs,
                           pageTurnIntensity = pageTurnIntensity,
-                          initialApps = selectedAppObjects,
+                          initialApps = if (selectedAppObjects.isNotEmpty()) selectedAppObjects else allApps,
                           onResult = { success, newId ->
                             isCreating = false
                             if (success) {
