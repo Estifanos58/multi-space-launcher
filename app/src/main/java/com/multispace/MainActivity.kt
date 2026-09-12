@@ -45,8 +45,15 @@ class MainActivity : FragmentActivity() {
     updateDefaultHomeStatus()
   }
 
+  companion object {
+    private const val MAX_EVENT_LOGS = 100
+  }
+
   private fun recordEvent(tag: String, message: String) {
     val time = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+    if (eventLogs.size >= MAX_EVENT_LOGS) {
+      eventLogs.removeAt(0)
+    }
     eventLogs.add("[$time] $tag: $message")
   }
 
@@ -172,7 +179,6 @@ class MainActivity : FragmentActivity() {
     super.onResume()
     logActivityDetails("onResume", intent)
     updateDefaultHomeStatus()
-    discoveryViewModel.loadApps(isSilent = true)
   }
 
   override fun onPause() {

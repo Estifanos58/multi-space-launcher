@@ -26,8 +26,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
-import com.multispace.platform.RecentsController
-import com.multispace.platform.RecentsInvocationResult
 import com.multispace.ui.components.ModernCard
 import com.multispace.ui.components.ModernSectionHeader
 import com.multispace.ui.components.ModernStatusBadge
@@ -69,15 +67,9 @@ fun LauncherConfigurationScreen(
   var disablePinTargetSpace by remember { mutableStateOf<Space?>(null) }
   var spaceToUnlockForSwitch by remember { mutableStateOf<Space?>(null) }
   var spaceToAuthForEdit by remember { mutableStateOf<Space?>(null) }
-  var showRecentsDisclosureDialog by remember { mutableStateOf(false) }
 
   val context = LocalContext.current
   val coroutineScope = rememberCoroutineScope()
-  val isServiceActive by RecentsController.isServiceActive.collectAsStateWithLifecycle()
-  val recentsDiagnostic by RecentsController.diagnosticInfo.collectAsStateWithLifecycle()
-  val isAccessibilityConfigured = remember(isServiceActive) {
-    RecentsController.isAccessibilityServiceEnabled(context)
-  }
 
   val snackbarHostState = remember { SnackbarHostState() }
 
@@ -358,217 +350,7 @@ fun LauncherConfigurationScreen(
           }
         }
       }
-
-      // 3. Native Recent Apps (Overview Bridge) Section
-      item {
-        ModernCard(
-          modifier = Modifier.fillMaxWidth(),
-          shape = ShapeRoundLg
-        ) {
-          Column(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(AppDimens.Spacing16),
-            verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
-          ) {
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically
-            ) {
-              Column(modifier = Modifier.weight(1f)) {
-                ModernSectionHeader(
-                  title = "Native Recent Apps Bridge",
-                  subtitle = "Triggers real Android OS Overview"
-                )
-              }
-              ModernStatusBadge(
-                text = if (isAccessibilityConfigured) "SERVICE ACTIVE" else "DISABLED (OPTIONAL)",
-                color = if (isAccessibilityConfigured) EmeraldCore else MaterialTheme.colorScheme.onSurfaceVariant
-              )
-            }
-
-            Text(
-              text = "On devices with proprietary Quickstep restrictions, third-party launchers cannot invoke system recents directly. This optional service allows Multi-Space to request Android's native Overview via GLOBAL_ACTION_RECENTS with zero screen reading or telemetry.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              lineHeight = 16.sp
-            )
-
-            // Real-time Diagnostic Panel
-            Surface(
-              shape = ShapeRoundMd,
-              color = MaterialTheme.colorScheme.surfaceContainer,
-              border = BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant),
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              Column(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .padding(AppDimens.Spacing12),
-                verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing6)
-              ) {
-                Text(
-                  text = "DIAGNOSTIC STATUS (MSLauncher:RECENTS)",
-                  style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                  color = QuantumViolet,
-                  letterSpacing = 1.sp
-                )
-
-                Row(
-                  modifier = Modifier.fillMaxWidth(),
-                  horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                  Text("Accessibility Service:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-                  Text(
-                    text = if (recentsDiagnostic.isServiceConnected) "Connected (Bound)" else if (recentsDiagnostic.isEnabledInSettings) "Enabled in Settings (Not Bound)" else "Disabled",
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                    color = if (recentsDiagnostic.isServiceConnected) EmeraldCore else if (recentsDiagnostic.isEnabledInSettings) AmberPulse else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp
-                  )
-                }
-
-                Row(
-                  modifier = Modifier.fillMaxWidth(),
-                  horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                  Text("System Action Availability:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-                  Text(
-                    text = when (recentsDiagnostic.isRecentsActionAvailable) {
-                      true -> "GLOBAL_ACTION_RECENTS available (${recentsDiagnostic.systemActionsCount} actions)"
-                      false -> "GLOBAL_ACTION_RECENTS unavailable"
-                      null -> if (recentsDiagnostic.isServiceConnected) "Available" else "Unknown (Service inactive)"
-                    },
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                    color = if (recentsDiagnostic.isRecentsActionAvailable == true || (recentsDiagnostic.isRecentsActionAvailable == null && recentsDiagnostic.isServiceConnected)) EmeraldCore else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp
-                  )
-                }
-
-                Row(
-                  modifier = Modifier.fillMaxWidth(),
-                  horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                  Text("Last Attempt:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-                  Text(
-                    text = when (recentsDiagnostic.lastInvocationResult) {
-                      RecentsInvocationResult.SUCCESS -> "Success"
-                      RecentsInvocationResult.SERVICE_DISABLED -> "Failed (Service Disabled/Unbound)"
-                      RecentsInvocationResult.ACTION_FAILED -> "Failed (performGlobalAction = false)"
-                      RecentsInvocationResult.ACTION_UNAVAILABLE -> "Failed (Action Unavailable)"
-                      null -> "None"
-                    },
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                    color = if (recentsDiagnostic.lastInvocationResult == RecentsInvocationResult.SUCCESS) EmeraldCore else if (recentsDiagnostic.lastInvocationResult != null) CrimsonNova else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp
-                  )
-                }
-
-                Row(
-                  modifier = Modifier.fillMaxWidth(),
-                  horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                  Text("Last Result:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-                  Text(
-                    text = when (recentsDiagnostic.lastResult) {
-                      true -> "performGlobalAction = true"
-                      false -> "performGlobalAction = false"
-                      null -> "Not invoked yet"
-                    },
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                    color = if (recentsDiagnostic.lastResult == true) EmeraldCore else if (recentsDiagnostic.lastResult == false) CrimsonNova else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp
-                  )
-                }
-
-                Row(
-                  modifier = Modifier.fillMaxWidth(),
-                  horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                  Text("Last Failure:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-                  Text(
-                    text = recentsDiagnostic.lastFailureReason ?: "None",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (recentsDiagnostic.lastFailureReason != null) CrimsonNova else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp
-                  )
-                }
-              }
-            }
-
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
-            ) {
-              Button(
-                onClick = {
-                  val result = RecentsController.invokeNativeRecents(context, source = "CONFIG_SCREEN_TEST_BUTTON")
-                  when (result) {
-                    RecentsInvocationResult.SUCCESS -> {
-                      coroutineScope.launch {
-                        snackbarHostState.showSnackbar("performGlobalAction(GLOBAL_ACTION_RECENTS) returned TRUE")
-                      }
-                    }
-                    RecentsInvocationResult.SERVICE_DISABLED -> {
-                      showRecentsDisclosureDialog = true
-                    }
-                    RecentsInvocationResult.ACTION_FAILED -> {
-                      coroutineScope.launch {
-                        snackbarHostState.showSnackbar("performGlobalAction(GLOBAL_ACTION_RECENTS) returned FALSE")
-                      }
-                    }
-                    RecentsInvocationResult.ACTION_UNAVAILABLE -> {
-                      coroutineScope.launch {
-                        snackbarHostState.showSnackbar("Global Recents action unavailable on device")
-                      }
-                    }
-                  }
-                },
-                shape = ShapeRoundMd,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                modifier = Modifier.weight(1f).testTag("btn_test_native_recents")
-              ) {
-                Icon(
-                  imageVector = Icons.Default.GridView,
-                  contentDescription = "Test Recents",
-                  modifier = Modifier.size(AppDimens.IconSm)
-                )
-                Spacer(modifier = Modifier.width(AppDimens.Spacing6))
-                Text("TEST RECENTS", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
-              }
-
-              OutlinedButton(
-                onClick = {
-                  if (isAccessibilityConfigured) {
-                    context.startActivity(RecentsController.createAccessibilitySettingsIntent())
-                  } else {
-                    showRecentsDisclosureDialog = true
-                  }
-                },
-                shape = ShapeRoundMd,
-                modifier = Modifier.testTag("btn_configure_accessibility")
-              ) {
-                Text(
-                  text = if (isAccessibilityConfigured) "Settings" else "Enable...",
-                  style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                  color = MaterialTheme.colorScheme.onSurface
-                )
-              }
-            }
-          }
-        }
-      }
     }
-  }
-
-  if (showRecentsDisclosureDialog) {
-    NativeRecentsDisclosureDialog(
-      onDismiss = { showRecentsDisclosureDialog = false },
-      onAcceptAndOpenSettings = {
-        showRecentsDisclosureDialog = false
-        context.startActivity(RecentsController.createAccessibilitySettingsIntent())
-      }
-    )
   }
 
   // Dialogs

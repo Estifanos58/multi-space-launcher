@@ -49,8 +49,6 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.multispace.R
 import com.multispace.domain.model.*
-import com.multispace.platform.RecentsController
-import com.multispace.platform.RecentsInvocationResult
 import com.multispace.ui.components.ModernEmptyState
 import com.multispace.ui.components.ModernLoadingState
 import com.multispace.ui.components.ModernStatusBadge
@@ -85,7 +83,6 @@ fun LauncherHomeScreen(
   var showImportDialog by remember { mutableStateOf(false) }
   var importReport by remember { mutableStateOf<ImportReport?>(null) }
   var isImporting by remember { mutableStateOf(false) }
-  var showRecentsDisclosureDialog by remember { mutableStateOf(false) }
 
   val context = LocalContext.current
   val coroutineScope = rememberCoroutineScope()
@@ -713,17 +710,6 @@ fun LauncherHomeScreen(
         showImportDialog = false
         importReport = null
         isImporting = false
-      }
-    )
-  }
-
-  // Native Recents Disclosure Dialog
-  if (showRecentsDisclosureDialog) {
-    NativeRecentsDisclosureDialog(
-      onDismiss = { showRecentsDisclosureDialog = false },
-      onAcceptAndOpenSettings = {
-        showRecentsDisclosureDialog = false
-        context.startActivity(RecentsController.createAccessibilitySettingsIntent())
       }
     )
   }

@@ -23,6 +23,7 @@ import android.util.LruCache
 import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.DiscoveredApp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -477,6 +478,7 @@ class AppDiscoveryManager(private val context: Context) {
   suspend fun prewarmIconCache(apps: List<DiscoveredApp>) = withContext(Dispatchers.IO) {
     AppLogger.d(AppLogger.Category.LAUNCHER, "Pre-warming icon cache for ${apps.size} apps...")
     for (app in apps) {
+      ensureActive()
       if (bitmapCache.get(app.id) == null) {
         try {
           val drawable = loadAppIcon(app)

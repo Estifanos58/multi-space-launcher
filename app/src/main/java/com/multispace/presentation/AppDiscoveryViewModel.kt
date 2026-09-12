@@ -12,13 +12,17 @@ import com.multispace.platform.AppDiscoveryManager
 import com.multispace.platform.AppLaunchManager
 import com.multispace.platform.AppUsageTracker
 import com.multispace.platform.LaunchResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -68,6 +72,11 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
   private val _userFeedback = MutableSharedFlow<String>(extraBufferCapacity = 8)
   val userFeedback: SharedFlow<String> = _userFeedback.asSharedFlow()
 
+  private var activeScanJob: Job? = null
+  private var hasPendingScan: Boolean = false
+  private var pendingScanSilent: Boolean = true
+  private var prewarmJob: Job? = null
+
   init {
     AppLogger.i(AppLogger.Category.LAUNCHER, "AppDiscoveryViewModel initialized")
     discoveryManager.startMonitoring()
@@ -75,7 +84,9 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
     loadApps()
   }
 
+  @OptIn(FlowPreview::class)
   private fun observePackageEvents() {
+    // 1. Immediate UI feedback for telemetry / diagnostic view
     viewModelScope.launch {
       discoveryManager.packageEvents.collect { event ->
         val eventDescription = when (event) {
@@ -85,41 +96,80 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
           is AppDiscoveryManager.PackageEvent.Refreshed -> "Packages Refreshed: ${event.count} packages"
         }
         _uiState.update { it.copy(recentPackageEvent = eventDescription) }
-        // Auto-refresh list upon package changes
-        loadApps(isSilent = true)
       }
+    }
+
+    // 2. Debounced scan trigger so rapid package callbacks coalesce into a single refresh
+    viewModelScope.launch {
+      discoveryManager.packageEvents
+        .debounce(400L)
+        .collect {
+          loadApps(isSilent = true)
+        }
     }
   }
 
+  /**
+   * Discovers installed applications.
+   * Concurrently invoked requests are coalesced so multiple scans never run in parallel.
+   * If a scan is already in progress, subsequent requests flag a pending refresh and return immediately.
+   */
   fun loadApps(isSilent: Boolean = false) {
-    viewModelScope.launch {
+    if (!isSilent) {
+      _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+    }
+
+    if (activeScanJob?.isActive == true) {
+      hasPendingScan = true
       if (!isSilent) {
-        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+        pendingScanSilent = false
       }
+      return
+    }
+
+    pendingScanSilent = isSilent
+    hasPendingScan = false
+
+    activeScanJob = viewModelScope.launch {
       try {
-        val apps = discoveryManager.loadInstalledApps()
-        val userApps = apps.count { !it.isSystemApp }
-        val systemApps = apps.count { it.isSystemApp }
+        var runNext = true
+        while (runNext) {
+          val silent = pendingScanSilent
+          hasPendingScan = false
+          pendingScanSilent = true
 
-        _uiState.update { current ->
-          val filtered = applyFiltersAndSort(apps, current.searchQuery, current.activeFilter, current.sortMode)
-          current.copy(
-            isLoading = false,
-            errorMessage = null,
-            allApps = apps,
-            filteredApps = filtered,
-            totalAppCount = apps.size,
-            userAppCount = userApps,
-            systemAppCount = systemApps,
-            lastScannedTime = System.currentTimeMillis()
-          )
-        }
+          if (!silent && !_uiState.value.isLoading) {
+            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+          }
 
-        // Asynchronously pre-warm in-memory bitmap cache on IO dispatcher
-        // so scrolling in Home and App Catalog hits RAM cache with zero UI-thread latency
-        viewModelScope.launch(Dispatchers.IO) {
-          discoveryManager.prewarmIconCache(apps)
+          val apps = discoveryManager.loadInstalledApps()
+          val userApps = apps.count { !it.isSystemApp }
+          val systemApps = apps.count { it.isSystemApp }
+
+          _uiState.update { current ->
+            val filtered = applyFiltersAndSort(apps, current.searchQuery, current.activeFilter, current.sortMode)
+            current.copy(
+              isLoading = false,
+              errorMessage = null,
+              allApps = apps,
+              filteredApps = filtered,
+              totalAppCount = apps.size,
+              userAppCount = userApps,
+              systemAppCount = systemApps,
+              lastScannedTime = System.currentTimeMillis()
+            )
+          }
+
+          // Cancel any previous prewarm job to prevent accumulation
+          prewarmJob?.cancel()
+          prewarmJob = viewModelScope.launch(Dispatchers.IO) {
+            discoveryManager.prewarmIconCache(apps)
+          }
+
+          runNext = hasPendingScan
         }
+      } catch (e: CancellationException) {
+        throw e
       } catch (e: Exception) {
         AppLogger.e(AppLogger.Category.LAUNCHER, "Error scanning apps in ViewModel", e)
         _uiState.update {
@@ -268,6 +318,8 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
 
   override fun onCleared() {
     super.onCleared()
+    activeScanJob?.cancel()
+    prewarmJob?.cancel()
     discoveryManager.stopMonitoring()
     AppLogger.d(AppLogger.Category.LAUNCHER, "AppDiscoveryViewModel cleared")
   }

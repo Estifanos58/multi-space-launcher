@@ -69,14 +69,25 @@ class ConfigurationActivity : FragmentActivity() {
     startActivity(homeIntent)
   }
 
+  companion object {
+    private const val MAX_EVENT_LOGS = 100
+  }
+
+  private fun recordEvent(tag: String, message: String) {
+    val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+    if (eventLogs.size >= MAX_EVENT_LOGS) {
+      eventLogs.removeAt(0)
+    }
+    eventLogs.add("[$time] $tag: $message")
+  }
+
   private fun logActivityDetails(event: String, intent: Intent?) {
     val action = intent?.action ?: "null"
     val categories = intent?.categories?.joinToString(",") ?: "none"
     val flags = intent?.flags?.let { "0x" + Integer.toHexString(it) } ?: "0x0"
-    AppLogger.i(
-      AppLogger.Category.LIFECYCLE,
-      "ConfigurationActivity $event -> taskId=$taskId, isTaskRoot=$isTaskRoot, action=$action, categories=[$categories], flags=$flags"
-    )
+    val msg = "ConfigurationActivity $event -> taskId=$taskId, isTaskRoot=$isTaskRoot, action=$action, categories=[$categories], flags=$flags"
+    AppLogger.i(AppLogger.Category.LIFECYCLE, msg)
+    recordEvent("Lifecycle", msg)
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -184,7 +195,6 @@ class ConfigurationActivity : FragmentActivity() {
     super.onResume()
     logActivityDetails("onResume", intent)
     updateDefaultHomeStatus()
-    discoveryViewModel.loadApps(isSilent = true)
   }
 
   override fun onPause() {
