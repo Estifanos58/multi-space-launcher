@@ -105,8 +105,10 @@ class AppActionMenuTest {
     // and returns gracefully without crashing even in test environment
     val handledGracefully = try {
       val result = PackageActionHelper.forceStopPackage(context, targetPackage)
-      // Call succeeds or fails gracefully (boolean returned)
-      result || !result
+      // Call succeeds or fails gracefully with ForceStopResult
+      result == PackageActionHelper.ForceStopResult.PrivilegedSuccess ||
+          result == PackageActionHelper.ForceStopResult.BackgroundProcessesKilled ||
+          result is PackageActionHelper.ForceStopResult.Failure
     } catch (e: Exception) {
       false
     }

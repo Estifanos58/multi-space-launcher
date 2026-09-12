@@ -111,10 +111,16 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
 
   /**
    * Discovers installed applications.
-   * Concurrently invoked requests are coalesced so multiple scans never run in parallel.
+   * Concurrently invoked requests are coalesced so at most one active scan runs at a time.
    * If a scan is already in progress, subsequent requests flag a pending refresh and return immediately.
+   * Redundant silent/lifecycle requests when apps are already discovered are skipped.
    */
-  fun loadApps(isSilent: Boolean = false) {
+  fun loadApps(isSilent: Boolean = false, forceRefresh: Boolean = false) {
+    if (!forceRefresh && isSilent && _uiState.value.allApps.isNotEmpty()) {
+      AppLogger.d(AppLogger.Category.LAUNCHER, "App discovery already populated (${_uiState.value.allApps.size} apps), skipping redundant scan")
+      return
+    }
+
     if (!isSilent) {
       _uiState.update { it.copy(isLoading = true, errorMessage = null) }
     }
@@ -279,11 +285,19 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
   }
 
   fun forceStopApp(app: DiscoveredApp): Boolean {
-    val success = com.multispace.platform.PackageActionHelper.forceStopPackage(getApplication(), app.packageName)
-    if (success) {
-      _userFeedback.tryEmit("Force stopped ${app.label}")
+    val result = com.multispace.platform.PackageActionHelper.forceStopPackage(getApplication(), app.packageName)
+    when (result) {
+      is com.multispace.platform.PackageActionHelper.ForceStopResult.PrivilegedSuccess -> {
+        _userFeedback.tryEmit("Force stopped ${app.label}")
+      }
+      is com.multispace.platform.PackageActionHelper.ForceStopResult.BackgroundProcessesKilled -> {
+        _userFeedback.tryEmit("Killed background processes for ${app.label}. Full force-stop requires system/privileged access on Android.")
+      }
+      is com.multispace.platform.PackageActionHelper.ForceStopResult.Failure -> {
+        _userFeedback.tryEmit("Unable to stop ${app.label}: ${result.errorMessage}")
+      }
     }
-    return success
+    return result.isSuccessOrHandled
   }
 
   private fun applyFiltersAndSort(

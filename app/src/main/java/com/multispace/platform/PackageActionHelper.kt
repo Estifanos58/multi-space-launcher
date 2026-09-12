@@ -97,42 +97,48 @@ object PackageActionHelper {
     }
   }
 
+  sealed class ForceStopResult {
+    data object PrivilegedSuccess : ForceStopResult()
+    data object BackgroundProcessesKilled : ForceStopResult()
+    data class Failure(val errorMessage: String) : ForceStopResult()
+
+    val isSuccessOrHandled: Boolean
+      get() = this is PrivilegedSuccess || this is BackgroundProcessesKilled
+  }
+
   /**
    * Directly force-stops that package without navigating to App Info settings.
-   * Tries ActivityManager.forceStopPackage via reflection first (for privileged/system execution),
-   * falling back to ActivityManager.killBackgroundProcesses. Handles failure gracefully.
+   * Legitimate Android mechanisms:
+   * 1. Direct ActivityManager.forceStopPackage via reflection if running in a privileged/system/platform context.
+   * 2. Legitimate public fallback: ActivityManager.killBackgroundProcesses.
+   * Returns a [ForceStopResult] representing the outcome, without pretending unprivileged apps
+   * can force-stop arbitrary packages on Android, and strictly never navigates to App Info.
    */
-  fun forceStopPackage(context: Context, packageName: String): Boolean {
-    return try {
-      val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-      if (am == null) {
-        AppLogger.w(AppLogger.Category.LAUNCHER, "ActivityManager unavailable for force-stopping $packageName")
-        return false
-      }
+  fun forceStopPackage(context: Context, packageName: String): ForceStopResult {
+    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+      ?: return ForceStopResult.Failure("ActivityManager is not available")
 
-      var stopped = false
-      try {
-        val forceStopMethod = am.javaClass.getMethod("forceStopPackage", String::class.java)
-        forceStopMethod.isAccessible = true
-        forceStopMethod.invoke(am, packageName)
-        AppLogger.i(AppLogger.Category.LAUNCHER, "Successfully invoked forceStopPackage for $packageName")
-        stopped = true
-      } catch (e: Exception) {
-        AppLogger.d(AppLogger.Category.LAUNCHER, "forceStopPackage not directly accessible, falling back to killBackgroundProcesses for $packageName")
-      }
-
-      try {
-        am.killBackgroundProcesses(packageName)
-        AppLogger.i(AppLogger.Category.LAUNCHER, "Invoked killBackgroundProcesses for $packageName")
-        stopped = true
-      } catch (e: Exception) {
-        AppLogger.w(AppLogger.Category.LAUNCHER, "Failed killBackgroundProcesses for $packageName", e)
-      }
-
-      stopped
+    // 1. Check for privileged / system access to direct forceStopPackage
+    try {
+      val forceStopMethod = am.javaClass.getMethod("forceStopPackage", String::class.java)
+      forceStopMethod.isAccessible = true
+      forceStopMethod.invoke(am, packageName)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Privileged forceStopPackage succeeded for $packageName")
+      return ForceStopResult.PrivilegedSuccess
+    } catch (e: SecurityException) {
+      AppLogger.d(AppLogger.Category.LAUNCHER, "forceStopPackage requires privileged permission on standard Android for $packageName")
     } catch (e: Exception) {
-      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to force-stop package $packageName", e)
-      false
+      AppLogger.d(AppLogger.Category.LAUNCHER, "forceStopPackage not directly invokable for $packageName: ${e.message}")
+    }
+
+    // 2. Legitimate standard Android mechanism: killBackgroundProcesses
+    return try {
+      am.killBackgroundProcesses(packageName)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "killBackgroundProcesses invoked for $packageName (standard Android limitation: full force-stop requires privileged/system permissions)")
+      ForceStopResult.BackgroundProcessesKilled
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to kill background processes for $packageName", e)
+      ForceStopResult.Failure(e.localizedMessage ?: "Failed to stop package processes")
     }
   }
 }

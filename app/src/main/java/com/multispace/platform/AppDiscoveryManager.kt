@@ -457,9 +457,9 @@ class AppDiscoveryManager(private val context: Context) {
         val profile = userProfiles.firstOrNull { it.hashCode().toLong() == app.userHandleId }
           ?: Process.myUserHandle()
         val activityList = launcherApps.getActivityList(app.packageName, profile)
-        val matchedActivity = activityList?.firstOrNull {
+        val matchedActivity = activityList.firstOrNull {
           it.componentName.className == app.activityName
-        } ?: activityList?.firstOrNull()
+        } ?: activityList.firstOrNull()
 
         if (matchedActivity != null) {
           icon = matchedActivity.getBadgedIcon(0)

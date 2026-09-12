@@ -388,7 +388,8 @@ fun SpaceDockBar(
                 onLaunchApp = onLaunchApp,
                 onPositioned = { rect -> slotBounds[item.id] = rect },
                 parentCoordinates = dockBarBoxCoordinates,
-                appTheme = appTheme
+                appTheme = appTheme,
+                isInteractable = !isDragging && itemForAction == null && !unifiedDragState.isDragging
               )
             }
 
@@ -430,7 +431,8 @@ fun SpaceDockBar(
                 onLaunchApp = onLaunchApp,
                 onPositioned = { rect -> slotBounds[item.id] = rect },
                 parentCoordinates = dockBarBoxCoordinates,
-                appTheme = appTheme
+                appTheme = appTheme,
+                isInteractable = !isDragging && itemForAction == null && !unifiedDragState.isDragging
               )
             }
           } else {
@@ -447,7 +449,8 @@ fun SpaceDockBar(
                 onLaunchApp = onLaunchApp,
                 onPositioned = { rect -> slotBounds[item.id] = rect },
                 parentCoordinates = dockBarBoxCoordinates,
-                appTheme = appTheme
+                appTheme = appTheme,
+                isInteractable = !isDragging && itemForAction == null && !unifiedDragState.isDragging
               )
             }
           }
@@ -495,7 +498,8 @@ private fun DockAppSlot(
   onPositioned: (Rect) -> Unit,
   parentCoordinates: LayoutCoordinates? = null,
   modifier: Modifier = Modifier,
-  appTheme: String = Space.THEME_DEFAULT
+  appTheme: String = Space.THEME_DEFAULT,
+  isInteractable: Boolean = true
 ) {
   val key = "${item.packageName}/${item.componentName}"
   val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == item.packageName }
@@ -514,9 +518,9 @@ private fun DockAppSlot(
       }
       .clip(ShapeRoundMd)
       .then(
-        if (!isGhost) {
-          Modifier.clickable {
-            if (app != null) onLaunchApp(app)
+        if (!isGhost && isInteractable) {
+          Modifier.clickable(enabled = isInteractable) {
+            if (isInteractable && app != null) onLaunchApp(app)
           }
         } else {
           Modifier

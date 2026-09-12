@@ -171,8 +171,6 @@ class MainActivity : FragmentActivity() {
     super.onStart()
     logActivityDetails("onStart", intent)
     updateDefaultHomeStatus()
-    spaceViewModel.ensureDefaultSpaceInitialized()
-    discoveryViewModel.loadApps(isSilent = true)
   }
 
   override fun onResume() {
