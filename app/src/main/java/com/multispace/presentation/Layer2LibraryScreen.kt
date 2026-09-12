@@ -196,179 +196,189 @@ fun Layer2LibraryScreen(
 
     Spacer(modifier = Modifier.height(AppDimens.Spacing8))
 
-    // 1. Most Used Apps Row (at the very top, ordered by usage/frequency)
-    if (resolvedMostUsedApps.isNotEmpty()) {
+    Box(
+      modifier = Modifier
+        .weight(1f)
+        .fillMaxWidth()
+    ) {
       Column(
-        modifier = Modifier
-          .fillMaxWidth()
-          .testTag("layer2_most_used_section")
+        modifier = Modifier.fillMaxSize()
       ) {
-        Text(
-          text = "Most Used",
-          style = MaterialTheme.typography.labelMedium.copy(
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.5.sp
-          ),
-          color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-          modifier = Modifier.padding(horizontal = AppDimens.Spacing20, vertical = AppDimens.Spacing2)
-        )
-
-        LazyRow(
-          modifier = Modifier
-            .fillMaxWidth()
-            .testTag("layer2_most_used_row"),
-          contentPadding = PaddingValues(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing4),
-          horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
-        ) {
-          lazyRowItems(
-            items = resolvedMostUsedApps,
-            key = { "most_used_${it.packageName}/${it.activityName}" }
-          ) { app ->
-            Column(
-              horizontalAlignment = Alignment.CenterHorizontally,
-              modifier = Modifier
-                .width(68.dp)
-                .clip(ShapeRoundMd)
-                .combinedClickable(
-                  onClick = { onLaunchApp(app) },
-                  onLongClick = { selectedAppForMenu = app }
-                )
-                .padding(vertical = AppDimens.Spacing4)
-                .testTag("layer2_most_used_app_${app.packageName}")
-            ) {
-              val bitmap = getBitmap(app)
-              ThemedAppIcon(
-                app = app,
-                bitmap = bitmap,
-                appTheme = space.appTheme,
-                modifier = iconSizeModifier,
-                fallbackText = app.label.take(1).uppercase()
-              )
-
-              if (space.labelVisibility) {
-                Spacer(modifier = Modifier.height(AppDimens.Spacing4))
-                Text(
-                  text = app.label,
-                  style = MaterialTheme.typography.bodySmall,
-                  fontSize = 11.sp,
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
-                  textAlign = TextAlign.Center,
-                  color = MaterialTheme.colorScheme.onSurface
-                )
-              }
-            }
-          }
-        }
-
-        // Clear vertical padding and subtle/dim horizontal divider line separating Most Used from Alphabetical list
-        Spacer(modifier = Modifier.height(AppDimens.Spacing10))
-        HorizontalDivider(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = AppDimens.Spacing20)
-            .testTag("layer2_divider"),
-          thickness = 0.8.dp,
-          color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-        )
-        Spacer(modifier = Modifier.height(AppDimens.Spacing10))
-      }
-    }
-
-    // 2. Alphabetical section (below Most Used row, normal alphabetical ordering)
-    if (alphabeticalApps.isEmpty()) {
-      Box(
-        modifier = Modifier
-          .fillMaxWidth()
-          .weight(1f)
-          .navigationBarsPadding(),
-        contentAlignment = Alignment.Center
-      ) {
-        ModernEmptyState(
-          icon = Icons.Default.Search,
-          title = if (searchQuery.isBlank()) "No apps in this Space" else "No matching apps found",
-          description = if (searchQuery.isBlank()) "Configure app memberships to see apps here." else "Try searching with a different keyword.",
-          actionText = if (searchQuery.isNotBlank()) "Clear Search" else null,
-          onActionClick = { searchQuery = "" }
-        )
-      }
-    } else {
-      Box(
-        modifier = Modifier
-          .weight(1f)
-          .fillMaxWidth()
-      ) {
-        LazyVerticalGrid(
-          state = gridState,
-          columns = GridCells.Fixed(space.gridColumns),
-          modifier = Modifier
-            .fillMaxSize()
-            .padding(
-              start = AppDimens.Spacing16,
-              end = if (showAlphabetIndex) 28.dp else AppDimens.Spacing16
+        // 1. Most Used Apps Row (at the very top, ordered by usage/frequency)
+        if (resolvedMostUsedApps.isNotEmpty()) {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .testTag("layer2_most_used_section")
+          ) {
+            Text(
+              text = "Most Used",
+              style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.5.sp
+              ),
+              color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+              modifier = Modifier.padding(horizontal = AppDimens.Spacing20, vertical = AppDimens.Spacing2)
             )
-            .testTag("layer2_apps_grid"),
-          horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8),
-          verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16),
-          contentPadding = PaddingValues(
-            bottom = AppDimens.Spacing24 + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-          )
-        ) {
-          items(alphabeticalApps, key = { "${it.packageName}/${it.activityName}" }) { app ->
-            Column(
-              horizontalAlignment = Alignment.CenterHorizontally,
+
+            LazyRow(
               modifier = Modifier
                 .fillMaxWidth()
-                .clip(ShapeRoundMd)
-                .combinedClickable(
-                  onClick = { onLaunchApp(app) },
-                  onLongClick = { selectedAppForMenu = app }
-                )
-                .padding(AppDimens.Spacing4)
-                .testTag("layer2_app_${app.packageName}")
+                .testTag("layer2_most_used_row"),
+              contentPadding = PaddingValues(
+                start = AppDimens.Spacing16,
+                end = if (showAlphabetIndex) 28.dp else AppDimens.Spacing16,
+                top = AppDimens.Spacing4,
+                bottom = AppDimens.Spacing4
+              ),
+              horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
             ) {
-              val bitmap = getBitmap(app)
-              ThemedAppIcon(
-                app = app,
-                bitmap = bitmap,
-                appTheme = space.appTheme,
-                modifier = iconSizeModifier,
-                fallbackText = app.label.take(1).uppercase()
-              )
+              lazyRowItems(
+                items = resolvedMostUsedApps,
+                key = { "most_used_${it.packageName}/${it.activityName}" }
+              ) { app ->
+                Column(
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  modifier = Modifier
+                    .width(68.dp)
+                    .clip(ShapeRoundMd)
+                    .combinedClickable(
+                      onClick = { onLaunchApp(app) },
+                      onLongClick = { selectedAppForMenu = app }
+                    )
+                    .padding(vertical = AppDimens.Spacing4)
+                    .testTag("layer2_most_used_app_${app.packageName}")
+                ) {
+                  val bitmap = getBitmap(app)
+                  ThemedAppIcon(
+                    app = app,
+                    bitmap = bitmap,
+                    appTheme = space.appTheme,
+                    modifier = iconSizeModifier,
+                    fallbackText = app.label.take(1).uppercase()
+                  )
 
-              if (space.labelVisibility) {
-                Spacer(modifier = Modifier.height(AppDimens.Spacing4))
-                Text(
-                  text = app.label,
-                  style = MaterialTheme.typography.bodySmall,
-                  fontSize = 11.sp,
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
-                  textAlign = TextAlign.Center,
-                  color = MaterialTheme.colorScheme.onSurface
+                  if (space.labelVisibility) {
+                    Spacer(modifier = Modifier.height(AppDimens.Spacing4))
+                    Text(
+                      text = app.label,
+                      style = MaterialTheme.typography.bodySmall,
+                      fontSize = 11.sp,
+                      maxLines = 1,
+                      overflow = TextOverflow.Ellipsis,
+                      textAlign = TextAlign.Center,
+                      color = MaterialTheme.colorScheme.onSurface
+                    )
+                  }
+                }
+              }
+            }
+
+            // Clear vertical padding and subtle/dim horizontal divider line separating Most Used from Alphabetical list
+            Spacer(modifier = Modifier.height(AppDimens.Spacing10))
+            HorizontalDivider(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AppDimens.Spacing20)
+                .testTag("layer2_divider"),
+              thickness = 0.8.dp,
+              color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+            )
+            Spacer(modifier = Modifier.height(AppDimens.Spacing10))
+          }
+        }
+
+        // 2. Alphabetical section (below Most Used row, normal alphabetical ordering)
+        if (alphabeticalApps.isEmpty()) {
+          Box(
+            modifier = Modifier
+              .fillMaxWidth()
+              .weight(1f)
+              .navigationBarsPadding(),
+            contentAlignment = Alignment.Center
+          ) {
+            ModernEmptyState(
+              icon = Icons.Default.Search,
+              title = if (searchQuery.isBlank()) "No apps in this Space" else "No matching apps found",
+              description = if (searchQuery.isBlank()) "Configure app memberships to see apps here." else "Try searching with a different keyword.",
+              actionText = if (searchQuery.isNotBlank()) "Clear Search" else null,
+              onActionClick = { searchQuery = "" }
+            )
+          }
+        } else {
+          LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Fixed(space.gridColumns),
+            modifier = Modifier
+              .weight(1f)
+              .fillMaxWidth()
+              .padding(
+                start = AppDimens.Spacing16,
+                end = if (showAlphabetIndex) 28.dp else AppDimens.Spacing16
+              )
+              .testTag("layer2_apps_grid"),
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8),
+            verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing16),
+            contentPadding = PaddingValues(
+              bottom = AppDimens.Spacing24 + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            )
+          ) {
+            items(alphabeticalApps, key = { "${it.packageName}/${it.activityName}" }) { app ->
+              Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .clip(ShapeRoundMd)
+                  .combinedClickable(
+                    onClick = { onLaunchApp(app) },
+                    onLongClick = { selectedAppForMenu = app }
+                  )
+                  .padding(AppDimens.Spacing4)
+                  .testTag("layer2_app_${app.packageName}")
+              ) {
+                val bitmap = getBitmap(app)
+                ThemedAppIcon(
+                  app = app,
+                  bitmap = bitmap,
+                  appTheme = space.appTheme,
+                  modifier = iconSizeModifier,
+                  fallbackText = app.label.take(1).uppercase()
                 )
+
+                if (space.labelVisibility) {
+                  Spacer(modifier = Modifier.height(AppDimens.Spacing4))
+                  Text(
+                    text = app.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurface
+                  )
+                }
               }
             }
           }
         }
+      }
 
-        // 3. Alphabet fast-scroll indicator (smaller, visually compact, vertically centered, operates only on alphabetical list)
-        if (showAlphabetIndex) {
-          AlphabetFastScroll(
-            alphabet = alphabet,
-            activeLetters = activeLetters,
-            onLetterSelected = { letter ->
-              letterToFirstIndex[letter]?.let { targetIndex ->
-                coroutineScope.launch {
-                  gridState.scrollToItem(targetIndex)
-                }
+      // 3. Alphabet fast-scroll indicator (vertically centered across entire content area including Most Used, and positioned on the right-most edge)
+      if (showAlphabetIndex) {
+        AlphabetFastScroll(
+          alphabet = alphabet,
+          activeLetters = activeLetters,
+          onLetterSelected = { letter ->
+            letterToFirstIndex[letter]?.let { targetIndex ->
+              coroutineScope.launch {
+                gridState.scrollToItem(targetIndex)
               }
-            },
-            modifier = Modifier
-              .align(Alignment.CenterEnd)
-              .padding(end = 4.dp)
-          )
-        }
+            }
+          },
+          modifier = Modifier
+            .align(Alignment.CenterEnd)
+            .padding(end = 2.dp)
+        )
       }
     }
   }

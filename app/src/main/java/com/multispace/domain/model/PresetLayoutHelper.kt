@@ -118,7 +118,7 @@ object PresetLayoutHelper {
           spanY = 1,
           customWidgetType = SpaceItemPlacement.WIDGET_QUICK_SEARCH
         )
-        // Row 3: Curated apps (minOf(cols, 4-5 apps))
+        // Row 4: Curated apps at the bottom
         val curatedCount = when (cols) {
           3 -> 3
           4 -> 4
@@ -127,10 +127,9 @@ object PresetLayoutHelper {
         }
         for (c in 0 until curatedCount) {
           if (appCursor < desktopPool.size) {
-            addApp(page = 0, row = 3, col = c, app = desktopPool[appCursor++])
+            addApp(page = 0, row = 4, col = c, app = desktopPool[appCursor++])
           }
         }
-        // Row 4 is left intentionally empty for generous spacing and strong visual hierarchy
       }
 
       PresetStrategy.PIXEL_GLANCEABLE -> {
@@ -144,23 +143,21 @@ object PresetLayoutHelper {
           spanY = 1,
           customWidgetType = SpaceItemPlacement.WIDGET_CLOCK_DATE
         )
-        // Rows 1 & 2: Clean app grid (2 rows of apps)
-        for (r in 1..2) {
-          for (c in 0 until cols) {
-            if (appCursor < desktopPool.size) {
-              addApp(page = 0, row = r, col = c, app = desktopPool[appCursor++])
-            }
-          }
-        }
-        // Row 3: Quick Search above the dock
+        // Row 2: Quick Search
         addWidget(
           page = 0,
-          row = 3,
+          row = 2,
           col = 0,
           spanX = cols,
           spanY = 1,
           customWidgetType = SpaceItemPlacement.WIDGET_QUICK_SEARCH
         )
+        // Row 4: Apps placed strictly on the last row
+        for (c in 0 until cols) {
+          if (appCursor < desktopPool.size) {
+            addApp(page = 0, row = 4, col = c, app = desktopPool[appCursor++])
+          }
+        }
       }
 
       PresetStrategy.CLASSIC_GRID -> {
@@ -174,12 +171,10 @@ object PresetLayoutHelper {
           spanY = 1,
           customWidgetType = SpaceItemPlacement.WIDGET_CLOCK_DATE
         )
-        // Rows 1, 2, 3: App-first grid
-        for (r in 1..3) {
-          for (c in 0 until cols) {
-            if (appCursor < desktopPool.size) {
-              addApp(page = 0, row = r, col = c, app = desktopPool[appCursor++])
-            }
+        // Row 4: Apps placed strictly on the last row
+        for (c in 0 until cols) {
+          if (appCursor < desktopPool.size) {
+            addApp(page = 0, row = 4, col = c, app = desktopPool[appCursor++])
           }
         }
       }
@@ -195,12 +190,12 @@ object PresetLayoutHelper {
           spanY = 1,
           customWidgetType = SpaceItemPlacement.WIDGET_CLOCK_DATE
         )
-        // Rows 1 and 2: empty breathing room
-        // Row 3: 3 sparse apps
+        // Rows 1, 2, 3: empty breathing room
+        // Row 4: 3 sparse apps at the bottom
         val minApps = minOf(3, cols)
         for (c in 0 until minApps) {
           if (appCursor < desktopPool.size) {
-            addApp(page = 0, row = 3, col = c, app = desktopPool[appCursor++])
+            addApp(page = 0, row = 4, col = c, app = desktopPool[appCursor++])
           }
         }
       }
@@ -235,10 +230,10 @@ object PresetLayoutHelper {
             spanY = 1,
             customWidgetType = SpaceItemPlacement.WIDGET_QUICK_NOTES
           )
-          // Row 3: Curated task apps
+          // Row 4: Curated task apps at the bottom
           for (c in 0 until cols) {
             if (appCursor < desktopPool.size) {
-              addApp(page = 0, row = 3, col = c, app = desktopPool[appCursor++])
+              addApp(page = 0, row = 4, col = c, app = desktopPool[appCursor++])
             }
           }
         } else {
@@ -267,9 +262,10 @@ object PresetLayoutHelper {
             spanY = 1,
             customWidgetType = SpaceItemPlacement.WIDGET_QUICK_NOTES
           )
+          // Row 4: Curated task apps at the bottom
           for (c in 0 until cols) {
             if (appCursor < desktopPool.size) {
-              addApp(page = 0, row = 3, col = c, app = desktopPool[appCursor++])
+              addApp(page = 0, row = 4, col = c, app = desktopPool[appCursor++])
             }
           }
         }
@@ -286,12 +282,10 @@ object PresetLayoutHelper {
           spanY = 1,
           customWidgetType = SpaceItemPlacement.WIDGET_QUICK_SEARCH
         )
-        // Rows 1, 2, 3, 4: Dense apps filling all rows
-        for (r in 1..4) {
-          for (c in 0 until cols) {
-            if (appCursor < desktopPool.size) {
-              addApp(page = 0, row = r, col = c, app = desktopPool[appCursor++])
-            }
+        // Row 4: Apps placed strictly on the last row
+        for (c in 0 until cols) {
+          if (appCursor < desktopPool.size) {
+            addApp(page = 0, row = 4, col = c, app = desktopPool[appCursor++])
           }
         }
       }

@@ -124,6 +124,18 @@ class RoomSpaceRepository(
               gridColumns = defaultEntity.gridColumns,
               candidateApps = initialApps
             )
+          } else {
+            // Ensure Layer 1 first page apps are positioned at the bottom row (row 4)
+            val p0Apps = placements.filter { it.pageIndex == 0 && it.itemType == SpaceItemPlacement.ITEM_TYPE_APP }
+            val cols = defaultEntity.gridColumns
+            val row3Apps = p0Apps.filter { it.positionIndex / cols == 3 }
+            val row4Occupied = placements.any { it.pageIndex == 0 && it.positionIndex / cols == 4 }
+            if (row3Apps.isNotEmpty() && !row4Occupied) {
+              row3Apps.forEach { p ->
+                val newPos = 4 * cols + (p.positionIndex % cols)
+                layoutDao.updatePlacement(p.copy(positionIndex = newPos))
+              }
+            }
           }
         }
 

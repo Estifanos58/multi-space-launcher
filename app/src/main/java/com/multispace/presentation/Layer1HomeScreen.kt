@@ -156,8 +156,9 @@ fun Layer1HomeScreen(
     // Authoritative Layer 1 placements:
     // When placements exist in Room, honor them directly (preserving preset curation, widgets, and user drag-and-drop moves).
     // Never auto-inject unplaced apps or dock apps onto Page 0 over widgets or curated empty space.
-    val effectivePlacements = remember(placements, allApps, space.id, pageSize) {
-      if (placements.isNotEmpty()) {
+    // Apps on the first page (Page 0) are guaranteed to be positioned on the last row.
+    val effectivePlacements = remember(placements, allApps, space.id, pageSize, gridRows, cols) {
+      val basePlacements = if (placements.isNotEmpty()) {
         val seenAppPkgs = mutableSetOf<String>()
         val deduplicated = mutableListOf<SpaceItemPlacement>()
         for (p in placements) {
@@ -172,22 +173,37 @@ fun Layer1HomeScreen(
             deduplicated.add(p)
           }
         }
-        return@remember deduplicated
+        deduplicated
+      } else {
+        // Fallback only if there are absolutely NO placements in Room yet
+        allApps.distinctBy { it.packageName }.mapIndexed { idx, app ->
+          SpaceItemPlacement(
+            id = "fallback:${app.packageName}",
+            spaceId = space.id,
+            layer = SpaceItemPlacement.LAYER_HOME,
+            pageIndex = idx / pageSize,
+            positionIndex = idx % pageSize,
+            itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+            packageName = app.packageName,
+            componentName = app.activityName,
+            userHandleId = app.userHandleId
+          )
+        }
       }
 
-      // Fallback only if there are absolutely NO placements in Room yet
-      allApps.distinctBy { it.packageName }.mapIndexed { idx, app ->
-        SpaceItemPlacement(
-          id = "fallback:${app.packageName}",
-          spaceId = space.id,
-          layer = SpaceItemPlacement.LAYER_HOME,
-          pageIndex = idx / pageSize,
-          positionIndex = idx % pageSize,
-          itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-          packageName = app.packageName,
-          componentName = app.activityName,
-          userHandleId = app.userHandleId
-        )
+      val lastRow = (gridRows - 1).coerceAtLeast(0)
+      basePlacements.map { item ->
+        if (item.pageIndex == 0 && item.itemType == SpaceItemPlacement.ITEM_TYPE_APP && !item.isWidget && !item.isFolder) {
+          val curCol = item.positionIndex % cols
+          val newPos = lastRow * cols + curCol
+          if (item.positionIndex != newPos) {
+            item.copy(positionIndex = newPos)
+          } else {
+            item
+          }
+        } else {
+          item
+        }
       }
     }
 

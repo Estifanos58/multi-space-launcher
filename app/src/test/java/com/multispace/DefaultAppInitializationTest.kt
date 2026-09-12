@@ -182,4 +182,42 @@ class DefaultAppInitializationTest {
     val distinctCount = layer1.distinctBy { it.packageName }.size
     assertEquals("Layer 1 apps should contain no duplicates", distinctCount, layer1.size)
   }
+
+  @Test
+  fun testGalaxyCuratedPlacesAppsAtBottomRow() {
+    val preset = com.multispace.domain.model.LayoutPreset.getById(com.multispace.domain.model.Space.PRESET_DEFAULT)
+    val result = com.multispace.domain.model.PresetLayoutHelper.buildInitialLayout(
+      spaceId = "test_space",
+      preset = preset,
+      gridColumns = 4,
+      availableApps = installedApps,
+      dockCapacity = 4
+    )
+
+    val page0Apps = result.placements.filter { it.pageIndex == 0 && it.itemType == com.multispace.domain.model.SpaceItemPlacement.ITEM_TYPE_APP }
+    assertTrue("Page 0 should have apps placed", page0Apps.isNotEmpty())
+    page0Apps.forEach { appPlacement ->
+      val row = appPlacement.positionIndex / 4
+      assertEquals("Page 0 apps in Galaxy Curated must be placed at the bottom row (row 4)", 4, row)
+    }
+  }
+
+  @Test
+  fun testClassicGridPlacesAppsToBottomRows() {
+    val preset = com.multispace.domain.model.LayoutPreset.getById(com.multispace.domain.model.Space.PRESET_CLASSIC)
+    val result = com.multispace.domain.model.PresetLayoutHelper.buildInitialLayout(
+      spaceId = "test_space",
+      preset = preset,
+      gridColumns = 4,
+      availableApps = installedApps,
+      dockCapacity = 4
+    )
+
+    val page0Apps = result.placements.filter { it.pageIndex == 0 && it.itemType == com.multispace.domain.model.SpaceItemPlacement.ITEM_TYPE_APP }
+    assertTrue("Page 0 should have apps placed", page0Apps.isNotEmpty())
+    page0Apps.forEach { appPlacement ->
+      val row = appPlacement.positionIndex / 4
+      assertEquals("All Page 0 apps in Classic Grid must be placed on the last row (row 4)", 4, row)
+    }
+  }
 }

@@ -74,20 +74,21 @@ fun AlphabetFastScroll(
     modifier = modifier
       .width(26.dp)
       .wrapContentHeight()
-      .testTag("layer2_alphabet_fast_scroll")
+      .testTag("layer2_alphabet_fast_scroll"),
+    contentAlignment = Alignment.CenterEnd
   ) {
-    // 1. Vertical Alphabet Column Strip (Opaque container to prevent background content bleeding through)
+    // 1. Vertical Alphabet Column Strip (Translucent container pinned to the right edge)
     Surface(
-      shape = RoundedCornerShape(10.dp),
-      color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
+      shape = RoundedCornerShape(12.dp),
+      color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f),
       border = BorderStroke(
         0.8.dp,
-        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f)
       ),
-      shadowElevation = 2.dp,
+      shadowElevation = 0.dp,
       modifier = Modifier
         .align(Alignment.CenterEnd)
-        .width(16.dp)
+        .width(18.dp)
         .height(350.dp)
         .onGloballyPositioned { coords ->
           totalHeightPx = coords.size.height.toFloat()
@@ -137,7 +138,6 @@ fun AlphabetFastScroll(
         horizontalAlignment = Alignment.CenterHorizontally
       ) {
         alphabet.forEach { letter ->
-          val hasApps = activeLetters.contains(letter)
           val isSelected = isDragging && currentLetter == letter
 
           Box(
@@ -156,16 +156,12 @@ fun AlphabetFastScroll(
             }
             Text(
               text = letter.toString(),
-              fontSize = 8.sp,
-              fontWeight = when {
-                isSelected -> FontWeight.ExtraBold
-                hasApps -> FontWeight.Bold
-                else -> FontWeight.Normal
-              },
-              color = when {
-                isSelected -> MaterialTheme.colorScheme.onPrimary
-                hasApps -> MaterialTheme.colorScheme.onSurface
-                else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f)
+              fontSize = 8.5.sp,
+              fontWeight = FontWeight.Bold,
+              color = if (isSelected) {
+                MaterialTheme.colorScheme.onPrimary
+              } else {
+                MaterialTheme.colorScheme.onSurface
               },
               textAlign = TextAlign.Center
             )
@@ -174,7 +170,7 @@ fun AlphabetFastScroll(
       }
     }
 
-    // 2. Compact Floating Letter Preview Bubble
+    // 2. Compact Floating Letter Preview Bubble positioned to the left of the strip
     AnimatedVisibility(
       visible = isDragging && currentLetter != null,
       enter = fadeIn() + scaleIn(),
@@ -183,21 +179,20 @@ fun AlphabetFastScroll(
         .align(Alignment.TopEnd)
         .offset {
           val bubbleSizePx = with(density) { 44.dp.toPx() }
-          val bubbleOffsetXPx = with(density) { (-50).dp.toPx() }
+          val bubbleOffsetXPx = with(density) { (-48).dp.toPx() }
           val clampedY = (dragY - bubbleSizePx / 2f).coerceIn(0f, (totalHeightPx - bubbleSizePx).coerceAtLeast(0f))
           IntOffset(bubbleOffsetXPx.roundToInt(), clampedY.roundToInt())
         }
     ) {
       val letter = currentLetter ?: 'A'
-      val hasApps = activeLetters.contains(letter)
 
       Surface(
         shape = CircleShape,
-        color = if (hasApps) QuantumViolet else MaterialTheme.colorScheme.surfaceContainerHighest,
+        color = QuantumViolet,
         shadowElevation = 6.dp,
         border = BorderStroke(
           1.dp,
-          if (hasApps) Color.White.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant
+          Color.White.copy(alpha = 0.35f)
         ),
         modifier = Modifier
           .size(44.dp)
@@ -210,7 +205,7 @@ fun AlphabetFastScroll(
               fontSize = 20.sp,
               fontWeight = FontWeight.Black
             ),
-            color = if (hasApps) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+            color = Color.White,
             textAlign = TextAlign.Center
           )
         }
