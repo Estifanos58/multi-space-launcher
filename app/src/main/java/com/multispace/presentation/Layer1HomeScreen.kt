@@ -25,6 +25,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
@@ -105,6 +106,7 @@ fun Layer1HomeScreen(
   onOpenCustomization: (Int) -> Unit = {},
   onOpenAppInfo: (DiscoveredApp) -> Unit = {},
   onUninstallApp: (DiscoveredApp) -> Unit = {},
+  onForceStopApp: (DiscoveredApp) -> Unit = {},
   appWidgetHost: AppWidgetHost? = null,
   unifiedDragState: UnifiedDragState? = null,
   onDropItemToDock: ((placement: SpaceItemPlacement, app: DiscoveredApp, targetDockIndex: Int) -> Unit)? = null,
@@ -1400,16 +1402,17 @@ fun Layer1HomeScreen(
           try {
             onUninstallApp(appToUninstall)
           } catch (e: Exception) {
-            // fallback
+            com.multispace.platform.PackageActionHelper.launchUninstallConfirmation(context, appToUninstall.packageName)
           }
+          activeActionPlacement = null
+          dragLifecycleState = DragLifecycleState.IDLE
+          unifiedDragState?.lifecycleState = DragLifecycleState.IDLE
+        },
+        onForceStopApp = { appToForceStop ->
           try {
-            val intent = Intent(Intent.ACTION_DELETE).apply {
-              data = Uri.parse("package:${appToUninstall.packageName}")
-              addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
+            onForceStopApp(appToForceStop)
           } catch (e: Exception) {
-            AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to initiate uninstall for ${appToUninstall.packageName}", e)
+            com.multispace.platform.PackageActionHelper.forceStopPackage(context, appToForceStop.packageName)
           }
           activeActionPlacement = null
           dragLifecycleState = DragLifecycleState.IDLE
@@ -1441,10 +1444,20 @@ private fun PreDragActionBoxOverlay(
   density: androidx.compose.ui.unit.Density,
   onOpenAppInfo: (DiscoveredApp) -> Unit,
   onUninstallApp: (DiscoveredApp) -> Unit,
+  onForceStopApp: (DiscoveredApp) -> Unit,
   onActivateResize: (String) -> Unit,
   onDismiss: () -> Unit,
   modifier: Modifier = Modifier
 ) {
+  val context = LocalContext.current
+  val isUninstallable = remember(app) {
+    if (app != null) {
+      com.multispace.platform.PackageActionHelper.isPackageUninstallable(context, app)
+    } else {
+      true
+    }
+  }
+
   val boxWidthDp = if (placement.isWidget) 44.dp else 92.dp
   val boxHeightDp = 44.dp
   val boxWidthPx = with(density) { boxWidthDp.toPx() }
@@ -1531,23 +1544,44 @@ private fun PreDragActionBoxOverlay(
             .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         )
 
-        IconButton(
-          onClick = {
-            if (app != null) {
-              onUninstallApp(app)
-            }
-            onDismiss()
-          },
-          modifier = Modifier
-            .size(40.dp)
-            .testTag("btn_app_uninstall_action")
-        ) {
-          Icon(
-            imageVector = Icons.Default.DeleteOutline,
-            contentDescription = "Uninstall App",
-            tint = MaterialTheme.colorScheme.error,
-            modifier = Modifier.size(20.dp)
-          )
+        if (isUninstallable) {
+          IconButton(
+            onClick = {
+              if (app != null) {
+                onUninstallApp(app)
+              }
+              onDismiss()
+            },
+            modifier = Modifier
+              .size(40.dp)
+              .testTag("btn_app_uninstall_action")
+          ) {
+            Icon(
+              imageVector = Icons.Default.DeleteOutline,
+              contentDescription = "Uninstall App",
+              tint = MaterialTheme.colorScheme.error,
+              modifier = Modifier.size(20.dp)
+            )
+          }
+        } else {
+          IconButton(
+            onClick = {
+              if (app != null) {
+                onForceStopApp(app)
+              }
+              onDismiss()
+            },
+            modifier = Modifier
+              .size(40.dp)
+              .testTag("btn_app_force_stop_action")
+          ) {
+            Icon(
+              imageVector = Icons.Default.Close,
+              contentDescription = "Force Stop",
+              tint = MaterialTheme.colorScheme.error,
+              modifier = Modifier.size(20.dp)
+            )
+          }
         }
       }
     }

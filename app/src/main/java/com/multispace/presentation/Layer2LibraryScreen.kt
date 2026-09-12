@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Dock
 import androidx.compose.material.icons.filled.Home
@@ -63,6 +64,7 @@ fun Layer2LibraryScreen(
   onAddToDock: (DiscoveredApp) -> Unit,
   onAppInfo: (DiscoveredApp) -> Unit,
   onUninstallApp: (DiscoveredApp) -> Unit = {},
+  onForceStopApp: (DiscoveredApp) -> Unit = {},
   onCloseLayer2: () -> Unit,
   mostUsedApps: List<DiscoveredApp>? = null,
   modifier: Modifier = Modifier
@@ -485,25 +487,57 @@ fun Layer2LibraryScreen(
           }
         }
 
-        ModernCard(
-          onClick = {
-            onUninstallApp(app)
-            selectedAppForMenu = null
-          },
-          modifier = Modifier.fillMaxWidth(),
-          shape = ShapeRoundMd
-        ) {
-          Row(
-            modifier = Modifier.padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing12),
-            verticalAlignment = Alignment.CenterVertically
+        val isUninstallable = remember(app) {
+          com.multispace.platform.PackageActionHelper.isPackageUninstallable(context, app)
+        }
+
+        if (isUninstallable) {
+          ModernCard(
+            onClick = {
+              onUninstallApp(app)
+              selectedAppForMenu = null
+            },
+            modifier = Modifier
+              .fillMaxWidth()
+              .testTag("btn_app_uninstall_action"),
+            shape = ShapeRoundMd
           ) {
-            Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-            Spacer(modifier = Modifier.width(AppDimens.Spacing12))
-            Text(
-              "Uninstall App",
-              style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-              color = MaterialTheme.colorScheme.error
-            )
+            Row(
+              modifier = Modifier.padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing12),
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Icon(Icons.Default.DeleteOutline, contentDescription = "Uninstall App", tint = MaterialTheme.colorScheme.error)
+              Spacer(modifier = Modifier.width(AppDimens.Spacing12))
+              Text(
+                "Uninstall App",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.error
+              )
+            }
+          }
+        } else {
+          ModernCard(
+            onClick = {
+              onForceStopApp(app)
+              selectedAppForMenu = null
+            },
+            modifier = Modifier
+              .fillMaxWidth()
+              .testTag("btn_app_force_stop_action"),
+            shape = ShapeRoundMd
+          ) {
+            Row(
+              modifier = Modifier.padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing12),
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Icon(Icons.Default.Close, contentDescription = "Force Stop", tint = MaterialTheme.colorScheme.error)
+              Spacer(modifier = Modifier.width(AppDimens.Spacing12))
+              Text(
+                "Force Stop",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.error
+              )
+            }
           }
         }
       }

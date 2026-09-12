@@ -1,5 +1,6 @@
 package com.multispace.platform
 
+import android.app.admin.DevicePolicyManager
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
@@ -190,9 +191,22 @@ class AppDiscoveryManager(private val context: Context) {
           for (activityInfo in activityList) {
             val appInfo = activityInfo.applicationInfo
             val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            val isUpdatedSystem = (appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
             val pkgName = activityInfo.componentName.packageName
             val clsName = activityInfo.componentName.className
             val label = activityInfo.label?.toString() ?: pkgName
+
+            val dpm = try {
+              context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+            } catch (e: Exception) {
+              null
+            }
+            val isBlocked = try {
+              dpm?.isUninstallBlocked(null, pkgName) ?: false
+            } catch (e: Exception) {
+              false
+            }
+            val isUninstallable = (!isSystem || isUpdatedSystem) && !isBlocked
 
             var versionName = ""
             var installTime = 0L
@@ -217,6 +231,7 @@ class AppDiscoveryManager(private val context: Context) {
                 label = label,
                 userHandleId = userHandleId,
                 isSystemApp = isSystem,
+                isUninstallable = isUninstallable,
                 versionName = versionName,
                 installTimeMillis = installTime,
                 lastUpdateTimeMillis = updateTime
@@ -363,6 +378,18 @@ class AppDiscoveryManager(private val context: Context) {
         val clsName = activityInfo.name
         val label = resolveInfo.loadLabel(packageManager)?.toString() ?: pkgName
         val isSystem = (activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+        val isUpdatedSystem = (activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+        val dpm = try {
+          context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+        } catch (e: Exception) {
+          null
+        }
+        val isBlocked = try {
+          dpm?.isUninstallBlocked(null, pkgName) ?: false
+        } catch (e: Exception) {
+          false
+        }
+        val isUninstallable = (!isSystem || isUpdatedSystem) && !isBlocked
 
         var versionName = ""
         var installTime = 0L
@@ -385,6 +412,7 @@ class AppDiscoveryManager(private val context: Context) {
             label = label,
             userHandleId = 0L,
             isSystemApp = isSystem,
+            isUninstallable = isUninstallable,
             versionName = versionName,
             installTimeMillis = installTime,
             lastUpdateTimeMillis = updateTime

@@ -42,11 +42,19 @@ class PreDragInteractionTest {
       uninstalledAppPackage = target.packageName
     }
 
+    var forceStoppedAppPackage: String? = null
+    val onForceStopApp: (DiscoveredApp) -> Unit = { target ->
+      forceStoppedAppPackage = target.packageName
+    }
+
     onOpenAppInfo(app)
     assertEquals("com.example.testapp", openedAppInfoPackage)
 
     onUninstallApp(app)
     assertEquals("com.example.testapp", uninstalledAppPackage)
+
+    onForceStopApp(app)
+    assertEquals("com.example.testapp", forceStoppedAppPackage)
   }
 
   @Test

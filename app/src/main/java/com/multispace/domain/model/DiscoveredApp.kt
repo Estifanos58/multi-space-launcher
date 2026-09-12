@@ -10,6 +10,7 @@ data class DiscoveredApp(
   val label: String,
   val userHandleId: Long = 0L,
   val isSystemApp: Boolean = false,
+  val isUninstallable: Boolean = !isSystemApp,
   val versionName: String = "",
   val installTimeMillis: Long = 0L,
   val lastUpdateTimeMillis: Long = 0L
