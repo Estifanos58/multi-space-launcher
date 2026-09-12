@@ -84,60 +84,6 @@ import kotlin.math.roundToInt
 private const val EDGE_DWELL_DELAY_MS = 300L
 private const val PAGE_TRANSITION_DURATION_MS = 280
 
-/**
- * Strict launcher gesture state machine that enforces pointer-event consumption:
- * 1. Normal short tap: gesture ends on up before long-press timeout; child clickable triggers cleanly.
- * 2. Long-press: enters PRESSED_ACTION_VISIBLE / action-menu state and IMMEDIATELY consumes the gesture.
- *    All subsequent moves and the terminating release (ACTION_UP) are consumed (change.consume()).
- *    Once long-press is recognized, releasing the finger NEVER triggers the normal app launch click.
- * 3. Dragging past slop: transitions smoothly to DRAGGING.
- */
-private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectLauncherDragAndLongPress(
-  onLongPressStart: (Offset) -> Unit,
-  onDrag: (change: PointerInputChange, dragAmount: Offset) -> Unit,
-  onDragEnd: () -> Unit,
-  onDragCancel: () -> Unit
-) {
-  awaitEachGesture {
-    try {
-      val down = awaitFirstDown(requireUnconsumed = false)
-      val drag = awaitLongPressOrCancellation(down.id)
-      if (drag != null) {
-        // Strict state machine: Long press recognized! Consume pointer so child clickables are cancelled.
-        drag.consume()
-        onLongPressStart(drag.position)
-
-        var isGestureActive = true
-        while (isGestureActive) {
-          val event = awaitPointerEvent(PointerEventPass.Main)
-          val change = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
-          if (change == null) {
-            onDragCancel()
-            isGestureActive = false
-            break
-          }
-
-          val wasUp = change.changedToUp()
-          // Crucial: consume every pointer event once long-press is recognized, especially the release UP event
-          change.consume()
-
-          if (wasUp) {
-            onDragEnd()
-            isGestureActive = false
-          } else {
-            val dragAmount = change.positionChange()
-            if (dragAmount != Offset.Zero) {
-              onDrag(change, dragAmount)
-            }
-          }
-        }
-      }
-    } catch (c: kotlinx.coroutines.CancellationException) {
-      onDragCancel()
-      throw c
-    }
-  }
-}
 
 private enum class EdgePagingDirection {
   NONE, LEFT, RIGHT
@@ -273,6 +219,7 @@ fun Layer1HomeScreen(
   // Single authoritative drag state machine: IDLE -> PRESSED_ACTION_VISIBLE -> DRAGGING -> DROP/CANCEL
   var dragLifecycleState by remember { mutableStateOf(DragLifecycleState.IDLE) }
   val isDragging = (dragLifecycleState == DragLifecycleState.DRAGGING)
+  var lastLongPressTimestamp by remember { mutableLongStateOf(0L) }
 
   var draggedPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
   var resizingWidgetId by remember { mutableStateOf<String?>(null) }
@@ -894,8 +841,9 @@ fun Layer1HomeScreen(
         updatePageGridBounds()
       }
       .pointerInput(Unit) {
-        detectLauncherDragAndLongPress(
-          onLongPressStart = { rootOffset ->
+        detectDragGesturesAfterLongPress(
+          onDragStart = { rootOffset ->
+            lastLongPressTimestamp = android.os.SystemClock.uptimeMillis()
             val activePage = pagerState.currentPage
             // Let the touched Layer1ItemCell identify the dragged item, eliminating manual hit-testing
             val touchedPlacement = touchedItemFromCell ?: findItemAtOffset(rootOffset, activePage)
@@ -1052,8 +1000,9 @@ fun Layer1HomeScreen(
                 touchedItemFromCell = p
                 touchedItemRootOffset = rootPos
               },
-              isActionActive = activeActionPlacement != null,
-              dragLifecycleState = dragLifecycleState
+              isActionActive = { activeActionPlacement != null },
+              getDragLifecycleState = { dragLifecycleState },
+              getLastLongPressTimestamp = { lastLongPressTimestamp }
             )
           }
         }
@@ -1237,8 +1186,9 @@ fun Layer1HomeScreen(
                       touchedItemFromCell = p
                       touchedItemRootOffset = rootPos
                     },
-                    isActionActive = activeActionPlacement != null,
-                    dragLifecycleState = dragLifecycleState
+                    isActionActive = { activeActionPlacement != null },
+                    getDragLifecycleState = { dragLifecycleState },
+                    getLastLongPressTimestamp = { lastLongPressTimestamp }
                   )
                 }
               }
@@ -1733,8 +1683,9 @@ private fun Layer1ItemCell(
   maxSpanX: Int = 4,
   maxSpanY: Int = 5,
   onItemTouched: ((SpaceItemPlacement, Offset) -> Unit)? = null,
-  isActionActive: Boolean = false,
-  dragLifecycleState: DragLifecycleState = DragLifecycleState.IDLE
+  isActionActive: () -> Boolean = { false },
+  getDragLifecycleState: () -> DragLifecycleState = { DragLifecycleState.IDLE },
+  getLastLongPressTimestamp: () -> Long = { 0L }
 ) {
   val key = "${placement.packageName}/${placement.componentName}"
   val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == placement.packageName }
@@ -1780,9 +1731,15 @@ private fun Layer1ItemCell(
         scaleY = if (isTargetHover) 1.08f else 1.0f
       }
       .clickable(
-        enabled = !isBeingDragged && !placement.isWidget && !isActionActive && dragLifecycleState == DragLifecycleState.IDLE
+        enabled = !isBeingDragged && !placement.isWidget
       ) {
-        if (isActionActive || dragLifecycleState != DragLifecycleState.IDLE) return@clickable
+        val now = android.os.SystemClock.uptimeMillis()
+        if (isActionActive() ||
+            getDragLifecycleState() != DragLifecycleState.IDLE ||
+            (now - getLastLongPressTimestamp()) < 800L
+        ) {
+          return@clickable
+        }
         if (placement.isFolder) {
           if (folder != null) onOpenFolder(folder)
         } else {

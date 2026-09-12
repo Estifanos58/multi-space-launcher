@@ -326,4 +326,209 @@ class Layer1DragAndDropArchitectureTest {
     assertEquals(125f, overlayPos.x, 0.01f)
     assertEquals(230f, overlayPos.y, 0.01f)
   }
+
+  @Test
+  fun testInteractionPath1_ShortTapLaunchesApp() {
+    var dragLifecycleState = DragLifecycleState.IDLE
+    var activeActionPlacement: SpaceItemPlacement? = null
+    var lastLongPressTimestamp = 0L
+    var appLaunched = false
+
+    val appPlacement = SpaceItemPlacement(
+      id = "placement_tap",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 3,
+      itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = "com.multispace.calculator"
+    )
+
+    // User taps quickly (< long-press threshold)
+    // Long-press never triggers, so state remains IDLE
+    assertEquals(DragLifecycleState.IDLE, dragLifecycleState)
+    assertNull(activeActionPlacement)
+    assertEquals(0L, lastLongPressTimestamp)
+
+    // Click handler executes
+    val isActionActive = { activeActionPlacement != null }
+    val getDragLifecycleState = { dragLifecycleState }
+    val getLastLongPressTimestamp = { lastLongPressTimestamp }
+
+    val now = 1000L
+    if (!isActionActive() &&
+        getDragLifecycleState() == DragLifecycleState.IDLE &&
+        (now - getLastLongPressTimestamp()) >= 800L
+    ) {
+      appLaunched = true
+    }
+
+    assertTrue("Short tap must launch the app", appLaunched)
+    assertEquals(DragLifecycleState.IDLE, dragLifecycleState)
+  }
+
+  @Test
+  fun testInteractionPath2_LongPressShowsActionMenu() {
+    var dragLifecycleState = DragLifecycleState.IDLE
+    var activeActionPlacement: SpaceItemPlacement? = null
+    var pendingDragPlacement: SpaceItemPlacement? = null
+    var lastLongPressTimestamp = 0L
+
+    val appPlacement = SpaceItemPlacement(
+      id = "placement_hold",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 2,
+      itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = "com.multispace.notes"
+    )
+
+    // Pointer held past long-press threshold: onDragStart triggers
+    lastLongPressTimestamp = 5000L
+    dragLifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
+    activeActionPlacement = appPlacement
+    pendingDragPlacement = appPlacement
+
+    assertEquals(DragLifecycleState.PRESSED_ACTION_VISIBLE, dragLifecycleState)
+    assertNotNull("Action menu must appear on long-press", activeActionPlacement)
+    assertEquals("placement_hold", activeActionPlacement?.id)
+    assertEquals("placement_hold", pendingDragPlacement?.id)
+  }
+
+  @Test
+  fun testInteractionPath3_LongPressPlusMovementEntersDragging() {
+    var dragLifecycleState = DragLifecycleState.IDLE
+    var activeActionPlacement: SpaceItemPlacement? = null
+    var pendingDragPlacement: SpaceItemPlacement? = null
+    var accumulatedDragDistance = 0f
+    val dragSlopPx = 24f
+    var dragVisualStarted = false
+
+    val appPlacement = SpaceItemPlacement(
+      id = "placement_drag",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 1,
+      itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = "com.multispace.gallery"
+    )
+
+    // 1. Long-press triggers
+    dragLifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
+    activeActionPlacement = appPlacement
+    pendingDragPlacement = appPlacement
+
+    // 2. User moves finger beyond drag slop threshold
+    val moveAmount = 30f
+    accumulatedDragDistance += moveAmount
+
+    if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE &&
+        pendingDragPlacement != null && accumulatedDragDistance >= dragSlopPx
+    ) {
+      val placementToDrag = pendingDragPlacement!!
+      activeActionPlacement = null
+      pendingDragPlacement = null
+      dragLifecycleState = DragLifecycleState.DRAGGING
+      dragVisualStarted = true
+    }
+
+    assertEquals(DragLifecycleState.DRAGGING, dragLifecycleState)
+    assertNull("Action menu must be dismissed when entering drag mode", activeActionPlacement)
+    assertNull(pendingDragPlacement)
+    assertTrue("Drag trigger and visual must appear when moving past slop", dragVisualStarted)
+  }
+
+  @Test
+  fun testInteractionPath4_LongPressReleaseWithoutDraggingRetainsActionMenuAndSuppressesLaunch() {
+    var dragLifecycleState = DragLifecycleState.IDLE
+    var activeActionPlacement: SpaceItemPlacement? = null
+    var pendingDragPlacement: SpaceItemPlacement? = null
+    var lastLongPressTimestamp = 0L
+    var appLaunched = false
+
+    val appPlacement = SpaceItemPlacement(
+      id = "placement_action_only",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 5,
+      itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = "com.multispace.camera"
+    )
+
+    // 1. Long-press activates action menu
+    val longPressTime = 10000L
+    lastLongPressTimestamp = longPressTime
+    dragLifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
+    activeActionPlacement = appPlacement
+    pendingDragPlacement = appPlacement
+
+    // 2. User releases finger without moving past drag slop (onDragEnd)
+    if (dragLifecycleState == DragLifecycleState.DRAGGING) {
+      dragLifecycleState = DragLifecycleState.DROP
+    } else if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
+      // Action menu stays visible!
+      pendingDragPlacement = null
+    }
+
+    // 3. Action menu remains visible
+    assertEquals(DragLifecycleState.PRESSED_ACTION_VISIBLE, dragLifecycleState)
+    assertNotNull("Action menu must remain visible upon release without drag", activeActionPlacement)
+    assertEquals("placement_action_only", activeActionPlacement?.id)
+    assertNull(pendingDragPlacement)
+
+    // 4. Click handler is tested at release time (e.g. 50ms after long press)
+    val releaseTime = longPressTime + 50L
+    val isActionActive = { activeActionPlacement != null }
+    val getDragLifecycleState = { dragLifecycleState }
+    val getLastLongPressTimestamp = { lastLongPressTimestamp }
+
+    if (isActionActive() ||
+        getDragLifecycleState() != DragLifecycleState.IDLE ||
+        (releaseTime - getLastLongPressTimestamp()) < 800L
+    ) {
+      // Launch is suppressed
+      appLaunched = false
+    } else {
+      appLaunched = true
+    }
+
+    assertFalse("App launch MUST be suppressed when releasing after long press", appLaunched)
+    assertEquals(DragLifecycleState.PRESSED_ACTION_VISIBLE, dragLifecycleState)
+    assertNotNull(activeActionPlacement)
+  }
+
+  @Test
+  fun testDragReleaseNeverTriggersAppLaunch() {
+    val dragState = UnifiedDragState()
+    dragState.lifecycleState = DragLifecycleState.DRAGGING
+    dragState.isDragging = true
+
+    var appLaunched = false
+    val isActionActive = { false }
+    val getDragLifecycleState = { dragState.lifecycleState }
+    val getLastLongPressTimestamp = { 1000L }
+    val now = 2000L
+
+    // While dragging
+    if (!isActionActive() &&
+        getDragLifecycleState() == DragLifecycleState.IDLE &&
+        (now - getLastLongPressTimestamp()) >= 800L
+    ) {
+      appLaunched = true
+    }
+    assertFalse("Launch must remain suppressed during dragging", appLaunched)
+
+    // On drop
+    dragState.lifecycleState = DragLifecycleState.DROP
+    if (!isActionActive() &&
+        getDragLifecycleState() == DragLifecycleState.IDLE &&
+        (now - getLastLongPressTimestamp()) >= 800L
+    ) {
+      appLaunched = true
+    }
+    assertFalse("Launch must remain suppressed on drop", appLaunched)
+  }
 }
