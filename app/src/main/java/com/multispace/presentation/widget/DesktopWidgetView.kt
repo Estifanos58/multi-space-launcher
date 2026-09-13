@@ -180,23 +180,6 @@ fun DesktopWidgetView(
             ClockDateWidget()
           }
         }
-
-        if (onRemove != null && !isResizeMode) {
-          IconButton(
-            onClick = onRemove,
-            modifier = Modifier
-              .align(Alignment.TopEnd)
-              .size(28.dp)
-              .testTag("btn_remove_widget_${placement.id}")
-          ) {
-            Icon(
-              imageVector = Icons.Default.Close,
-              contentDescription = "Remove Widget",
-              tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-              modifier = Modifier.size(16.dp)
-            )
-          }
-        }
       }
     }
 

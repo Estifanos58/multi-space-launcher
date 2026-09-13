@@ -200,20 +200,7 @@ fun Layer1HomeScreen(
         }
       }
 
-      val lastRow = (gridRows - 1).coerceAtLeast(0)
-      basePlacements.map { item ->
-        if (item.pageIndex == 0 && item.itemType == SpaceItemPlacement.ITEM_TYPE_APP && !item.isWidget && !item.isFolder) {
-          val curCol = item.positionIndex % cols
-          val newPos = lastRow * cols + curCol
-          if (item.positionIndex != newPos) {
-            item.copy(positionIndex = newPos)
-          } else {
-            item
-          }
-        } else {
-          item
-        }
-      }
+      basePlacements
     }
 
   // Single authoritative drag state machine: IDLE -> PRESSED_ACTION_VISIBLE -> DRAGGING -> DROP/CANCEL
