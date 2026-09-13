@@ -531,4 +531,89 @@ class Layer1DragAndDropArchitectureTest {
     }
     assertFalse("Launch must remain suppressed on drop", appLaunched)
   }
+
+  @Test
+  fun testAppDroppedOnAppInitiatesFolderCreation() {
+    val sourcePlacement = SpaceItemPlacement(
+      id = "placement_src",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 2,
+      itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = "com.multispace.camera",
+      componentName = "com.multispace.camera.MainActivity"
+    )
+
+    val targetPlacement = SpaceItemPlacement(
+      id = "placement_target",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 5,
+      itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = "com.multispace.gallery",
+      componentName = "com.multispace.gallery.MainActivity"
+    )
+
+    val sourceApp = DiscoveredApp(
+      id = "app_src",
+      packageName = "com.multispace.camera",
+      activityName = "com.multispace.camera.MainActivity",
+      label = "Camera"
+    )
+
+    val targetApp = DiscoveredApp(
+      id = "app_target",
+      packageName = "com.multispace.gallery",
+      activityName = "com.multispace.gallery.MainActivity",
+      label = "Gallery"
+    )
+
+    val allPlacements = listOf(sourcePlacement, targetPlacement)
+    val appLookup = mapOf(
+      sourceApp.key to sourceApp,
+      targetApp.key to targetApp
+    )
+
+    // Simulate drop on target slot (positionIndex = 5)
+    var folderCreated = false
+    var createdWithSource: DiscoveredApp? = null
+    var createdWithTarget: DiscoveredApp? = null
+    var targetPageCreated = -1
+    var targetPosCreated = -1
+
+    val targetSlot = 5
+    val targetPage = 0
+
+    val isDraggedApp = !sourcePlacement.isWidget && !sourcePlacement.isFolder
+    assertTrue(isDraggedApp)
+
+    val hitTarget = allPlacements.firstOrNull { item ->
+      item.id != sourcePlacement.id &&
+      item.pageIndex == targetPage &&
+      item.positionIndex == targetSlot
+    }
+
+    assertNotNull(hitTarget)
+    assertFalse(hitTarget!!.isWidget)
+    assertFalse(hitTarget.isFolder)
+
+    val srcApp = appLookup["${sourcePlacement.packageName}/${sourcePlacement.componentName}"]
+    val tgtApp = appLookup["${hitTarget.packageName}/${hitTarget.componentName}"]
+
+    if (srcApp != null && tgtApp != null) {
+      folderCreated = true
+      createdWithSource = srcApp
+      createdWithTarget = tgtApp
+      targetPageCreated = hitTarget.pageIndex
+      targetPosCreated = hitTarget.positionIndex
+    }
+
+    assertTrue("Folder creation must initiate when app dropped on another app", folderCreated)
+    assertEquals("Camera", createdWithSource?.label)
+    assertEquals("Gallery", createdWithTarget?.label)
+    assertEquals(0, targetPageCreated)
+    assertEquals(5, targetPosCreated)
+  }
 }

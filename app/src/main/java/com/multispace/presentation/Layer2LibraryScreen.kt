@@ -60,6 +60,18 @@ import com.multispace.ui.theme.ShapeRoundMd
 import com.multispace.ui.theme.ShapeRoundSm
 import kotlinx.coroutines.launch
 
+/**
+ * Pre-cached collections for Layer 2 to avoid re-sorting, re-grouping,
+ * and rebuilding alphabet indexes during continuous layer gestures.
+ */
+data class Layer2CachedCatalog(
+  val sortedApps: List<DiscoveredApp>,
+  val groupedApps: Map<Char, List<DiscoveredApp>>,
+  val letterToSectionIndex: Map<Char, Int>,
+  val letterToFirstIndex: Map<Char, Int>,
+  val activeLetters: Set<Char>
+)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Layer2LibraryScreen(
@@ -74,6 +86,7 @@ fun Layer2LibraryScreen(
   onForceStopApp: (DiscoveredApp) -> Unit = {},
   onCloseLayer2: () -> Unit,
   mostUsedApps: List<DiscoveredApp>? = null,
+  cachedCatalog: Layer2CachedCatalog? = null,
   gridState: LazyGridState = rememberLazyGridState(),
   sectionListState: LazyListState = rememberLazyListState(),
   topBarModifier: Modifier = Modifier,
@@ -113,36 +126,49 @@ fun Layer2LibraryScreen(
   }
 
   // 2. Alphabetical Apps Section (maintains normal alphabetical ordering by app name)
-  val alphabeticalApps = remember(spaceApps, searchQuery) {
-    val baseList = if (searchQuery.isBlank()) {
-      spaceApps
+  val isSearchBlank = searchQuery.isBlank()
+  val alphabeticalApps = remember(spaceApps, searchQuery, cachedCatalog) {
+    if (isSearchBlank && cachedCatalog != null) {
+      cachedCatalog.sortedApps
     } else {
-      val q = searchQuery.trim().lowercase()
-      spaceApps.filter {
-        it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
+      val baseList = if (isSearchBlank) {
+        spaceApps
+      } else {
+        val q = searchQuery.trim().lowercase()
+        spaceApps.filter {
+          it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
+        }
       }
+      baseList.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
     }
-    baseList.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
   }
 
   // Grouped by first letter for the sectioned alphabetical view
-  val groupedAlphabeticalApps = remember(alphabeticalApps) {
-    val map = linkedMapOf<Char, MutableList<DiscoveredApp>>()
-    alphabeticalApps.forEach { app ->
-      val cleanLabel = app.label.trim().trim('"', '\'', '(', '[', '{')
-      val firstChar = cleanLabel.firstOrNull()?.uppercaseChar() ?: '#'
-      val groupKey = if (firstChar in 'A'..'Z') firstChar else '#'
-      map.getOrPut(groupKey) { mutableListOf() }.add(app)
+  val groupedAlphabeticalApps = remember(alphabeticalApps, isSearchBlank, cachedCatalog) {
+    if (isSearchBlank && cachedCatalog != null) {
+      cachedCatalog.groupedApps
+    } else {
+      val map = linkedMapOf<Char, MutableList<DiscoveredApp>>()
+      alphabeticalApps.forEach { app ->
+        val cleanLabel = app.label.trim().trim('"', '\'', '(', '[', '{')
+        val firstChar = cleanLabel.firstOrNull()?.uppercaseChar() ?: '#'
+        val groupKey = if (firstChar in 'A'..'Z') firstChar else '#'
+        map.getOrPut(groupKey) { mutableListOf() }.add(app)
+      }
+      map
     }
-    map
   }
 
-  val letterToSectionIndex = remember(groupedAlphabeticalApps) {
-    val map = mutableMapOf<Char, Int>()
-    groupedAlphabeticalApps.keys.forEachIndexed { index, char ->
-      map[char] = index
+  val letterToSectionIndex = remember(groupedAlphabeticalApps, isSearchBlank, cachedCatalog) {
+    if (isSearchBlank && cachedCatalog != null) {
+      cachedCatalog.letterToSectionIndex
+    } else {
+      val map = mutableMapOf<Char, Int>()
+      groupedAlphabeticalApps.keys.forEachIndexed { index, char ->
+        map[char] = index
+      }
+      map
     }
-    map
   }
 
   val isVerticalMode = space.layer2DisplayMode != Space.DISPLAY_MODE_PAGE
@@ -154,20 +180,30 @@ fun Layer2LibraryScreen(
 
   // Map each letter A-Z to the index of the first matching app in alphabeticalApps.
   // This operates ONLY on the alphabetical list, not the Most Used section.
-  val letterToFirstIndex = remember(alphabeticalApps) {
-    val map = mutableMapOf<Char, Int>()
-    alphabeticalApps.forEachIndexed { index, app ->
-      val cleanLabel = app.label.trim().trim('"', '\'', '(', '[', '{')
-      val firstChar = cleanLabel.firstOrNull()?.uppercaseChar()
-      if (firstChar != null && firstChar in 'A'..'Z') {
-        if (!map.containsKey(firstChar)) {
-          map[firstChar] = index
+  val letterToFirstIndex = remember(alphabeticalApps, isSearchBlank, cachedCatalog) {
+    if (isSearchBlank && cachedCatalog != null) {
+      cachedCatalog.letterToFirstIndex
+    } else {
+      val map = mutableMapOf<Char, Int>()
+      alphabeticalApps.forEachIndexed { index, app ->
+        val cleanLabel = app.label.trim().trim('"', '\'', '(', '[', '{')
+        val firstChar = cleanLabel.firstOrNull()?.uppercaseChar()
+        if (firstChar != null && firstChar in 'A'..'Z') {
+          if (!map.containsKey(firstChar)) {
+            map[firstChar] = index
+          }
         }
       }
+      map
     }
-    map
   }
-  val activeLetters = remember(letterToFirstIndex) { letterToFirstIndex.keys }
+  val activeLetters = remember(letterToFirstIndex, isSearchBlank, cachedCatalog) {
+    if (isSearchBlank && cachedCatalog != null) {
+      cachedCatalog.activeLetters
+    } else {
+      letterToFirstIndex.keys
+    }
+  }
 
   LaunchedEffect(searchQuery) {
     if (alphabeticalApps.isNotEmpty()) {
@@ -282,7 +318,7 @@ fun Layer2LibraryScreen(
                     .padding(vertical = AppDimens.Spacing4)
                     .testTag("layer2_most_used_app_${app.packageName}")
                 ) {
-                  val bitmap = getBitmap(app)
+                  val bitmap = remember(app.id) { getBitmap(app) }
                   ThemedAppIcon(
                     app = app,
                     bitmap = bitmap,
@@ -437,7 +473,7 @@ fun Layer2LibraryScreen(
                                 .padding(AppDimens.Spacing4)
                                 .testTag("layer2_app_${app.packageName}")
                             ) {
-                              val bitmap = getBitmap(app)
+                              val bitmap = remember(app.id) { getBitmap(app) }
                               ThemedAppIcon(
                                 app = app,
                                 bitmap = bitmap,
@@ -515,7 +551,7 @@ fun Layer2LibraryScreen(
                   .padding(AppDimens.Spacing4)
                   .testTag("layer2_app_${app.packageName}")
               ) {
-                val bitmap = getBitmap(app)
+                val bitmap = remember(app.id) { getBitmap(app) }
                 ThemedAppIcon(
                   app = app,
                   bitmap = bitmap,

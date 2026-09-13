@@ -147,6 +147,7 @@ fun ThemedAppIcon(
   val isThemed = !appTheme.equals(Space.THEME_DEFAULT, ignoreCase = true)
   val palette = AppThemeHelper.getPalette(appTheme)
   val colorFilter = remember(appTheme) { AppThemeHelper.getThemedColorFilter(appTheme) }
+  val imageBitmap = remember(bitmap) { bitmap?.asImageBitmap() }
 
   if (isThemed) {
     Box(
@@ -160,9 +161,9 @@ fun ThemedAppIcon(
         ),
       contentAlignment = Alignment.Center
     ) {
-      if (bitmap != null) {
+      if (imageBitmap != null) {
         Image(
-          bitmap = bitmap.asImageBitmap(),
+          bitmap = imageBitmap,
           contentDescription = app?.label,
           colorFilter = colorFilter,
           modifier = Modifier
@@ -180,9 +181,9 @@ fun ThemedAppIcon(
     }
   } else {
     // Default Material Theme: Original colorful icon
-    if (bitmap != null) {
+    if (imageBitmap != null) {
       Image(
-        bitmap = bitmap.asImageBitmap(),
+        bitmap = imageBitmap,
         contentDescription = app?.label,
         modifier = modifier
       )

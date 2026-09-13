@@ -106,7 +106,8 @@ fun Layer1HomeScreen(
   onLaunchApp: (DiscoveredApp) -> Unit,
   onOpenFolder: (SpaceFolder) -> Unit,
   onRemovePlacement: (String) -> Unit,
-  onCreateFolderFromApps: (sourceApp: DiscoveredApp, targetApp: DiscoveredApp, sourcePlacementId: String?, targetPlacementId: String?) -> Unit,
+  onCreateFolderFromApps: (sourceApp: DiscoveredApp, targetApp: DiscoveredApp, sourcePlacementId: String?, targetPlacementId: String?, targetPage: Int, targetPosition: Int) -> Unit = { _, _, _, _, _, _ -> },
+  onAddAppToExistingFolder: (folderId: String, app: DiscoveredApp, sourcePlacementId: String) -> Unit = { _, _, _ -> },
   onAddAppToHome: (DiscoveredApp, Int) -> Unit,
   onMovePlacement: (placementId: String, targetPage: Int, targetPos: Int, pageSize: Int) -> Unit = { _, _, _, _ -> },
   onResizeWidget: (placementId: String, spanX: Int, spanY: Int, positionIndex: Int?) -> Unit = { _, _, _, _ -> },
@@ -246,12 +247,28 @@ fun Layer1HomeScreen(
       val pagerRect = Rect(localOffset, pagerCoords.size.toSize())
       val hPadPx = with(density) { gridHorizontalPadding.toPx() }
       val vPadPx = with(density) { gridVerticalPadding.toPx() }
-      pageGridBounds = Rect(
+      val bounds = Rect(
         left = pagerRect.left + hPadPx,
         top = pagerRect.top + vPadPx,
         right = pagerRect.right - hPadPx,
         bottom = pagerRect.bottom - vPadPx
       )
+      pageGridBounds = bounds
+
+      // Mathematically calculate slot bounds for the active grid page without per-cell measurement overhead
+      val cellWPx = with(density) { cellWidth.toPx() }
+      val cellHPx = with(density) { cellHeight.toPx() }
+      val spacingPx = with(density) { appSpacing.toPx() }
+      val newBounds = mutableMapOf<Int, Rect>()
+      for (r in 0 until gridRows) {
+        for (c in 0 until cols) {
+          val left = bounds.left + c * (cellWPx + spacingPx)
+          val top = bounds.top + r * rowPitchPx
+          newBounds[r * cols + c] = Rect(left, top, left + cellWPx, top + cellHPx)
+        }
+      }
+      slotBounds.clear()
+      slotBounds.putAll(newBounds)
     }
   }
 
@@ -401,7 +418,7 @@ fun Layer1HomeScreen(
   val pagerState = rememberPagerState(initialPage = 0, pageCount = { totalPageCount })
 
   LaunchedEffect(pagerState.currentPage) {
-    slotBounds.clear()
+    updatePageGridBounds()
   }
 
   LaunchedEffect(pagerState.currentPage, pagerState.isScrollInProgress) {
@@ -498,6 +515,27 @@ fun Layer1HomeScreen(
         "PREVIEW_TARGET: pointerY=${currentPointerPos.y} previewTargetSlot=$candidateSlot targetPage=${pagerState.currentPage} targetPos=$candidateSlot gridRows=$gridRows pageSize=$pageSize draggedPlacement.pageIndex=${draggedPlacement?.pageIndex} draggedPlacement.positionIndex=${draggedPlacement?.positionIndex}"
       )
       haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
+
+    val targetPage = pagerState.currentPage
+    val isApp = draggedPlacement?.let { !it.isWidget && !it.isFolder } == true
+    if (isApp) {
+      val hovered = findItemAtOffset(currentPointerPos, targetPage)?.takeIf { it.id != draggedPlacement?.id }
+        ?: effectivePlacements.firstOrNull { item ->
+          item.id != draggedPlacement?.id &&
+          (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL || item.pageIndex == targetPage) &&
+          (
+            item.positionIndex == candidateSlot ||
+            getPlacementFootprintRect(item)?.contains(currentPointerPos) == true ||
+            cellBounds[item.id]?.contains(currentPointerPos) == true
+          )
+        }
+      if (hovered != null && targetHoverPlacement?.id != hovered.id) {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+      }
+      targetHoverPlacement = hovered
+    } else {
+      targetHoverPlacement = null
     }
   }
 
@@ -784,6 +822,58 @@ fun Layer1HomeScreen(
               "FINAL_DROP: pointerY=${currentPointerPos.y} previewTargetSlot=$previewTargetSlot targetPage=$targetPage targetPos=$targetPos gridRows=$gridRows pageSize=$pageSize draggedPlacement.pageIndex=${dragged.pageIndex} draggedPlacement.positionIndex=${dragged.positionIndex}"
             )
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+
+            val isDraggedApp = !dragged.isWidget && !dragged.isFolder
+            if (isDraggedApp) {
+              val targetPlacement = targetHoverPlacement?.takeIf {
+                it.id != dragged.id && (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL || it.pageIndex == targetPage)
+              } ?: findItemAtOffset(currentPointerPos, targetPage)?.takeIf { it.id != dragged.id }
+                ?: effectivePlacements.firstOrNull { item ->
+                  item.id != dragged.id &&
+                  (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL || item.pageIndex == targetPage) &&
+                  item.positionIndex == targetPos
+                }
+
+              if (targetPlacement != null) {
+                if (!targetPlacement.isWidget && !targetPlacement.isFolder) {
+                  // Dropped directly on another app -> initiate folder creation containing both apps!
+                  val sourceApp = appLookup["${dragged.packageName}/${dragged.componentName}"]
+                    ?: allApps.firstOrNull { it.packageName == dragged.packageName }
+                  val targetApp = appLookup["${targetPlacement.packageName}/${targetPlacement.componentName}"]
+                    ?: allApps.firstOrNull { it.packageName == targetPlacement.packageName }
+
+                  if (sourceApp != null && targetApp != null) {
+                    AppLogger.i(
+                      AppLogger.Category.LAUNCHER,
+                      "DROP_CREATE_FOLDER: source=${sourceApp.label} (${dragged.id}) target=${targetApp.label} (${targetPlacement.id}) page=$targetPage pos=${targetPlacement.positionIndex}"
+                    )
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onCreateFolderFromApps(
+                      sourceApp,
+                      targetApp,
+                      dragged.id,
+                      targetPlacement.id,
+                      targetPlacement.pageIndex,
+                      targetPlacement.positionIndex
+                    )
+                    return
+                  }
+                } else if (targetPlacement.isFolder && targetPlacement.folderId != null) {
+                  // Dropped directly onto an existing folder -> add to folder!
+                  val sourceApp = appLookup["${dragged.packageName}/${dragged.componentName}"]
+                    ?: allApps.firstOrNull { it.packageName == dragged.packageName }
+                  if (sourceApp != null) {
+                    AppLogger.i(
+                      AppLogger.Category.LAUNCHER,
+                      "DROP_ADD_TO_FOLDER: source=${sourceApp.label} folderId=${targetPlacement.folderId}"
+                    )
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onAddAppToExistingFolder(targetPlacement.folderId, sourceApp, dragged.id)
+                    return
+                  }
+                }
+              }
+            }
 
             // Authoritative placement is decided and persisted by the ViewModel/repository flow
             onMovePlacement(dragged.id, targetPage, targetPos, pageSize)
@@ -1081,13 +1171,7 @@ fun Layer1HomeScreen(
                   Box(
                     modifier = Modifier
                       .offset(x = leftDp, y = topDp)
-                      .size(width = cellWidth, height = cellHeight)
-                      .onGloballyPositioned { coords ->
-                        if (isCurrentPage && coords.isAttached && rootCoordinates != null && !pagerState.isScrollInProgress) {
-                          val localOffset = rootCoordinates!!.localPositionOf(coords, Offset.Zero)
-                          slotBounds[slotIndex] = Rect(localOffset, coords.size.toSize())
-                        }
-                      },
+                      .size(width = cellWidth, height = cellHeight),
                     contentAlignment = Alignment.Center
                   ) {
                     if (isPreviewTarget && !isCovered) {
@@ -1150,7 +1234,7 @@ fun Layer1HomeScreen(
                     appWidgetHost = appWidgetHost,
                     onPositioned = { rect -> cellBounds[item.id] = rect },
                     isBeingDragged = isDragging && (draggedPlacement?.id == item.id || (draggedPlacement?.packageName != null && item.packageName == draggedPlacement?.packageName)),
-                    isTargetHover = isPreviewTarget,
+                    isTargetHover = isPreviewTarget || (targetHoverPlacement?.id == item.id),
                     rootCoordinates = rootCoordinates,
                     isResizeMode = isResizing,
                     onLongClick = null,
@@ -1261,7 +1345,7 @@ fun Layer1HomeScreen(
       val dragged = draggedPlacement!!
       val app = appLookup["${dragged.packageName}/${dragged.componentName}"]
         ?: allApps.firstOrNull { it.packageName == dragged.packageName }
-      val bitmap = app?.let { getBitmap(it) }
+      val bitmap = remember(app?.id) { app?.let { getBitmap(it) } }
 
       val dragScale by animateFloatAsState(
         targetValue = 1.08f,
@@ -1808,14 +1892,24 @@ private fun Layer1ItemCell(
       }
     } else {
       // App Item - themed according to space.appTheme
-      val bitmap = app?.let { getBitmap(it) }
-      ThemedAppIcon(
-        app = app,
-        bitmap = bitmap,
-        appTheme = space.appTheme,
-        modifier = iconSizeModifier,
-        fallbackText = app?.label?.take(1) ?: placement.packageName?.take(1)?.uppercase()
-      )
+      val bitmap = remember(app?.id) { app?.let { getBitmap(it) } }
+      Box(contentAlignment = Alignment.Center) {
+        ThemedAppIcon(
+          app = app,
+          bitmap = bitmap,
+          appTheme = space.appTheme,
+          modifier = iconSizeModifier,
+          fallbackText = app?.label?.take(1) ?: placement.packageName?.take(1)?.uppercase()
+        )
+        if (isTargetHover && !placement.isWidget && !placement.isFolder) {
+          Box(
+            modifier = iconSizeModifier
+              .clip(ShapeRoundMd)
+              .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f))
+              .border(2.dp, MaterialTheme.colorScheme.primary, ShapeRoundMd)
+          )
+        }
+      }
 
       if (space.labelVisibility) {
         Spacer(modifier = Modifier.height(AppDimens.Spacing4))
@@ -1843,7 +1937,7 @@ private fun MiniAppIcon(
 ) {
   val key = "${item.packageName}/${item.componentName}"
   val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == item.packageName }
-  val bitmap = app?.let { getBitmap(it) }
+  val bitmap = remember(app?.id) { app?.let { getBitmap(it) } }
 
   ThemedMiniAppIcon(
     app = app,

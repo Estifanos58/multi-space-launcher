@@ -191,7 +191,8 @@ fun DesktopCustomizationSheet(
         currentSection = CustomizationSection.ROOT
       },
       sheetState = sheetState,
-      containerColor = MaterialTheme.colorScheme.surface,
+      containerColor = Color(0xEB12141F),
+      scrimColor = Color.Black.copy(alpha = 0.55f),
       shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
       modifier = Modifier
         .fillMaxWidth()
@@ -332,6 +333,7 @@ private fun DesktopCustomizationOverlay(
   Box(
     modifier = Modifier
       .fillMaxSize()
+      .background(Color.Black.copy(alpha = 0.45f))
       .clickable(
         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
         indication = null,
@@ -342,10 +344,10 @@ private fun DesktopCustomizationOverlay(
     // Floating horizontal dock at the bottom of the screen
     Surface(
       shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-      color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+      color = Color(0xD9101218),
       border = androidx.compose.foundation.BorderStroke(
         1.dp,
-        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        Color.White.copy(alpha = 0.12f)
       ),
       tonalElevation = 8.dp,
       shadowElevation = 12.dp,
@@ -826,7 +828,7 @@ private fun CustomizeSpaceSubscreen(
     // Segmented Navigation Tabs
     SecondaryTabRow(
       selectedTabIndex = activeTab,
-      containerColor = MaterialTheme.colorScheme.surface,
+      containerColor = Color.Transparent,
       modifier = Modifier.fillMaxWidth()
     ) {
       Tab(

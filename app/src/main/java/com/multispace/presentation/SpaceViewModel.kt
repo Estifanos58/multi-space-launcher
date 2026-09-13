@@ -796,7 +796,7 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
       )
       result.fold(
         onSuccess = { folder ->
-          _userFeedback.tryEmit("Created folder '${folder.name}'.")
+          _userFeedback.tryEmit("Created folder '${folder.name}' with ${sourceApp.label} and ${targetApp.label}.")
         },
         onFailure = { error ->
           _userFeedback.tryEmit("Error creating folder: ${error.message}")

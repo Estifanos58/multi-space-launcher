@@ -135,8 +135,12 @@ fun LauncherHomeScreen(
     }
   }
 
+  val isLayer2OpenOrOpening by remember {
+    derivedStateOf { activeLayerIndex == 2 || layerTransitionProgress > 0f }
+  }
+
   // Handle Android back button: close Layer 2 smoothly if open or transitioning
-  BackHandler(enabled = activeLayerIndex == 2 || layerTransitionProgress > 0f) {
+  BackHandler(enabled = isLayer2OpenOrOpening) {
     animateToLayer(1)
   }
 
@@ -655,8 +659,50 @@ fun LauncherHomeScreen(
         else -> {
           // Main 2-Layer Workspace with continuous finger-following transition
           val currentSpace = activeSpace ?: Space.createDefault()
-          val shouldComposeLayer1 = isGestureActive || layerTransitionProgress < 1f || activeLayerIndex == 1
-          val shouldComposeLayer2 = isGestureActive || layerTransitionProgress > 0f || activeLayerIndex == 2
+          val shouldComposeLayer1 by remember {
+            derivedStateOf { isGestureActive || layerTransitionProgress < 1f || activeLayerIndex == 1 }
+          }
+          val shouldComposeLayer2 by remember {
+            derivedStateOf { isGestureActive || layerTransitionProgress > 0f || activeLayerIndex == 2 }
+          }
+          val canDragLayer1 by remember(isAnyDragActive, isSwipeAllowed) {
+            derivedStateOf { layerTransitionProgress < 1f && !isAnyDragActive && isSwipeAllowed }
+          }
+
+          // Cache most used apps: avoid recomputing on every layerTransitionProgress frame
+          val cachedMostUsedApps = remember(spaceScopedApps, currentSpace.gridColumns) {
+            discoveryViewModel.getMostUsedApps(spaceScopedApps, limit = currentSpace.gridColumns)
+          }
+
+          // Cache Layer 2 catalog derived data so swiping between layers does not rebuild collections
+          val layer2CachedCatalog = remember(spaceScopedApps) {
+            val sorted = spaceScopedApps.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+            val grouped = linkedMapOf<Char, MutableList<DiscoveredApp>>()
+            val letterToFirst = mutableMapOf<Char, Int>()
+
+            sorted.forEachIndexed { index, app ->
+              val cleanLabel = app.label.trim().trim('"', '\'', '(', '[', '{')
+              val firstChar = cleanLabel.firstOrNull()?.uppercaseChar() ?: '#'
+              val groupKey = if (firstChar in 'A'..'Z') firstChar else '#'
+              grouped.getOrPut(groupKey) { mutableListOf() }.add(app)
+              if (firstChar in 'A'..'Z' && !letterToFirst.containsKey(firstChar)) {
+                letterToFirst[firstChar] = index
+              }
+            }
+
+            val letterToSection = mutableMapOf<Char, Int>()
+            grouped.keys.forEachIndexed { index, char ->
+              letterToSection[char] = index
+            }
+
+            Layer2CachedCatalog(
+              sortedApps = sorted,
+              groupedApps = grouped,
+              letterToSectionIndex = letterToSection,
+              letterToFirstIndex = letterToFirst,
+              activeLetters = letterToFirst.keys
+            )
+          }
 
           Box(modifier = Modifier.fillMaxSize()) {
             // Layer 1: Curated Workspace (Pages / Scrolling Grid & Folders + Dock Bar)
@@ -671,7 +717,7 @@ fun LauncherHomeScreen(
                     alpha = (1f - p).coerceIn(0f, 1f)
                   }
                   .then(
-                    if (layerTransitionProgress < 1f && !isAnyDragActive && isSwipeAllowed) layer1DragModifier
+                    if (canDragLayer1) layer1DragModifier
                     else Modifier
                   )
               ) {
@@ -697,13 +743,41 @@ fun LauncherHomeScreen(
                         },
                         onDropFromDockToDesktop = { dockItem, app, targetPage, targetPos ->
                           activeSpace?.let { space ->
-                            spaceViewModel.moveAppFromDockToHome(
-                              spaceId = space.id,
-                              dockItemId = dockItem.id,
-                              app = app,
-                              targetPage = targetPage,
-                              targetPosition = targetPos
-                            )
+                            val existing = activePlacements.firstOrNull {
+                              it.pageIndex == targetPage && it.positionIndex == targetPos
+                            }
+                            if (existing != null && !existing.isWidget && !existing.isFolder) {
+                              val targetApp = spaceScopedApps.firstOrNull { it.packageName == existing.packageName }
+                              if (targetApp != null) {
+                                spaceViewModel.createFolderFromApps(
+                                  spaceId = space.id,
+                                  pageIndex = targetPage,
+                                  positionIndex = targetPos,
+                                  folderName = "Folder",
+                                  sourceApp = app,
+                                  targetApp = targetApp,
+                                  sourcePlacementId = null,
+                                  targetPlacementId = existing.id
+                                )
+                                spaceViewModel.removeAppFromDock(space.id, dockItem.id)
+                              } else {
+                                spaceViewModel.moveAppFromDockToHome(
+                                  spaceId = space.id,
+                                  dockItemId = dockItem.id,
+                                  app = app,
+                                  targetPage = targetPage,
+                                  targetPosition = targetPos
+                                )
+                              }
+                            } else {
+                              spaceViewModel.moveAppFromDockToHome(
+                                spaceId = space.id,
+                                dockItemId = dockItem.id,
+                                app = app,
+                                targetPage = targetPage,
+                                targetPosition = targetPos
+                              )
+                            }
                           }
                         },
                         unifiedDragState = unifiedDragState,
@@ -731,17 +805,21 @@ fun LauncherHomeScreen(
                       onRemovePlacement = { placementId ->
                         spaceViewModel.removePlacement(placementId)
                       },
-                      onCreateFolderFromApps = { src, tgt, srcId, tgtId ->
+                      onCreateFolderFromApps = { src, tgt, srcId, tgtId, targetPage, targetPos ->
                         spaceViewModel.createFolderFromApps(
                           spaceId = currentSpace.id,
-                          pageIndex = 0,
-                          positionIndex = 0,
-                          folderName = "New Folder",
+                          pageIndex = targetPage,
+                          positionIndex = targetPos,
+                          folderName = "Folder",
                           sourceApp = src,
                           targetApp = tgt,
                           sourcePlacementId = srcId,
                           targetPlacementId = tgtId
                         )
+                      },
+                      onAddAppToExistingFolder = { folderId, app, sourcePlacementId ->
+                        spaceViewModel.addAppToFolder(folderId, app)
+                        spaceViewModel.removePlacement(sourcePlacementId)
                       },
                       onAddAppToHome = { app, page ->
                         spaceViewModel.addAppToHome(currentSpace.id, app, page)
@@ -815,7 +893,8 @@ fun LauncherHomeScreen(
                     discoveryViewModel.forceStopApp(app)
                   },
                   onCloseLayer2 = { animateToLayer(1) },
-                  mostUsedApps = discoveryViewModel.getMostUsedApps(spaceScopedApps, limit = currentSpace.gridColumns),
+                  mostUsedApps = cachedMostUsedApps,
+                  cachedCatalog = layer2CachedCatalog,
                   gridState = layer2GridState,
                   sectionListState = layer2SectionListState,
                   topBarModifier = layer2HeaderDragModifier,

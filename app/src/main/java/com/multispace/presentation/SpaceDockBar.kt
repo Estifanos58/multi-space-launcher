@@ -550,7 +550,7 @@ private fun DockAppSlot(
         )
       }
     } else {
-      val bitmap = app?.let { getBitmap(it) }
+      val bitmap = remember(app?.id) { app?.let { getBitmap(it) } }
       ThemedAppIcon(
         app = app,
         bitmap = bitmap,
