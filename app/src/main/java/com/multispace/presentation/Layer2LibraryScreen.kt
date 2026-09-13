@@ -1,13 +1,18 @@
 package com.multispace.presentation
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyRowItems
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -24,8 +29,10 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,17 +74,22 @@ fun Layer2LibraryScreen(
   onForceStopApp: (DiscoveredApp) -> Unit = {},
   onCloseLayer2: () -> Unit,
   mostUsedApps: List<DiscoveredApp>? = null,
+  gridState: LazyGridState = rememberLazyGridState(),
+  sectionListState: LazyListState = rememberLazyListState(),
+  topBarModifier: Modifier = Modifier,
   modifier: Modifier = Modifier
 ) {
   var searchQuery by remember { mutableStateOf("") }
   var selectedAppForMenu by remember { mutableStateOf<DiscoveredApp?>(null) }
+  var isSectionedAlphabeticalView by rememberSaveable { mutableStateOf(false) }
 
   val context = LocalContext.current
   val usageTracker = remember(context) { AppUsageTracker.getInstance(context) }
 
-  // 1. Most Used Apps Section (ordered by usage/frequency, apps also remain in alphabetical list below)
-  val resolvedMostUsedApps = remember(spaceApps, searchQuery, mostUsedApps) {
-    if (mostUsedApps != null) {
+  // 1. Most Used Apps Section (bounded strictly to the number of columns in Layer 2)
+  val maxMostUsedApps = space.gridColumns.coerceIn(2, 8)
+  val resolvedMostUsedApps = remember(spaceApps, searchQuery, mostUsedApps, maxMostUsedApps) {
+    val baseList = if (mostUsedApps != null) {
       if (searchQuery.isBlank()) {
         mostUsedApps
       } else {
@@ -95,8 +107,9 @@ fun Layer2LibraryScreen(
           it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
         }
       }
-      usageTracker.getMostUsedApps(pool, limit = 8)
+      usageTracker.getMostUsedApps(pool, limit = maxMostUsedApps)
     }
+    baseList.take(maxMostUsedApps)
   }
 
   // 2. Alphabetical Apps Section (maintains normal alphabetical ordering by app name)
@@ -112,10 +125,29 @@ fun Layer2LibraryScreen(
     baseList.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
   }
 
+  // Grouped by first letter for the sectioned alphabetical view
+  val groupedAlphabeticalApps = remember(alphabeticalApps) {
+    val map = linkedMapOf<Char, MutableList<DiscoveredApp>>()
+    alphabeticalApps.forEach { app ->
+      val cleanLabel = app.label.trim().trim('"', '\'', '(', '[', '{')
+      val firstChar = cleanLabel.firstOrNull()?.uppercaseChar() ?: '#'
+      val groupKey = if (firstChar in 'A'..'Z') firstChar else '#'
+      map.getOrPut(groupKey) { mutableListOf() }.add(app)
+    }
+    map
+  }
+
+  val letterToSectionIndex = remember(groupedAlphabeticalApps) {
+    val map = mutableMapOf<Char, Int>()
+    groupedAlphabeticalApps.keys.forEachIndexed { index, char ->
+      map[char] = index
+    }
+    map
+  }
+
   val isVerticalMode = space.layer2DisplayMode != Space.DISPLAY_MODE_PAGE
   val showAlphabetIndex = isVerticalMode && alphabeticalApps.isNotEmpty()
 
-  val gridState = rememberLazyGridState()
   val coroutineScope = rememberCoroutineScope()
 
   val alphabet = remember { ('A'..'Z').toList() }
@@ -140,6 +172,7 @@ fun Layer2LibraryScreen(
   LaunchedEffect(searchQuery) {
     if (alphabeticalApps.isNotEmpty()) {
       gridState.scrollToItem(0)
+      sectionListState.scrollToItem(0)
     }
   }
 
@@ -161,6 +194,7 @@ fun Layer2LibraryScreen(
     Row(
       modifier = Modifier
         .fillMaxWidth()
+        .then(topBarModifier)
         .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing4),
       verticalAlignment = Alignment.CenterVertically
     ) {
@@ -223,26 +257,23 @@ fun Layer2LibraryScreen(
               modifier = Modifier.padding(horizontal = AppDimens.Spacing20, vertical = AppDimens.Spacing2)
             )
 
-            LazyRow(
+            Row(
               modifier = Modifier
                 .fillMaxWidth()
+                .padding(
+                  start = AppDimens.Spacing16,
+                  end = if (showAlphabetIndex) 28.dp else AppDimens.Spacing16,
+                  top = AppDimens.Spacing4,
+                  bottom = AppDimens.Spacing4
+                )
                 .testTag("layer2_most_used_row"),
-              contentPadding = PaddingValues(
-                start = AppDimens.Spacing16,
-                end = if (showAlphabetIndex) 28.dp else AppDimens.Spacing16,
-                top = AppDimens.Spacing4,
-                bottom = AppDimens.Spacing4
-              ),
-              horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+              horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
             ) {
-              lazyRowItems(
-                items = resolvedMostUsedApps,
-                key = { "most_used_${it.packageName}/${it.activityName}" }
-              ) { app ->
+              resolvedMostUsedApps.forEach { app ->
                 Column(
                   horizontalAlignment = Alignment.CenterHorizontally,
                   modifier = Modifier
-                    .width(68.dp)
+                    .weight(1f)
                     .clip(ShapeRoundMd)
                     .combinedClickable(
                       onClick = { onLaunchApp(app) },
@@ -272,6 +303,14 @@ fun Layer2LibraryScreen(
                       color = MaterialTheme.colorScheme.onSurface
                     )
                   }
+                }
+              }
+
+              // Pad empty slots if available apps are fewer than gridColumns to maintain consistent column width
+              val emptySlots = space.gridColumns - resolvedMostUsedApps.size
+              if (emptySlots > 0) {
+                repeat(emptySlots) {
+                  Spacer(modifier = Modifier.weight(1f))
                 }
               }
             }
@@ -306,6 +345,144 @@ fun Layer2LibraryScreen(
               actionText = if (searchQuery.isNotBlank()) "Clear Search" else null,
               onActionClick = { searchQuery = "" }
             )
+          }
+        } else if (isSectionedAlphabeticalView) {
+          // Sectioned Alphabetical View: Alphabet letter on the leftmost side, and rows of apps with that letter listed
+          val sectionCols = (space.gridColumns - 1).coerceAtLeast(2)
+
+          LazyColumn(
+            state = sectionListState,
+            modifier = Modifier
+              .weight(1f)
+              .fillMaxWidth()
+              .padding(
+                start = AppDimens.Spacing16,
+                end = if (showAlphabetIndex) 28.dp else AppDimens.Spacing16
+              )
+              .testTag("layer2_alphabet_sections_list"),
+            contentPadding = PaddingValues(
+              bottom = AppDimens.Spacing24 + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            )
+          ) {
+            groupedAlphabeticalApps.forEach { (letter, appsForLetter) ->
+              item(key = "section_$letter") {
+                Column(
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = AppDimens.Spacing6)
+                    .testTag("layer2_section_$letter")
+                ) {
+                  Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top
+                  ) {
+                    // Leftmost side: The Alphabet Letter Badge
+                    Box(
+                      modifier = Modifier
+                        .width(42.dp)
+                        .padding(top = 4.dp),
+                      contentAlignment = Alignment.TopCenter
+                    ) {
+                      Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                        border = BorderStroke(
+                          1.dp,
+                          MaterialTheme.colorScheme.primary.copy(alpha = 0.40f)
+                        ),
+                        modifier = Modifier.size(36.dp)
+                      ) {
+                        Box(
+                          contentAlignment = Alignment.Center,
+                          modifier = Modifier.fillMaxSize()
+                        ) {
+                          Text(
+                            text = letter.toString(),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                              fontWeight = FontWeight.Black,
+                              fontSize = 17.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                          )
+                        }
+                      }
+                    }
+
+                    Spacer(modifier = Modifier.width(AppDimens.Spacing8))
+
+                    // Rows of apps with that alphabet listed
+                    val appChunks = remember(appsForLetter, sectionCols) {
+                      appsForLetter.chunked(sectionCols)
+                    }
+
+                    Column(
+                      modifier = Modifier.weight(1f),
+                      verticalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)
+                    ) {
+                      appChunks.forEach { rowApps ->
+                        Row(
+                          modifier = Modifier.fillMaxWidth(),
+                          horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
+                        ) {
+                          rowApps.forEach { app ->
+                            Column(
+                              horizontalAlignment = Alignment.CenterHorizontally,
+                              modifier = Modifier
+                                .weight(1f)
+                                .clip(ShapeRoundMd)
+                                .combinedClickable(
+                                  onClick = { onLaunchApp(app) },
+                                  onLongClick = { selectedAppForMenu = app }
+                                )
+                                .padding(AppDimens.Spacing4)
+                                .testTag("layer2_app_${app.packageName}")
+                            ) {
+                              val bitmap = getBitmap(app)
+                              ThemedAppIcon(
+                                app = app,
+                                bitmap = bitmap,
+                                appTheme = space.appTheme,
+                                modifier = iconSizeModifier,
+                                fallbackText = app.label.take(1).uppercase()
+                              )
+
+                              if (space.labelVisibility) {
+                                Spacer(modifier = Modifier.height(AppDimens.Spacing4))
+                                Text(
+                                  text = app.label,
+                                  style = MaterialTheme.typography.bodySmall,
+                                  fontSize = 11.sp,
+                                  maxLines = 1,
+                                  overflow = TextOverflow.Ellipsis,
+                                  textAlign = TextAlign.Center,
+                                  color = MaterialTheme.colorScheme.onSurface
+                                )
+                              }
+                            }
+                          }
+
+                          // Empty slot spacers so apps align with column widths
+                          val emptySlots = sectionCols - rowApps.size
+                          repeat(emptySlots) {
+                            Spacer(modifier = Modifier.weight(1f))
+                          }
+                        }
+                      }
+                    }
+                  }
+
+                  // Subtle horizontal divider between letter sections
+                  Spacer(modifier = Modifier.height(AppDimens.Spacing8))
+                  HorizontalDivider(
+                    modifier = Modifier
+                      .fillMaxWidth()
+                      .padding(start = 50.dp, end = AppDimens.Spacing8),
+                    thickness = 0.6.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f)
+                  )
+                }
+              }
+            }
           }
         } else {
           LazyVerticalGrid(
@@ -365,22 +542,77 @@ fun Layer2LibraryScreen(
         }
       }
 
-      // 3. Alphabet fast-scroll indicator (vertically centered across entire content area including Most Used, and positioned on the right-most edge)
+      // 3. Alphabet fast-scroll indicator with toggle icon above it
       if (showAlphabetIndex) {
-        AlphabetFastScroll(
-          alphabet = alphabet,
-          activeLetters = activeLetters,
-          onLetterSelected = { letter ->
-            letterToFirstIndex[letter]?.let { targetIndex ->
-              coroutineScope.launch {
-                gridState.scrollToItem(targetIndex)
-              }
-            }
-          },
+        Column(
           modifier = Modifier
             .align(Alignment.CenterEnd)
-            .padding(end = 2.dp)
-        )
+            .padding(end = 2.dp),
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+          // Small toggle icon button above AlphabetScroller
+          Surface(
+            shape = CircleShape,
+            color = if (isSectionedAlphabeticalView) {
+              MaterialTheme.colorScheme.primary
+            } else {
+              MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.75f)
+            },
+            border = BorderStroke(
+              0.8.dp,
+              if (isSectionedAlphabeticalView) MaterialTheme.colorScheme.primary
+              else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+            ),
+            shadowElevation = if (isSectionedAlphabeticalView) 2.dp else 0.dp,
+            modifier = Modifier.size(24.dp)
+          ) {
+            IconButton(
+              onClick = { isSectionedAlphabeticalView = !isSectionedAlphabeticalView },
+              modifier = Modifier
+                .fillMaxSize()
+                .testTag("layer2_alphabet_section_toggle")
+            ) {
+              Icon(
+                imageVector = Icons.Default.SortByAlpha,
+                contentDescription = if (isSectionedAlphabeticalView) {
+                  "Switch to Standard Grid View"
+                } else {
+                  "Switch to Alphabetical Section View"
+                },
+                tint = if (isSectionedAlphabeticalView) {
+                  MaterialTheme.colorScheme.onPrimary
+                } else {
+                  MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.size(14.dp)
+              )
+            }
+          }
+
+          AlphabetFastScroll(
+            alphabet = alphabet,
+            activeLetters = activeLetters,
+            onLetterSelected = { letter ->
+              if (isSectionedAlphabeticalView) {
+                val targetSectionIdx = letterToSectionIndex[letter] ?: run {
+                  groupedAlphabeticalApps.keys.filter { it >= letter }.minOrNull()?.let { letterToSectionIndex[it] }
+                }
+                targetSectionIdx?.let { idx ->
+                  coroutineScope.launch {
+                    sectionListState.scrollToItem(idx)
+                  }
+                }
+              } else {
+                letterToFirstIndex[letter]?.let { targetIndex ->
+                  coroutineScope.launch {
+                    gridState.scrollToItem(targetIndex)
+                  }
+                }
+              }
+            }
+          )
+        }
       }
     }
   }

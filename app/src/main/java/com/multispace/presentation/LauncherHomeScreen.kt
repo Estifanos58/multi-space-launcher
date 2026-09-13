@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -14,8 +16,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,11 +33,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -53,6 +66,7 @@ import com.multispace.ui.components.ModernEmptyState
 import com.multispace.ui.components.ModernLoadingState
 import com.multispace.ui.components.ModernStatusBadge
 import com.multispace.ui.theme.*
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -89,6 +103,43 @@ fun LauncherHomeScreen(
 
   var activeFolderInDialog by remember { mutableStateOf<SpaceFolder?>(null) }
 
+  // Continuous interactive gesture transition state between Layer 1 and Layer 2
+  var layerTransitionProgress by remember { mutableFloatStateOf(if (activeLayerIndex == 2) 1.0f else 0.0f) }
+  var isGestureActive by remember { mutableStateOf(false) }
+  var settleJob by remember { mutableStateOf<Job?>(null) }
+  val layer2GridState = rememberLazyGridState()
+  val layer2SectionListState = rememberLazyListState()
+
+  // Synchronize transition progress when activeLayerIndex changes externally
+  LaunchedEffect(activeLayerIndex) {
+    val target = if (activeLayerIndex == 2) 1.0f else 0.0f
+    if (!isGestureActive && settleJob?.isActive != true && layerTransitionProgress != target) {
+      layerTransitionProgress = target
+    }
+  }
+
+  // Smooth programmatic transition (dock button, back arrow, system back key)
+  fun animateToLayer(targetLayer: Int) {
+    settleJob?.cancel()
+    settleJob = coroutineScope.launch {
+      isGestureActive = false
+      val targetValue = if (targetLayer == 2) 1.0f else 0.0f
+      val animatable = Animatable(layerTransitionProgress)
+      animatable.animateTo(
+        targetValue = targetValue,
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+      ) {
+        layerTransitionProgress = value
+      }
+      spaceViewModel.setLayer(targetLayer)
+    }
+  }
+
+  // Handle Android back button: close Layer 2 smoothly if open or transitioning
+  BackHandler(enabled = activeLayerIndex == 2 || layerTransitionProgress > 0f) {
+    animateToLayer(1)
+  }
+
   val isCurrentSpaceUnlocked = remember(activeSpace, unlockedSpaceIds) {
     spaceViewModel.isSpaceUnlocked(activeSpace)
   }
@@ -103,11 +154,6 @@ fun LauncherHomeScreen(
       val targetSpaceId = activeSpace?.id ?: Space.DEFAULT_SPACE_ID
       spaceViewModel.importCurrentHomeLayout(targetSpaceId, discoveryUiState.allApps)
     }
-  }
-
-  // Handle Android back button: close Layer 2 if open
-  BackHandler(enabled = activeLayerIndex == 2) {
-    spaceViewModel.setLayer(1)
   }
 
   // Determine dynamic background styling and contrast
@@ -179,29 +225,168 @@ fun LauncherHomeScreen(
   // Unified drag state orchestrating Layer 1 Desktop and DockBar cross-component drag-and-drop
   val unifiedDragState = remember { UnifiedDragState() }
 
-  // Draggable gesture state for swipe-up into Layer 2
-  var swipeOffsetY by remember { mutableStateOf(0f) }
-  val draggableState = rememberDraggableState { delta ->
-    swipeOffsetY += delta
-    if (swipeOffsetY < -100f && activeLayerIndex == 1) {
-      spaceViewModel.setLayer(2)
-      swipeOffsetY = 0f
-    } else if (swipeOffsetY > 100f && activeLayerIndex == 2) {
-      spaceViewModel.setLayer(1)
-      swipeOffsetY = 0f
-    }
-  }
-
-  Box(
-    modifier = modifier
-      .fillMaxSize()
-      .draggable(
-        state = draggableState,
-        orientation = Orientation.Vertical,
-        enabled = !unifiedDragState.isDragging,
-        onDragStopped = { swipeOffsetY = 0f }
-      )
+  BoxWithConstraints(
+    modifier = modifier.fillMaxSize()
   ) {
+    val screenHeightPx = with(LocalDensity.current) { maxHeight.toPx() }
+
+    // Settle transition to 0f or 1f using progress and release velocity
+    fun settleTransition(currentProgress: Float, velocityY: Float) {
+      settleJob?.cancel()
+      settleJob = coroutineScope.launch {
+        isGestureActive = false
+        val flingThresholdPx = 800f
+        val targetValue = when {
+          velocityY < -flingThresholdPx && currentProgress > 0.08f -> 1.0f
+          velocityY > flingThresholdPx && currentProgress < 0.92f -> 0.0f
+          currentProgress >= 0.5f -> 1.0f
+          else -> 0.0f
+        }
+
+        val progressVelocity = if (screenHeightPx > 0f) {
+          -velocityY / screenHeightPx
+        } else 0f
+
+        val animatable = Animatable(currentProgress)
+        animatable.animateTo(
+          targetValue = targetValue,
+          initialVelocity = progressVelocity.coerceIn(-15f, 15f),
+          animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
+          )
+        ) {
+          layerTransitionProgress = value
+        }
+
+        val targetLayer = if (targetValue == 1.0f) 2 else 1
+        spaceViewModel.setLayer(targetLayer)
+      }
+    }
+
+    // Gesture detector for Layer 1 upward / downward continuous drag
+    val layer1VelocityTracker = remember { VelocityTracker() }
+    val layer1DragModifier = Modifier.pointerInput(screenHeightPx, unifiedDragState.isDragging) {
+      if (unifiedDragState.isDragging) return@pointerInput
+      detectVerticalDragGestures(
+        onDragStart = {
+          settleJob?.cancel()
+          layer1VelocityTracker.resetTracking()
+          isGestureActive = true
+        },
+        onDragEnd = {
+          val velocityY = layer1VelocityTracker.calculateVelocity().y
+          settleTransition(layerTransitionProgress, velocityY)
+        },
+        onDragCancel = {
+          settleTransition(layerTransitionProgress, 0f)
+        },
+        onVerticalDrag = { change, dragAmount ->
+          layer1VelocityTracker.addPosition(change.uptimeMillis, change.position)
+          val progressDelta = -dragAmount / screenHeightPx
+          layerTransitionProgress = (layerTransitionProgress + progressDelta).coerceIn(0f, 1f)
+          change.consume()
+        }
+      )
+    }
+
+    // Gesture detector for Layer 2 Header / Search Bar area downward drag
+    val layer2HeaderVelocityTracker = remember { VelocityTracker() }
+    val layer2HeaderDragModifier = Modifier.pointerInput(screenHeightPx) {
+      detectVerticalDragGestures(
+        onDragStart = {
+          settleJob?.cancel()
+          layer2HeaderVelocityTracker.resetTracking()
+          isGestureActive = true
+        },
+        onDragEnd = {
+          val velocityY = layer2HeaderVelocityTracker.calculateVelocity().y
+          settleTransition(layerTransitionProgress, velocityY)
+        },
+        onDragCancel = {
+          settleTransition(layerTransitionProgress, 0f)
+        },
+        onVerticalDrag = { change, dragAmount ->
+          layer2HeaderVelocityTracker.addPosition(change.uptimeMillis, change.position)
+          val progressDelta = -dragAmount / screenHeightPx
+          layerTransitionProgress = (layerTransitionProgress + progressDelta).coerceIn(0f, 1f)
+          change.consume()
+        }
+      )
+    }
+
+    // Nested scroll coordinator ensuring Layer 2 internal LazyVerticalGrid scrolling coexists seamlessly
+    val nestedScrollConnection = remember(screenHeightPx) {
+      object : NestedScrollConnection {
+        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+          val deltaY = available.y
+          val currentProgress = layerTransitionProgress
+
+          // If transition is already in progress (0 < progress < 1), intercept all vertical drags
+          if (currentProgress in 0.001f..0.999f) {
+            settleJob?.cancel()
+            isGestureActive = true
+            val progressDelta = -deltaY / screenHeightPx
+            layerTransitionProgress = (currentProgress + progressDelta).coerceIn(0f, 1f)
+            return Offset(0f, deltaY)
+          }
+
+          // If Layer 2 is fully open and user drags DOWN while already at top of grid or section list:
+          if (currentProgress >= 0.999f && deltaY > 0f) {
+            val isGridAtTop = layer2GridState.firstVisibleItemIndex == 0 &&
+                          layer2GridState.firstVisibleItemScrollOffset == 0
+            val isListAtTop = layer2SectionListState.firstVisibleItemIndex == 0 &&
+                          layer2SectionListState.firstVisibleItemScrollOffset == 0
+            val isAtTop = isGridAtTop && isListAtTop
+            if (isAtTop) {
+              settleJob?.cancel()
+              isGestureActive = true
+              val progressDelta = -deltaY / screenHeightPx
+              layerTransitionProgress = (currentProgress + progressDelta).coerceIn(0f, 1f)
+              return Offset(0f, deltaY)
+            }
+          }
+
+          return Offset.Zero
+        }
+
+        override fun onPostScroll(
+          consumed: Offset,
+          available: Offset,
+          source: NestedScrollSource
+        ): Offset {
+          val deltaY = available.y
+          val currentProgress = layerTransitionProgress
+          // If grid reached top and still has downward scroll delta
+          if (deltaY > 0f && currentProgress >= 0.999f) {
+            settleJob?.cancel()
+            isGestureActive = true
+            val progressDelta = -deltaY / screenHeightPx
+            layerTransitionProgress = (currentProgress + progressDelta).coerceIn(0f, 1f)
+            return Offset(0f, deltaY)
+          }
+          return Offset.Zero
+        }
+
+        override suspend fun onPreFling(available: Velocity): Velocity {
+          val currentProgress = layerTransitionProgress
+          if (currentProgress in 0.001f..0.999f) {
+            settleTransition(currentProgress, available.y)
+            return available
+          }
+          return Velocity.Zero
+        }
+
+        override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+          val currentProgress = layerTransitionProgress
+          if (currentProgress in 0.001f..0.999f || (available.y > 0f && currentProgress >= 0.999f)) {
+            settleTransition(currentProgress, available.y)
+            return available
+          }
+          return Velocity.Zero
+        }
+      }
+    }
     // 1. Wallpaper / Background Layer
     when (currentBgType) {
       Space.BACKGROUND_COLOR -> {
@@ -305,208 +490,288 @@ fun LauncherHomeScreen(
     }
 
     // 2. Foreground UI
-    Scaffold(
-      modifier = Modifier.fillMaxSize(),
-      containerColor = Color.Transparent,
-      contentWindowInsets = WindowInsets(0, 0, 0, 0),
-      bottomBar = {
-        // Space Dock Bar (Persistent on Home / Layer 1, hidden when customization mode is active)
-        if (isCurrentSpaceUnlocked && activeSpace != null && activeLayerIndex == 1 && !showDesktopCustomizationSheet) {
-          SpaceDockBar(
-            dockItems = activeDockItems,
-            allApps = discoveryUiState.allApps,
-            capacity = activeSpace?.dockCapacity ?: 5,
-            accessMode = activeSpace?.layer2AccessMode ?: Space.ACCESS_MODE_DOCK_BUTTON,
-            getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
-            onLaunchApp = onLaunchApp,
-            onOpenLayer2 = { spaceViewModel.setLayer(2) },
-            onRemoveFromDock = { item ->
-              activeSpace?.let { spaceViewModel.removeAppFromDock(it.id, item.id) }
-            },
-            onReorderDock = { reordered ->
-              activeSpace?.let { spaceViewModel.reorderDockItems(it.id, reordered) }
-            },
-            onDropFromDockToDesktop = { dockItem, app, targetPage, targetPos ->
-              activeSpace?.let { space ->
-                spaceViewModel.moveAppFromDockToHome(
-                  spaceId = space.id,
-                  dockItemId = dockItem.id,
-                  app = app,
-                  targetPage = targetPage,
-                  targetPosition = targetPos
+    Box(
+      modifier = Modifier.fillMaxSize()
+    ) {
+      when {
+        !isCurrentSpaceUnlocked -> {
+          // Protected Space Locked State
+          Column(
+            modifier = Modifier
+              .fillMaxSize()
+              .statusBarsPadding()
+              .navigationBarsPadding()
+              .padding(AppDimens.Spacing32),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+          ) {
+            Surface(
+              shape = CircleShape,
+              color = pillSurfaceColor,
+              border = BorderStroke(AppDimens.BorderMedium, CrimsonNova.copy(alpha = 0.5f)),
+              modifier = Modifier.size(76.dp)
+            ) {
+              Box(contentAlignment = Alignment.Center) {
+                Icon(
+                  imageVector = Icons.Default.Lock,
+                  contentDescription = null,
+                  tint = CrimsonNova,
+                  modifier = Modifier.size(AppDimens.IconHero)
                 )
               }
-            },
-            unifiedDragState = unifiedDragState,
-            useLayer2 = activeSpace?.useLayer2 ?: true,
-            appTheme = activeSpace?.appTheme ?: Space.THEME_DEFAULT,
-            modifier = Modifier.navigationBarsPadding()
-          )
-        }
-      }
-    ) { paddingValues ->
-      Box(
-        modifier = Modifier.fillMaxSize()
-      ) {
-        when {
-          !isCurrentSpaceUnlocked -> {
-            // Protected Space Locked State
-            Column(
-              modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .padding(bottom = paddingValues.calculateBottomPadding())
-                .padding(AppDimens.Spacing32),
-              verticalArrangement = Arrangement.Center,
-              horizontalAlignment = Alignment.CenterHorizontally
+            }
+            Spacer(modifier = Modifier.height(AppDimens.Spacing16))
+            Text(
+              text = "${activeSpace?.name ?: "Space"} is Protected",
+              style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+              color = headerContentColor
+            )
+            Spacer(modifier = Modifier.height(AppDimens.Spacing8))
+            Text(
+              text = "Enter your credential to access applications in this isolated workspace.",
+              style = MaterialTheme.typography.bodyMedium,
+              color = if (isDarkThemeBackground) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
+              textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(AppDimens.Spacing24))
+            Button(
+              onClick = { showUnlockForActiveSpace = true },
+              shape = ShapeRoundMd,
+              colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+              modifier = Modifier.height(AppDimens.ButtonHeight).testTag("btn_unlock_active_space")
             ) {
-              Surface(
-                shape = CircleShape,
-                color = pillSurfaceColor,
-                border = BorderStroke(AppDimens.BorderMedium, CrimsonNova.copy(alpha = 0.5f)),
-                modifier = Modifier.size(76.dp)
-              ) {
-                Box(contentAlignment = Alignment.Center) {
-                  Icon(
-                    imageVector = Icons.Default.Lock,
-                    contentDescription = null,
-                    tint = CrimsonNova,
-                    modifier = Modifier.size(AppDimens.IconHero)
-                  )
-                }
-              }
-              Spacer(modifier = Modifier.height(AppDimens.Spacing16))
-              Text(
-                text = "${activeSpace?.name ?: "Space"} is Protected",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                color = headerContentColor
+              Icon(
+                imageVector = Icons.Default.Key,
+                contentDescription = null,
+                modifier = Modifier.size(AppDimens.IconSm)
               )
-              Spacer(modifier = Modifier.height(AppDimens.Spacing8))
+              Spacer(modifier = Modifier.width(AppDimens.Spacing8))
               Text(
-                text = "Enter your credential to access applications in this isolated workspace.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (isDarkThemeBackground) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
+                "Enter PIN / Credential",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
               )
-              Spacer(modifier = Modifier.height(AppDimens.Spacing24))
+            }
+          }
+        }
+        discoveryUiState.isLoading && discoveryUiState.allApps.isEmpty() -> {
+          Box(
+            modifier = Modifier
+              .fillMaxSize()
+              .statusBarsPadding()
+              .navigationBarsPadding(),
+            contentAlignment = Alignment.Center
+          ) {
+            ModernLoadingState(message = "Scanning installed applications...")
+          }
+        }
+        discoveryUiState.errorMessage != null && spaceScopedApps.isEmpty() -> {
+          Box(
+            modifier = Modifier
+              .fillMaxSize()
+              .statusBarsPadding()
+              .navigationBarsPadding(),
+            contentAlignment = Alignment.Center
+          ) {
+            ModernEmptyState(
+              icon = Icons.Default.ErrorOutline,
+              title = "Unable to load Space apps",
+              description = discoveryUiState.errorMessage ?: "Unknown error occurred during discovery",
+              actionText = "Retry Scan",
+              onActionClick = { discoveryViewModel.loadApps() }
+            )
+          }
+        }
+        spaceScopedApps.isEmpty() -> {
+          // Empty Space State prompting to configure app memberships
+          Column(
+            modifier = Modifier
+              .fillMaxSize()
+              .statusBarsPadding()
+              .navigationBarsPadding()
+              .padding(AppDimens.Spacing32),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+          ) {
+            ModernEmptyState(
+              icon = Icons.Default.Apps,
+              title = "No apps in ${activeSpace?.name ?: "this Space"}",
+              description = "Assign apps to this workspace or import your existing home layout to get started."
+            )
+            Spacer(modifier = Modifier.height(AppDimens.Spacing16))
+            Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)) {
               Button(
-                onClick = { showUnlockForActiveSpace = true },
+                onClick = onOpenConfiguration,
                 shape = ShapeRoundMd,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                modifier = Modifier.height(AppDimens.ButtonHeight).testTag("btn_unlock_active_space")
+                modifier = Modifier.height(AppDimens.ButtonHeightSm).testTag("btn_empty_space_configure")
               ) {
                 Icon(
-                  imageVector = Icons.Default.Key,
+                  imageVector = Icons.Default.Add,
                   contentDescription = null,
                   modifier = Modifier.size(AppDimens.IconSm)
                 )
-                Spacer(modifier = Modifier.width(AppDimens.Spacing8))
-                Text(
-                  "Enter PIN / Credential",
-                  style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.width(AppDimens.Spacing6))
+                Text("Add Apps", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+              }
+
+              OutlinedButton(
+                onClick = { showImportDialog = true },
+                shape = ShapeRoundMd,
+                modifier = Modifier.height(AppDimens.ButtonHeightSm).testTag("btn_empty_space_import")
+              ) {
+                Icon(
+                  imageVector = Icons.Default.FileDownload,
+                  contentDescription = null,
+                  modifier = Modifier.size(AppDimens.IconSm)
                 )
+                Spacer(modifier = Modifier.width(AppDimens.Spacing6))
+                Text("Import Layout", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
               }
             }
           }
-          discoveryUiState.isLoading && discoveryUiState.allApps.isEmpty() -> {
-            Box(
-              modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .padding(bottom = paddingValues.calculateBottomPadding()),
-              contentAlignment = Alignment.Center
-            ) {
-              ModernLoadingState(message = "Scanning installed applications...")
-            }
-          }
-          discoveryUiState.errorMessage != null && spaceScopedApps.isEmpty() -> {
-            Box(
-              modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .padding(bottom = paddingValues.calculateBottomPadding()),
-              contentAlignment = Alignment.Center
-            ) {
-              ModernEmptyState(
-                icon = Icons.Default.ErrorOutline,
-                title = "Unable to load Space apps",
-                description = discoveryUiState.errorMessage ?: "Unknown error occurred during discovery",
-                actionText = "Retry Scan",
-                onActionClick = { discoveryViewModel.loadApps() }
-              )
-            }
-          }
-          spaceScopedApps.isEmpty() -> {
-            // Empty Space State prompting to configure app memberships
-            Column(
-              modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .padding(bottom = paddingValues.calculateBottomPadding())
-                .padding(AppDimens.Spacing32),
-              verticalArrangement = Arrangement.Center,
-              horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-              ModernEmptyState(
-                icon = Icons.Default.Apps,
-                title = "No apps in ${activeSpace?.name ?: "this Space"}",
-                description = "Assign apps to this workspace or import your existing home layout to get started."
-              )
-              Spacer(modifier = Modifier.height(AppDimens.Spacing16))
-              Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing12)) {
-                Button(
-                  onClick = onOpenConfiguration,
-                  shape = ShapeRoundMd,
-                  colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                  modifier = Modifier.height(AppDimens.ButtonHeightSm).testTag("btn_empty_space_configure")
-                ) {
-                  Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = null,
-                    modifier = Modifier.size(AppDimens.IconSm)
-                  )
-                  Spacer(modifier = Modifier.width(AppDimens.Spacing6))
-                  Text("Add Apps", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
-                }
+        }
+        else -> {
+          // Main 2-Layer Workspace with continuous finger-following transition
+          val currentSpace = activeSpace ?: Space.createDefault()
+          val shouldComposeLayer1 = isGestureActive || layerTransitionProgress < 1f || activeLayerIndex == 1
+          val shouldComposeLayer2 = isGestureActive || layerTransitionProgress > 0f || activeLayerIndex == 2
 
-                OutlinedButton(
-                  onClick = { showImportDialog = true },
-                  shape = ShapeRoundMd,
-                  modifier = Modifier.height(AppDimens.ButtonHeightSm).testTag("btn_empty_space_import")
-                ) {
-                  Icon(
-                    imageVector = Icons.Default.FileDownload,
-                    contentDescription = null,
-                    modifier = Modifier.size(AppDimens.IconSm)
+          Box(modifier = Modifier.fillMaxSize()) {
+            // Layer 1: Curated Workspace (Pages / Scrolling Grid & Folders + Dock Bar)
+            if (shouldComposeLayer1) {
+              Box(
+                modifier = Modifier
+                  .fillMaxSize()
+                  .zIndex(1f)
+                  .graphicsLayer {
+                    val p = layerTransitionProgress
+                    translationY = -screenHeightPx * 0.08f * p
+                    alpha = (1f - p).coerceIn(0f, 1f)
+                  }
+                  .then(
+                    if (layerTransitionProgress < 1f && !unifiedDragState.isDragging) layer1DragModifier
+                    else Modifier
                   )
-                  Spacer(modifier = Modifier.width(AppDimens.Spacing6))
-                  Text("Import Layout", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+              ) {
+                Scaffold(
+                  modifier = Modifier.fillMaxSize(),
+                  containerColor = Color.Transparent,
+                  contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                  bottomBar = {
+                    if (isCurrentSpaceUnlocked && activeSpace != null && !showDesktopCustomizationSheet) {
+                      SpaceDockBar(
+                        dockItems = activeDockItems,
+                        allApps = discoveryUiState.allApps,
+                        capacity = activeSpace?.dockCapacity ?: 5,
+                        accessMode = activeSpace?.layer2AccessMode ?: Space.ACCESS_MODE_DOCK_BUTTON,
+                        getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
+                        onLaunchApp = onLaunchApp,
+                        onOpenLayer2 = { animateToLayer(2) },
+                        onRemoveFromDock = { item ->
+                          activeSpace?.let { spaceViewModel.removeAppFromDock(it.id, item.id) }
+                        },
+                        onReorderDock = { reordered ->
+                          activeSpace?.let { spaceViewModel.reorderDockItems(it.id, reordered) }
+                        },
+                        onDropFromDockToDesktop = { dockItem, app, targetPage, targetPos ->
+                          activeSpace?.let { space ->
+                            spaceViewModel.moveAppFromDockToHome(
+                              spaceId = space.id,
+                              dockItemId = dockItem.id,
+                              app = app,
+                              targetPage = targetPage,
+                              targetPosition = targetPos
+                            )
+                          }
+                        },
+                        unifiedDragState = unifiedDragState,
+                        useLayer2 = activeSpace?.useLayer2 ?: true,
+                        appTheme = activeSpace?.appTheme ?: Space.THEME_DEFAULT,
+                        modifier = Modifier.navigationBarsPadding()
+                      )
+                    }
+                  }
+                ) { paddingValues ->
+                  Box(
+                    modifier = Modifier
+                      .fillMaxSize()
+                      .statusBarsPadding()
+                      .padding(bottom = paddingValues.calculateBottomPadding())
+                  ) {
+                    Layer1HomeScreen(
+                      space = currentSpace,
+                      placements = activePlacements,
+                      folders = activeFolders,
+                      allApps = spaceScopedApps,
+                      getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
+                      onLaunchApp = onLaunchApp,
+                      onOpenFolder = { folder -> activeFolderInDialog = folder },
+                      onRemovePlacement = { placementId ->
+                        spaceViewModel.removePlacement(placementId)
+                      },
+                      onCreateFolderFromApps = { src, tgt, srcId, tgtId ->
+                        spaceViewModel.createFolderFromApps(
+                          spaceId = currentSpace.id,
+                          pageIndex = 0,
+                          positionIndex = 0,
+                          folderName = "New Folder",
+                          sourceApp = src,
+                          targetApp = tgt,
+                          sourcePlacementId = srcId,
+                          targetPlacementId = tgtId
+                        )
+                      },
+                      onAddAppToHome = { app, page ->
+                        spaceViewModel.addAppToHome(currentSpace.id, app, page)
+                      },
+                      onMovePlacement = { placementId, targetPage, targetPos, pageSize ->
+                        spaceViewModel.moveAppToPage(currentSpace.id, placementId, targetPage, targetPos, pageSize)
+                      },
+                      onResizeWidget = { placementId, spanX, spanY, pos ->
+                        spaceViewModel.updateWidgetSpan(placementId, spanX, spanY, pos)
+                      },
+                      onOpenCustomization = { page ->
+                        activeDesktopPage = page
+                        showDesktopCustomizationSheet = true
+                      },
+                      onOpenAppInfo = { app ->
+                        discoveryViewModel.openAppInfo(app)
+                      },
+                      onUninstallApp = { app ->
+                        discoveryViewModel.uninstallApp(app)
+                      },
+                      onForceStopApp = { app ->
+                        discoveryViewModel.forceStopApp(app)
+                      },
+                      unifiedDragState = unifiedDragState,
+                      onDropItemToDock = { placement, app, targetDockIndex ->
+                        activeSpace?.let { space ->
+                          spaceViewModel.moveAppFromHomeToDock(
+                            spaceId = space.id,
+                            placementId = placement.id,
+                            app = app,
+                            targetDockIndex = targetDockIndex
+                          )
+                        }
+                      }
+                    )
+                  }
                 }
               }
             }
-          }
-          else -> {
-            // Main 2-Layer Workspace with animated transition
-            val currentSpace = activeSpace ?: Space.createDefault()
 
-            AnimatedContent(
-              targetState = activeLayerIndex,
-              modifier = Modifier.fillMaxSize(),
-              transitionSpec = {
-                if (targetState == 2) {
-                  (slideInVertically(animationSpec = tween(300)) { it } + fadeIn()).togetherWith(
-                    slideOutVertically(animationSpec = tween(300)) { -it / 3 } + fadeOut()
-                  )
-                } else {
-                  (slideInVertically(animationSpec = tween(300)) { -it / 3 } + fadeIn()).togetherWith(
-                    slideOutVertically(animationSpec = tween(300)) { it } + fadeOut()
-                  )
-                }
-              },
-              label = "layer_transition"
-            ) { layer ->
-              if (layer == 2) {
-                // Layer 2: Space App Library (Takes the WHOLE SCREEN)
+            // Layer 2: Space App Library (Takes the WHOLE SCREEN, physically rises from below)
+            if (shouldComposeLayer2) {
+              Box(
+                modifier = Modifier
+                  .fillMaxSize()
+                  .zIndex(2f)
+                  .graphicsLayer {
+                    val p = layerTransitionProgress
+                    translationY = screenHeightPx * (1f - p)
+                    alpha = p.coerceIn(0f, 1f)
+                  }
+              ) {
                 Layer2LibraryScreen(
                   space = currentSpace,
                   spaceApps = spaceScopedApps,
@@ -527,76 +792,15 @@ fun LauncherHomeScreen(
                   onForceStopApp = { app ->
                     discoveryViewModel.forceStopApp(app)
                   },
-                  onCloseLayer2 = { spaceViewModel.setLayer(1) },
-                  mostUsedApps = discoveryViewModel.getMostUsedApps(spaceScopedApps),
-                  modifier = Modifier.fillMaxSize()
-                )
-              } else {
-                // Layer 1: Curated Workspace (Pages / Scrolling Grid & Folders)
-                Box(
+                  onCloseLayer2 = { animateToLayer(1) },
+                  mostUsedApps = discoveryViewModel.getMostUsedApps(spaceScopedApps, limit = currentSpace.gridColumns),
+                  gridState = layer2GridState,
+                  sectionListState = layer2SectionListState,
+                  topBarModifier = layer2HeaderDragModifier,
                   modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
-                    .padding(bottom = paddingValues.calculateBottomPadding())
-                ) {
-                  Layer1HomeScreen(
-                    space = currentSpace,
-                    placements = activePlacements,
-                    folders = activeFolders,
-                    allApps = spaceScopedApps,
-                    getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
-                    onLaunchApp = onLaunchApp,
-                    onOpenFolder = { folder -> activeFolderInDialog = folder },
-                    onRemovePlacement = { placementId ->
-                      spaceViewModel.removePlacement(placementId)
-                    },
-                    onCreateFolderFromApps = { src, tgt, srcId, tgtId ->
-                      spaceViewModel.createFolderFromApps(
-                        spaceId = currentSpace.id,
-                        pageIndex = 0,
-                        positionIndex = 0,
-                        folderName = "New Folder",
-                        sourceApp = src,
-                        targetApp = tgt,
-                        sourcePlacementId = srcId,
-                        targetPlacementId = tgtId
-                      )
-                    },
-                    onAddAppToHome = { app, page ->
-                      spaceViewModel.addAppToHome(currentSpace.id, app, page)
-                    },
-                    onMovePlacement = { placementId, targetPage, targetPos, pageSize ->
-                      spaceViewModel.moveAppToPage(currentSpace.id, placementId, targetPage, targetPos, pageSize)
-                    },
-                    onResizeWidget = { placementId, spanX, spanY, pos ->
-                      spaceViewModel.updateWidgetSpan(placementId, spanX, spanY, pos)
-                    },
-                    onOpenCustomization = { page ->
-                      activeDesktopPage = page
-                      showDesktopCustomizationSheet = true
-                    },
-                    onOpenAppInfo = { app ->
-                      discoveryViewModel.openAppInfo(app)
-                    },
-                    onUninstallApp = { app ->
-                      discoveryViewModel.uninstallApp(app)
-                    },
-                    onForceStopApp = { app ->
-                      discoveryViewModel.forceStopApp(app)
-                    },
-                    unifiedDragState = unifiedDragState,
-                    onDropItemToDock = { placement, app, targetDockIndex ->
-                      activeSpace?.let { space ->
-                        spaceViewModel.moveAppFromHomeToDock(
-                          spaceId = space.id,
-                          placementId = placement.id,
-                          app = app,
-                          targetDockIndex = targetDockIndex
-                        )
-                      }
-                    }
-                  )
-                }
+                    .nestedScroll(nestedScrollConnection)
+                )
               }
             }
           }

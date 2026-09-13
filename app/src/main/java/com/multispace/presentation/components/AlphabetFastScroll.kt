@@ -88,8 +88,8 @@ fun AlphabetFastScroll(
       shadowElevation = 0.dp,
       modifier = Modifier
         .align(Alignment.CenterEnd)
-        .width(18.dp)
-        .height(350.dp)
+        .width(20.dp)
+        .height(480.dp)
         .onGloballyPositioned { coords ->
           totalHeightPx = coords.size.height.toFloat()
         }
@@ -139,6 +139,7 @@ fun AlphabetFastScroll(
       ) {
         alphabet.forEach { letter ->
           val isSelected = isDragging && currentLetter == letter
+          val isActive = activeLetters.contains(letter)
 
           Box(
             modifier = Modifier
@@ -150,18 +151,19 @@ fun AlphabetFastScroll(
             if (isSelected) {
               Box(
                 modifier = Modifier
-                  .size(12.dp)
+                  .size(13.dp)
                   .background(MaterialTheme.colorScheme.primary, CircleShape)
               )
             }
             Text(
               text = letter.toString(),
-              fontSize = 8.5.sp,
-              fontWeight = FontWeight.Bold,
-              color = if (isSelected) {
-                MaterialTheme.colorScheme.onPrimary
-              } else {
-                MaterialTheme.colorScheme.onSurface
+              fontSize = 9.sp,
+              fontWeight = if (isSelected || isActive) FontWeight.Bold else FontWeight.Medium,
+              lineHeight = 10.sp,
+              color = when {
+                isSelected -> MaterialTheme.colorScheme.onPrimary
+                isActive -> MaterialTheme.colorScheme.onSurface
+                else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
               },
               textAlign = TextAlign.Center
             )
