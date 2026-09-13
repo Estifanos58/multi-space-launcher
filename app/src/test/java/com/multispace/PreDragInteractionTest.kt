@@ -286,4 +286,34 @@ class PreDragInteractionTest {
     assertEquals("com.thirdparty.app", resolvedApp?.packageName)
     assertEquals("com.thirdparty.app.MainActivity", resolvedApp?.activityName)
   }
+
+  @Test
+  fun testPage0UnconstrainedDropTargetSlotResolution() {
+    val cols = 4
+    val gridRows = 6
+    val draggedSpanX = 1
+    val draggedSpanY = 1
+    val targetPage = 0
+
+    // Test dropping onto row 1 (slot 5 = row 1, col 1)
+    val candidateSlot = 5
+    val rawC = candidateSlot % cols
+    val rawR = candidateSlot / cols
+    val clampedC = rawC.coerceIn(0, maxOf(0, cols - draggedSpanX))
+    val clampedR = rawR.coerceIn(0, maxOf(0, gridRows - draggedSpanY))
+    val targetPos = clampedR * cols + clampedC
+
+    assertEquals("App target position must correspond to selected row and column", 5, targetPos)
+    assertEquals("App target row must be 1, not forced to last row", 1, clampedR)
+    assertEquals("App target column must be 1", 1, clampedC)
+
+    // Test dropping onto row 0 (slot 2 = row 0, col 2)
+    val topRowSlot = 2
+    val topC = (topRowSlot % cols).coerceIn(0, maxOf(0, cols - draggedSpanX))
+    val topR = (topRowSlot / cols).coerceIn(0, maxOf(0, gridRows - draggedSpanY))
+    val topPos = topR * cols + topC
+
+    assertEquals("App dropped on top row must remain on top row", 2, topPos)
+    assertEquals("App target row must be 0", 0, topR)
+  }
 }

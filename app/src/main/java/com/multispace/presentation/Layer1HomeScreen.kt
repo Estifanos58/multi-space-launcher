@@ -220,7 +220,6 @@ fun Layer1HomeScreen(
   var dragLifecycleState by remember { mutableStateOf(DragLifecycleState.IDLE) }
   val isDragging = (dragLifecycleState == DragLifecycleState.DRAGGING)
   var lastLongPressTimestamp by remember { mutableLongStateOf(0L) }
-  val lastRow = (gridRows - 1).coerceAtLeast(0)
 
   var draggedPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
   var resizingWidgetId by remember { mutableStateOf<String?>(null) }
@@ -504,18 +503,12 @@ fun Layer1HomeScreen(
     val draggedSpanX = if (draggedPlacement?.isWidget == true) draggedPlacement!!.spanX.coerceIn(1, cols) else 1
     val draggedSpanY = if (draggedPlacement?.isWidget == true) draggedPlacement!!.spanY.coerceIn(1, gridRows) else 1
     val candidateSlot = calculateSlotForPosition(targetPointerPos, draggedSpanX, draggedSpanY)
-    val effectiveCandidateSlot = if (pagerState.currentPage == 0 && draggedPlacement?.isWidget != true && draggedPlacement?.isFolder != true) {
-      val c = candidateSlot % cols
-      (lastRow * cols + c).coerceIn(0, (cols * gridRows) - 1)
-    } else {
-      candidateSlot
-    }
 
-    if (previewTargetSlot != effectiveCandidateSlot) {
-      previewTargetSlot = effectiveCandidateSlot
+    if (previewTargetSlot != candidateSlot) {
+      previewTargetSlot = candidateSlot
       AppLogger.i(
         AppLogger.Category.LAUNCHER,
-        "PREVIEW_TARGET: pointerY=${currentPointerPos.y} previewTargetSlot=$effectiveCandidateSlot targetPage=${pagerState.currentPage} targetPos=$effectiveCandidateSlot gridRows=$gridRows pageSize=$pageSize draggedPlacement.pageIndex=${draggedPlacement?.pageIndex} draggedPlacement.positionIndex=${draggedPlacement?.positionIndex}"
+        "PREVIEW_TARGET: pointerY=${currentPointerPos.y} previewTargetSlot=$candidateSlot targetPage=${pagerState.currentPage} targetPos=$candidateSlot gridRows=$gridRows pageSize=$pageSize draggedPlacement.pageIndex=${draggedPlacement?.pageIndex} draggedPlacement.positionIndex=${draggedPlacement?.positionIndex}"
       )
       haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
@@ -797,8 +790,7 @@ fun Layer1HomeScreen(
             val rawR = rawTargetPos / cols
             val clampedC = rawC.coerceIn(0, maxOf(0, cols - draggedSpanX))
             val clampedR = rawR.coerceIn(0, maxOf(0, gridRows - draggedSpanY))
-            val effectiveR = if (targetPage == 0 && !dragged.isWidget && !dragged.isFolder) lastRow else clampedR
-            val targetPos = effectiveR * cols + clampedC
+            val targetPos = clampedR * cols + clampedC
 
             AppLogger.i(
               AppLogger.Category.LAUNCHER,
@@ -1369,8 +1361,8 @@ fun Layer1HomeScreen(
       }
     }
 
-    // Tap-away dismiss scrim for pre-drag action overlay
-    if (activeActionPlacement != null && !isDragging) {
+    // Tap-away dismiss scrim for pre-drag action overlay (only shown when finger has been released without dragging)
+    if (activeActionPlacement != null && pendingDragPlacement == null && !isDragging) {
       Box(
         modifier = Modifier
           .fillMaxSize()
@@ -1387,7 +1379,7 @@ fun Layer1HomeScreen(
       )
     }
 
-    // Pre-drag floating action box overlay (rendered above the app/widget)
+    // Pre-drag floating action box overlay (rendered above the app/widget when action is active and not dragging)
     if (activeActionPlacement != null && !isDragging) {
       val targetPlacement = activeActionPlacement!!
       val targetRect = getPlacementFootprintRect(targetPlacement)
