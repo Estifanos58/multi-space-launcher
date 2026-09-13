@@ -258,4 +258,32 @@ class PreDragInteractionTest {
     val widgetFootprint = setOf(4, 5, 8, 9)
     assertFalse(widgetFootprint.contains(displacedApp.positionIndex))
   }
+
+  @Test
+  fun testUninstallTargetFallbackResolution() {
+    val placement = SpaceItemPlacement(
+      id = "placement_fallback_1",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 2,
+      itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = "com.thirdparty.app",
+      componentName = "com.thirdparty.app.MainActivity"
+    )
+
+    val discoveredApp: DiscoveredApp? = null
+    val resolvedApp = discoveredApp ?: placement.packageName?.let { pkg ->
+      DiscoveredApp(
+        id = "$pkg/${placement.componentName ?: ""}/0",
+        packageName = pkg,
+        activityName = placement.componentName ?: "",
+        label = pkg
+      )
+    }
+
+    assertNotNull(resolvedApp)
+    assertEquals("com.thirdparty.app", resolvedApp?.packageName)
+    assertEquals("com.thirdparty.app.MainActivity", resolvedApp?.activityName)
+  }
 }

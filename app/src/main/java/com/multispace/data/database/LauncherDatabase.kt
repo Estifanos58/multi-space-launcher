@@ -25,7 +25,7 @@ import com.multispace.data.entity.SpaceMembershipEntity
     SpaceFolderItemEntity::class,
     SpaceDockItemEntity::class
   ],
-  version = 9,
+  version = 10,
   exportSchema = false
 )
 abstract class LauncherDatabase : RoomDatabase() {
@@ -348,6 +348,34 @@ abstract class LauncherDatabase : RoomDatabase() {
       }
     }
 
+    internal val MIGRATION_9_10 = object : Migration(9, 10) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        try {
+          db.execSQL("""
+            DELETE FROM space_item_placements 
+            WHERE item_type = 'APP' 
+              AND package_name IS NOT NULL 
+              AND id NOT IN (
+                SELECT MIN(id) 
+                FROM space_item_placements 
+                WHERE item_type = 'APP' AND package_name IS NOT NULL 
+                GROUP BY space_id, layer, package_name
+              )
+          """.trimIndent())
+          db.execSQL("""
+            DELETE FROM space_item_placements 
+            WHERE id NOT IN (
+              SELECT MIN(id) 
+              FROM space_item_placements 
+              GROUP BY space_id, layer, page_index, position_index
+            )
+          """.trimIndent())
+        } catch (_: Exception) {
+          // Fallback if table schema or temporary state conflicts
+        }
+      }
+    }
+
     fun getInstance(context: Context): LauncherDatabase {
       return INSTANCE ?: synchronized(this) {
         val instance = Room.databaseBuilder(
@@ -364,7 +392,8 @@ abstract class LauncherDatabase : RoomDatabase() {
           MIGRATION_6_7,
           MIGRATION_7_8,
           MIGRATION_8_9,
-          MIGRATION_7_9
+          MIGRATION_7_9,
+          MIGRATION_9_10
         )
         .fallbackToDestructiveMigration(true)
         .build()

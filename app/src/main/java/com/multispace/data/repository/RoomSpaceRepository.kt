@@ -106,8 +106,17 @@ class RoomSpaceRepository(
           preferences.setActiveSpaceId(resolvedSpace.id)
         }
 
-        // Clean up any historical duplicate dock items in the default space
+        // Clean up any historical duplicate dock items and redundant placements in the default space
         cleanupDuplicateDockItems(Space.DEFAULT_SPACE_ID)
+        try {
+          val pruned = layoutDao.pruneDuplicatePlacements()
+          val prunedPositions = layoutDao.pruneDuplicatePositions()
+          if (pruned > 0 || prunedPositions > 0) {
+            AppLogger.i(AppLogger.Category.LAUNCHER, "Pruned duplicate placements ($pruned apps, $prunedPositions positions) from database")
+          }
+        } catch (e: Exception) {
+          AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to prune duplicate placements", e)
+        }
 
         // If the default space has no placements and no dock items yet, auto-initialize
         val defaultEntity = spaces.firstOrNull { it.id == Space.DEFAULT_SPACE_ID }
@@ -1421,14 +1430,15 @@ class RoomSpaceRepository(
       }
       val targetPosClamped = targetPosition.coerceIn(0, effectivePageSize - 1)
 
+      layoutDao.pruneDuplicatePlacements()
       var allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
 
-      // 1. Ensure all memberships have persistent placements in database
+      // 1. Ensure all memberships have persistent placements only if the home screen has never been populated
       val memberships = membershipDao.getMembershipsForSpace(spaceId).distinctBy { it.packageName }
       val placedPkgs = allHome.mapNotNull { it.packageName }.toSet()
       val missingMemberships = memberships.filter { !placedPkgs.contains(it.packageName) }
 
-      if (missingMemberships.isNotEmpty()) {
+      if (allHome.isEmpty() && missingMemberships.isNotEmpty()) {
         val occupiedPerPage = mutableMapOf<Int, MutableSet<Int>>()
         for (p in allHome) {
           occupiedPerPage.getOrPut(p.pageIndex) { mutableSetOf() }.add(p.positionIndex)

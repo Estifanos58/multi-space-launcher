@@ -11,13 +11,13 @@ import kotlinx.coroutines.flow.Flow
 interface SpaceLayoutDao {
 
   // --- Placements ---
-  @Query("SELECT * FROM space_item_placements WHERE space_id = :spaceId AND layer = :layer ORDER BY page_index ASC, position_index ASC")
+  @Query("SELECT * FROM space_item_placements WHERE space_id = :spaceId AND layer = :layer ORDER BY page_index ASC, position_index ASC LIMIT 250")
   fun getPlacementsForSpaceLayerFlow(spaceId: String, layer: Int): Flow<List<SpaceItemPlacementEntity>>
 
-  @Query("SELECT * FROM space_item_placements WHERE space_id = :spaceId AND layer = :layer ORDER BY page_index ASC, position_index ASC")
+  @Query("SELECT * FROM space_item_placements WHERE space_id = :spaceId AND layer = :layer ORDER BY page_index ASC, position_index ASC LIMIT 250")
   suspend fun getPlacementsForSpaceLayer(spaceId: String, layer: Int): List<SpaceItemPlacementEntity>
 
-  @Query("SELECT * FROM space_item_placements WHERE space_id = :spaceId ORDER BY layer ASC, page_index ASC, position_index ASC")
+  @Query("SELECT * FROM space_item_placements WHERE space_id = :spaceId ORDER BY layer ASC, page_index ASC, position_index ASC LIMIT 250")
   suspend fun getAllPlacementsForSpace(spaceId: String): List<SpaceItemPlacementEntity>
 
   @Query("SELECT * FROM space_item_placements WHERE id = :placementId")
@@ -49,6 +49,12 @@ interface SpaceLayoutDao {
 
   @Query("DELETE FROM space_item_placements WHERE folder_id = :folderId")
   suspend fun deletePlacementByFolderId(folderId: String)
+
+  @Query("DELETE FROM space_item_placements WHERE item_type = 'APP' AND package_name IS NOT NULL AND id NOT IN (SELECT MIN(id) FROM space_item_placements WHERE item_type = 'APP' AND package_name IS NOT NULL GROUP BY space_id, layer, package_name)")
+  suspend fun pruneDuplicatePlacements(): Int
+
+  @Query("DELETE FROM space_item_placements WHERE id NOT IN (SELECT MIN(id) FROM space_item_placements GROUP BY space_id, layer, page_index, position_index)")
+  suspend fun pruneDuplicatePositions(): Int
 
   // --- Folders ---
   @Query("SELECT * FROM space_folders WHERE space_id = :spaceId ORDER BY created_at ASC")
