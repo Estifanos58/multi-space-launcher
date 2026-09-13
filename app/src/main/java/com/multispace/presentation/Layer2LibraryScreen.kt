@@ -89,12 +89,13 @@ fun Layer2LibraryScreen(
   cachedCatalog: Layer2CachedCatalog? = null,
   gridState: LazyGridState = rememberLazyGridState(),
   sectionListState: LazyListState = rememberLazyListState(),
+  isSectionedAlphabeticalView: Boolean = false,
+  onToggleSectionedAlphabeticalView: () -> Unit = {},
   topBarModifier: Modifier = Modifier,
   modifier: Modifier = Modifier
 ) {
   var searchQuery by remember { mutableStateOf("") }
   var selectedAppForMenu by remember { mutableStateOf<DiscoveredApp?>(null) }
-  var isSectionedAlphabeticalView by rememberSaveable { mutableStateOf(false) }
 
   val context = LocalContext.current
   val usageTracker = remember(context) { AppUsageTracker.getInstance(context) }
@@ -226,47 +227,142 @@ fun Layer2LibraryScreen(
       .padding(top = AppDimens.Spacing8)
       .testTag("layer2_library_screen")
   ) {
-    // Top Bar with Back Arrow and Modern Search Bar
-    Row(
+    // Header section (Top Bar + Most Used Row + Divider): accepts topBarModifier for smooth downward drag
+    Column(
       modifier = Modifier
         .fillMaxWidth()
         .then(topBarModifier)
-        .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing4),
-      verticalAlignment = Alignment.CenterVertically
     ) {
-      Surface(
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        border = androidx.compose.foundation.BorderStroke(
-          AppDimens.BorderThin,
-          MaterialTheme.colorScheme.outlineVariant
-        ),
-        modifier = Modifier.size(44.dp)
+      // Top Bar with Back Arrow and Modern Search Bar
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = AppDimens.Spacing16, vertical = AppDimens.Spacing4),
+        verticalAlignment = Alignment.CenterVertically
       ) {
-        IconButton(
-          onClick = onCloseLayer2,
-          modifier = Modifier.fillMaxSize().testTag("layer2_back_button")
+        Surface(
+          shape = CircleShape,
+          color = MaterialTheme.colorScheme.surfaceContainer,
+          border = androidx.compose.foundation.BorderStroke(
+            AppDimens.BorderThin,
+            MaterialTheme.colorScheme.outlineVariant
+          ),
+          modifier = Modifier.size(44.dp)
         ) {
-          Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = "Back to Home",
-            tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.size(AppDimens.IconSm)
-          )
+          IconButton(
+            onClick = onCloseLayer2,
+            modifier = Modifier.fillMaxSize().testTag("layer2_back_button")
+          ) {
+            Icon(
+              imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+              contentDescription = "Back to Home",
+              tint = MaterialTheme.colorScheme.onSurface,
+              modifier = Modifier.size(AppDimens.IconSm)
+            )
+          }
         }
+
+        Spacer(modifier = Modifier.width(AppDimens.Spacing10))
+
+        ModernSearchField(
+          query = searchQuery,
+          onQueryChange = { searchQuery = it },
+          placeholder = "Search ${space.name} library...",
+          modifier = Modifier.weight(1f).testTag("layer2_search_input")
+        )
       }
 
-      Spacer(modifier = Modifier.width(AppDimens.Spacing10))
+      Spacer(modifier = Modifier.height(AppDimens.Spacing8))
 
-      ModernSearchField(
-        query = searchQuery,
-        onQueryChange = { searchQuery = it },
-        placeholder = "Search ${space.name} library...",
-        modifier = Modifier.weight(1f).testTag("layer2_search_input")
-      )
+      // 1. Most Used Apps Row (at the very top, ordered by usage/frequency)
+      if (resolvedMostUsedApps.isNotEmpty()) {
+        Column(
+          modifier = Modifier
+            .fillMaxWidth()
+            .testTag("layer2_most_used_section")
+        ) {
+          Text(
+            text = "Most Used",
+            style = MaterialTheme.typography.labelMedium.copy(
+              fontWeight = FontWeight.SemiBold,
+              letterSpacing = 0.5.sp
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            modifier = Modifier.padding(horizontal = AppDimens.Spacing20, vertical = AppDimens.Spacing2)
+          )
+
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(
+                start = AppDimens.Spacing16,
+                end = if (showAlphabetIndex) 28.dp else AppDimens.Spacing16,
+                top = AppDimens.Spacing4,
+                bottom = AppDimens.Spacing4
+              )
+              .testTag("layer2_most_used_row"),
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
+          ) {
+            resolvedMostUsedApps.forEach { app ->
+              Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                  .weight(1f)
+                  .clip(ShapeRoundMd)
+                  .combinedClickable(
+                    onClick = { onLaunchApp(app) },
+                    onLongClick = { selectedAppForMenu = app }
+                  )
+                .padding(vertical = AppDimens.Spacing4)
+                .testTag("layer2_most_used_app_${app.packageName}")
+            ) {
+              val bitmap = remember(app.id) { getBitmap(app) }
+              ThemedAppIcon(
+                app = app,
+                bitmap = bitmap,
+                appTheme = space.appTheme,
+                modifier = iconSizeModifier,
+                fallbackText = app.label.take(1).uppercase()
+              )
+
+              if (space.labelVisibility) {
+                Spacer(modifier = Modifier.height(AppDimens.Spacing4))
+                Text(
+                  text = app.label,
+                  style = MaterialTheme.typography.bodySmall,
+                  fontSize = 11.sp,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                  textAlign = TextAlign.Center,
+                  color = MaterialTheme.colorScheme.onSurface
+                )
+              }
+            }
+          }
+
+          // Pad empty slots if available apps are fewer than gridColumns to maintain consistent column width
+          val emptySlots = space.gridColumns - resolvedMostUsedApps.size
+          if (emptySlots > 0) {
+            repeat(emptySlots) {
+              Spacer(modifier = Modifier.weight(1f))
+            }
+          }
+        }
+
+        // Clear vertical padding and subtle/dim horizontal divider line separating Most Used from Alphabetical list
+        Spacer(modifier = Modifier.height(AppDimens.Spacing10))
+        HorizontalDivider(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppDimens.Spacing20)
+            .testTag("layer2_divider"),
+          thickness = 0.8.dp,
+          color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+        )
+        Spacer(modifier = Modifier.height(AppDimens.Spacing10))
+      }
     }
-
-    Spacer(modifier = Modifier.height(AppDimens.Spacing8))
+  }
 
     Box(
       modifier = Modifier
@@ -276,102 +372,14 @@ fun Layer2LibraryScreen(
       Column(
         modifier = Modifier.fillMaxSize()
       ) {
-        // 1. Most Used Apps Row (at the very top, ordered by usage/frequency)
-        if (resolvedMostUsedApps.isNotEmpty()) {
-          Column(
-            modifier = Modifier
-              .fillMaxWidth()
-              .testTag("layer2_most_used_section")
-          ) {
-            Text(
-              text = "Most Used",
-              style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.5.sp
-              ),
-              color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-              modifier = Modifier.padding(horizontal = AppDimens.Spacing20, vertical = AppDimens.Spacing2)
-            )
-
-            Row(
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                  start = AppDimens.Spacing16,
-                  end = if (showAlphabetIndex) 28.dp else AppDimens.Spacing16,
-                  top = AppDimens.Spacing4,
-                  bottom = AppDimens.Spacing4
-                )
-                .testTag("layer2_most_used_row"),
-              horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
-            ) {
-              resolvedMostUsedApps.forEach { app ->
-                Column(
-                  horizontalAlignment = Alignment.CenterHorizontally,
-                  modifier = Modifier
-                    .weight(1f)
-                    .clip(ShapeRoundMd)
-                    .combinedClickable(
-                      onClick = { onLaunchApp(app) },
-                      onLongClick = { selectedAppForMenu = app }
-                    )
-                    .padding(vertical = AppDimens.Spacing4)
-                    .testTag("layer2_most_used_app_${app.packageName}")
-                ) {
-                  val bitmap = remember(app.id) { getBitmap(app) }
-                  ThemedAppIcon(
-                    app = app,
-                    bitmap = bitmap,
-                    appTheme = space.appTheme,
-                    modifier = iconSizeModifier,
-                    fallbackText = app.label.take(1).uppercase()
-                  )
-
-                  if (space.labelVisibility) {
-                    Spacer(modifier = Modifier.height(AppDimens.Spacing4))
-                    Text(
-                      text = app.label,
-                      style = MaterialTheme.typography.bodySmall,
-                      fontSize = 11.sp,
-                      maxLines = 1,
-                      overflow = TextOverflow.Ellipsis,
-                      textAlign = TextAlign.Center,
-                      color = MaterialTheme.colorScheme.onSurface
-                    )
-                  }
-                }
-              }
-
-              // Pad empty slots if available apps are fewer than gridColumns to maintain consistent column width
-              val emptySlots = space.gridColumns - resolvedMostUsedApps.size
-              if (emptySlots > 0) {
-                repeat(emptySlots) {
-                  Spacer(modifier = Modifier.weight(1f))
-                }
-              }
-            }
-
-            // Clear vertical padding and subtle/dim horizontal divider line separating Most Used from Alphabetical list
-            Spacer(modifier = Modifier.height(AppDimens.Spacing10))
-            HorizontalDivider(
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = AppDimens.Spacing20)
-                .testTag("layer2_divider"),
-              thickness = 0.8.dp,
-              color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-            )
-            Spacer(modifier = Modifier.height(AppDimens.Spacing10))
-          }
-        }
-
         // 2. Alphabetical section (below Most Used row, normal alphabetical ordering)
         if (alphabeticalApps.isEmpty()) {
           Box(
             modifier = Modifier
               .fillMaxWidth()
               .weight(1f)
-              .navigationBarsPadding(),
+              .navigationBarsPadding()
+              .then(topBarModifier),
             contentAlignment = Alignment.Center
           ) {
             ModernEmptyState(
@@ -604,7 +612,7 @@ fun Layer2LibraryScreen(
             modifier = Modifier.size(24.dp)
           ) {
             IconButton(
-              onClick = { isSectionedAlphabeticalView = !isSectionedAlphabeticalView },
+              onClick = onToggleSectionedAlphabeticalView,
               modifier = Modifier
                 .fillMaxSize()
                 .testTag("layer2_alphabet_section_toggle")

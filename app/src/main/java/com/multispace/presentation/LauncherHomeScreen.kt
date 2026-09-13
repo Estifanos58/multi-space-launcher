@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -109,6 +110,7 @@ fun LauncherHomeScreen(
   var settleJob by remember { mutableStateOf<Job?>(null) }
   val layer2GridState = rememberLazyGridState()
   val layer2SectionListState = rememberLazyListState()
+  var isSectionedAlphabeticalView by rememberSaveable { mutableStateOf(false) }
 
   // Synchronize transition progress when activeLayerIndex changes externally
   LaunchedEffect(activeLayerIndex) {
@@ -239,11 +241,11 @@ fun LauncherHomeScreen(
       settleJob?.cancel()
       settleJob = coroutineScope.launch {
         isGestureActive = false
-        val flingThresholdPx = 800f
+        val flingThresholdPx = 500f
         val targetValue = when {
-          velocityY < -flingThresholdPx && currentProgress > 0.08f -> 1.0f
-          velocityY > flingThresholdPx && currentProgress < 0.92f -> 0.0f
-          currentProgress >= 0.5f -> 1.0f
+          velocityY < -flingThresholdPx && currentProgress > 0.02f -> 1.0f
+          velocityY > flingThresholdPx && currentProgress < 0.98f -> 0.0f
+          currentProgress >= 0.60f -> 1.0f
           else -> 0.0f
         }
 
@@ -271,20 +273,23 @@ fun LauncherHomeScreen(
     // Gesture detector for Layer 1 upward / downward continuous drag
     val layer1VelocityTracker = remember { VelocityTracker() }
     val isAnyDragActive = unifiedDragState.isDragging || unifiedDragState.lifecycleState != DragLifecycleState.IDLE
-    val layer2AccessMode = activeSpace?.layer2AccessMode ?: Space.ACCESS_MODE_DOCK_BUTTON
-    val isSwipeAllowed = layer2AccessMode == Space.ACCESS_MODE_SWIPE_UP
+    val useLayer2 = activeSpace?.useLayer2 ?: true
+    val isScrollMode = activeSpace?.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL
+    val isSwipeAllowed = useLayer2
 
-    val layer1DragModifier = Modifier.pointerInput(screenHeightPx, isAnyDragActive, isSwipeAllowed) {
+    val layer1DragModifier = Modifier.pointerInput(screenHeightPx, isAnyDragActive, isSwipeAllowed, isScrollMode) {
       if (isAnyDragActive || !isSwipeAllowed) return@pointerInput
       detectVerticalDragGestures(
         onDragStart = { offset ->
-          // When Layer 1 is resting at 0, only initiate swipe up from the bottom 35% of the screen (dock/navigation region)
-          if (layerTransitionProgress <= 0.001f && offset.y < screenHeightPx * 0.65f) {
+          // In scrolling grid mode, only initiate swipe up from the bottom 35% of the screen so it doesn't conflict with vertical grid scrolling
+          if (isScrollMode && layerTransitionProgress <= 0.001f && offset.y < screenHeightPx * 0.65f) {
             return@detectVerticalDragGestures
           }
           settleJob?.cancel()
           layer1VelocityTracker.resetTracking()
-          isGestureActive = true
+          if (layerTransitionProgress > 0.001f) {
+            isGestureActive = true
+          }
         },
         onDragEnd = {
           if (isGestureActive) {
@@ -301,7 +306,10 @@ fun LauncherHomeScreen(
         },
         onVerticalDrag = { change, dragAmount ->
           if (!isGestureActive) {
-            if (layerTransitionProgress <= 0.001f && change.position.y < screenHeightPx * 0.65f) {
+            if (isScrollMode && layerTransitionProgress <= 0.001f && change.position.y < screenHeightPx * 0.65f) {
+              return@detectVerticalDragGestures
+            }
+            if (layerTransitionProgress <= 0.001f && dragAmount > 0f) {
               return@detectVerticalDragGestures
             }
             settleJob?.cancel()
@@ -326,13 +334,20 @@ fun LauncherHomeScreen(
           isGestureActive = true
         },
         onDragEnd = {
+          isGestureActive = false
           val velocityY = layer2HeaderVelocityTracker.calculateVelocity().y
           settleTransition(layerTransitionProgress, velocityY)
         },
         onDragCancel = {
+          isGestureActive = false
           settleTransition(layerTransitionProgress, 0f)
         },
         onVerticalDrag = { change, dragAmount ->
+          if (!isGestureActive) {
+            settleJob?.cancel()
+            layer2HeaderVelocityTracker.resetTracking()
+            isGestureActive = true
+          }
           layer2HeaderVelocityTracker.addPosition(change.uptimeMillis, change.position)
           val progressDelta = -dragAmount / screenHeightPx
           layerTransitionProgress = (layerTransitionProgress + progressDelta).coerceIn(0f, 1f)
@@ -342,14 +357,14 @@ fun LauncherHomeScreen(
     }
 
     // Nested scroll coordinator ensuring Layer 2 internal LazyVerticalGrid scrolling coexists seamlessly
-    val nestedScrollConnection = remember(screenHeightPx) {
+    val nestedScrollConnection = remember(screenHeightPx, isSectionedAlphabeticalView) {
       object : NestedScrollConnection {
         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
           val deltaY = available.y
           val currentProgress = layerTransitionProgress
 
           // If transition is already in progress (0 < progress < 1), intercept all vertical drags
-          if (currentProgress in 0.001f..0.999f) {
+          if (currentProgress in 0.0001f..0.9999f) {
             settleJob?.cancel()
             isGestureActive = true
             val progressDelta = -deltaY / screenHeightPx
@@ -359,11 +374,11 @@ fun LauncherHomeScreen(
 
           // If Layer 2 is fully open and user drags DOWN while already at top of grid or section list:
           if (currentProgress >= 0.999f && deltaY > 0f) {
-            val isGridAtTop = layer2GridState.firstVisibleItemIndex == 0 &&
-                          layer2GridState.firstVisibleItemScrollOffset == 0
-            val isListAtTop = layer2SectionListState.firstVisibleItemIndex == 0 &&
-                          layer2SectionListState.firstVisibleItemScrollOffset == 0
-            val isAtTop = isGridAtTop && isListAtTop
+            val isGridAtTop = !layer2GridState.canScrollBackward ||
+                (layer2GridState.firstVisibleItemIndex == 0 && layer2GridState.firstVisibleItemScrollOffset <= 0)
+            val isListAtTop = !layer2SectionListState.canScrollBackward ||
+                (layer2SectionListState.firstVisibleItemIndex == 0 && layer2SectionListState.firstVisibleItemScrollOffset <= 0)
+            val isAtTop = if (isSectionedAlphabeticalView) isListAtTop else isGridAtTop
             if (isAtTop) {
               settleJob?.cancel()
               isGestureActive = true
@@ -396,7 +411,7 @@ fun LauncherHomeScreen(
 
         override suspend fun onPreFling(available: Velocity): Velocity {
           val currentProgress = layerTransitionProgress
-          if (currentProgress in 0.001f..0.999f) {
+          if (isGestureActive || currentProgress in 0.0001f..0.9999f) {
             settleTransition(currentProgress, available.y)
             return available
           }
@@ -405,7 +420,7 @@ fun LauncherHomeScreen(
 
         override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
           val currentProgress = layerTransitionProgress
-          if (currentProgress in 0.001f..0.999f || (available.y > 0f && currentProgress >= 0.999f)) {
+          if (isGestureActive || currentProgress in 0.0001f..0.9999f || (available.y > 0f && currentProgress >= 0.999f)) {
             settleTransition(currentProgress, available.y)
             return available
           }
@@ -897,6 +912,8 @@ fun LauncherHomeScreen(
                   cachedCatalog = layer2CachedCatalog,
                   gridState = layer2GridState,
                   sectionListState = layer2SectionListState,
+                  isSectionedAlphabeticalView = isSectionedAlphabeticalView,
+                  onToggleSectionedAlphabeticalView = { isSectionedAlphabeticalView = !isSectionedAlphabeticalView },
                   topBarModifier = layer2HeaderDragModifier,
                   modifier = Modifier
                     .fillMaxSize()
