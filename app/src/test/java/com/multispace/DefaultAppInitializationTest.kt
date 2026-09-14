@@ -195,10 +195,27 @@ class DefaultAppInitializationTest {
     )
 
     val page0Apps = result.placements.filter { it.pageIndex == 0 && it.itemType == com.multispace.domain.model.SpaceItemPlacement.ITEM_TYPE_APP }
-    assertTrue("Page 0 should have apps placed", page0Apps.isNotEmpty())
+    val page0Widgets = result.placements.filter { it.pageIndex == 0 && it.itemType == com.multispace.domain.model.SpaceItemPlacement.ITEM_TYPE_WIDGET }
+
+    assertEquals("Page 0 should have exactly cols apps by default", 4, page0Apps.size)
     page0Apps.forEach { appPlacement ->
       val row = appPlacement.positionIndex / 4
       assertEquals("Page 0 apps in Galaxy Curated must be placed at the bottom row (row 4)", 4, row)
+    }
+
+    // Verify no app is laid on a widget
+    val widgetSlots = mutableSetOf<Int>()
+    page0Widgets.forEach { w ->
+      val r = w.positionIndex / 4
+      val c = w.positionIndex % 4
+      for (dr in 0 until w.spanY) {
+        for (dc in 0 until w.spanX) {
+          widgetSlots.add((r + dr) * 4 + (c + dc))
+        }
+      }
+    }
+    page0Apps.forEach { app ->
+      assertFalse("No app may be placed on a widget slot", widgetSlots.contains(app.positionIndex))
     }
   }
 
@@ -214,10 +231,59 @@ class DefaultAppInitializationTest {
     )
 
     val page0Apps = result.placements.filter { it.pageIndex == 0 && it.itemType == com.multispace.domain.model.SpaceItemPlacement.ITEM_TYPE_APP }
-    assertTrue("Page 0 should have apps placed", page0Apps.isNotEmpty())
+    assertEquals("Page 0 should have exactly cols apps by default", 4, page0Apps.size)
     page0Apps.forEach { appPlacement ->
       val row = appPlacement.positionIndex / 4
       assertEquals("All Page 0 apps in Classic Grid must be placed on the last row (row 4)", 4, row)
+    }
+  }
+
+  @Test
+  fun testAllPresetsDefaultPage0AppsEqualToColumnsAndNeverOverlapsWidgets() {
+    val colsList = listOf(3, 4, 5)
+    val allPresets = listOf(
+      com.multispace.domain.model.Space.PRESET_DEFAULT,
+      com.multispace.domain.model.Space.PRESET_PIXEL,
+      com.multispace.domain.model.Space.PRESET_CLASSIC,
+      com.multispace.domain.model.Space.PRESET_MINIMAL,
+      com.multispace.domain.model.Space.PRESET_PRODUCTIVITY,
+      com.multispace.domain.model.Space.PRESET_COMPACT
+    )
+
+    for (presetId in allPresets) {
+      val preset = com.multispace.domain.model.LayoutPreset.getById(presetId)
+      for (cols in colsList) {
+        val result = com.multispace.domain.model.PresetLayoutHelper.buildInitialLayout(
+          spaceId = "test_space",
+          preset = preset,
+          gridColumns = cols,
+          availableApps = installedApps,
+          dockCapacity = cols
+        )
+
+        val page0Apps = result.placements.filter { it.pageIndex == 0 && it.itemType == com.multispace.domain.model.SpaceItemPlacement.ITEM_TYPE_APP }
+        val page0Widgets = result.placements.filter { it.pageIndex == 0 && it.itemType == com.multispace.domain.model.SpaceItemPlacement.ITEM_TYPE_WIDGET }
+
+        assertEquals("Preset $presetId with $cols cols must have $cols apps on Page 0", cols, page0Apps.size)
+        page0Apps.forEach { appPlacement ->
+          val row = appPlacement.positionIndex / cols
+          assertEquals("Preset $presetId apps on Page 0 must be placed at the bottom row (row 4)", 4, row)
+        }
+
+        val widgetSlots = mutableSetOf<Int>()
+        page0Widgets.forEach { w ->
+          val r = w.positionIndex / cols
+          val c = w.positionIndex % cols
+          for (dr in 0 until w.spanY) {
+            for (dc in 0 until w.spanX) {
+              widgetSlots.add((r + dr) * cols + (c + dc))
+            }
+          }
+        }
+        page0Apps.forEach { app ->
+          assertFalse("Preset $presetId: no app may be placed on a widget slot", widgetSlots.contains(app.positionIndex))
+        }
+      }
     }
   }
 }

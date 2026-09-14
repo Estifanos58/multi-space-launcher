@@ -118,14 +118,8 @@ object PresetLayoutHelper {
           spanY = 1,
           customWidgetType = SpaceItemPlacement.WIDGET_QUICK_SEARCH
         )
-        // Row 4: Curated apps at the bottom
-        val curatedCount = when (cols) {
-          3 -> 3
-          4 -> 4
-          5 -> 5
-          else -> 5
-        }
-        for (c in 0 until curatedCount) {
+        // Row 4: Curated apps at the bottom (strictly cols count)
+        for (c in 0 until cols) {
           if (appCursor < desktopPool.size) {
             addApp(page = 0, row = 4, col = c, app = desktopPool[appCursor++])
           }
@@ -191,9 +185,8 @@ object PresetLayoutHelper {
           customWidgetType = SpaceItemPlacement.WIDGET_CLOCK_DATE
         )
         // Rows 1, 2, 3: empty breathing room
-        // Row 4: 3 sparse apps at the bottom
-        val minApps = minOf(3, cols)
-        for (c in 0 until minApps) {
+        // Row 4: Apps placed strictly on the last row (cols count)
+        for (c in 0 until cols) {
           if (appCursor < desktopPool.size) {
             addApp(page = 0, row = 4, col = c, app = desktopPool[appCursor++])
           }

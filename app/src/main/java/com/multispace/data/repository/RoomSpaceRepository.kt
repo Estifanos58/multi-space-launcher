@@ -649,19 +649,43 @@ class RoomSpaceRepository(
         // the user's custom app placements or dock arrangement.
         val existingPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
         if (existingPlacements.isEmpty()) {
-          // Only generate default layout if there are no existing placements
+          // Only generate default layout if there are no existing placements.
+          // Page 0 strictly gets cols apps on the bottom row; remaining apps on Page 1+.
           val pageSize = (gridColumns * 5).coerceAtLeast(1)
-          val homeEntities = uniqueUpdatedApps.mapIndexed { idx, app ->
-            SpaceItemPlacementEntity(
-              id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
-              spaceId = spaceId,
-              layer = SpaceItemPlacement.LAYER_HOME,
-              pageIndex = idx / pageSize,
-              positionIndex = idx % pageSize,
-              itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-              packageName = app.packageName,
-              componentName = app.activityName,
-              userHandleId = app.userHandleId
+          val lastRow = 4
+          val page0Count = minOf(gridColumns, uniqueUpdatedApps.size)
+          val homeEntities = mutableListOf<SpaceItemPlacementEntity>()
+          for (i in 0 until page0Count) {
+            val app = uniqueUpdatedApps[i]
+            homeEntities.add(
+              SpaceItemPlacementEntity(
+                id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+                spaceId = spaceId,
+                layer = SpaceItemPlacement.LAYER_HOME,
+                pageIndex = 0,
+                positionIndex = lastRow * gridColumns + i,
+                itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+                packageName = app.packageName,
+                componentName = app.activityName,
+                userHandleId = app.userHandleId
+              )
+            )
+          }
+          for (i in page0Count until uniqueUpdatedApps.size) {
+            val app = uniqueUpdatedApps[i]
+            val rem = i - page0Count
+            homeEntities.add(
+              SpaceItemPlacementEntity(
+                id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+                spaceId = spaceId,
+                layer = SpaceItemPlacement.LAYER_HOME,
+                pageIndex = 1 + (rem / pageSize),
+                positionIndex = rem % pageSize,
+                itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+                packageName = app.packageName,
+                componentName = app.activityName,
+                userHandleId = app.userHandleId
+              )
             )
           }
           layoutDao.insertPlacements(homeEntities)
@@ -679,17 +703,25 @@ class RoomSpaceRepository(
             layoutDao.deletePlacementById(p.id)
           }
 
-          // 2. Add placements for newly added apps into empty slots or trailing pages
+          // 2. Add placements for newly added apps into empty slots on trailing pages (Page 1+)
           val newlyAddedApps = uniqueUpdatedApps.filter { !placedPkgSet.contains(it.packageName) }
           if (newlyAddedApps.isNotEmpty()) {
             val remainingPlacements = existingPlacements.filter { !placementsToRemove.any { r -> r.id == it.id } }
             val pageSize = (gridColumns * 5).coerceAtLeast(1)
             val occupiedPerPage = mutableMapOf<Int, MutableSet<Int>>()
             for (p in remainingPlacements) {
-              occupiedPerPage.getOrPut(p.pageIndex) { mutableSetOf() }.add(p.positionIndex)
+              val sX = if (p.itemType == SpaceItemPlacement.ITEM_TYPE_WIDGET) p.spanX.coerceIn(1, gridColumns) else 1
+              val sY = if (p.itemType == SpaceItemPlacement.ITEM_TYPE_WIDGET) p.spanY.coerceIn(1, 5) else 1
+              val r = p.positionIndex / gridColumns
+              val c = p.positionIndex % gridColumns
+              for (dr in 0 until sY) {
+                for (dc in 0 until sX) {
+                  occupiedPerPage.getOrPut(p.pageIndex) { mutableSetOf() }.add((r + dr) * gridColumns + (c + dc))
+                }
+              }
             }
 
-            var curPage = 0
+            var curPage = 1
             var curPos = 0
             val newEntities = mutableListOf<SpaceItemPlacementEntity>()
             for (app in newlyAddedApps) {
@@ -1321,19 +1353,40 @@ class RoomSpaceRepository(
     val cols = space?.gridColumns ?: Space.DEFAULT_GRID_COLUMNS
     val pageSize = cols * 5 // standard rows per page
 
-    val newPlacements = distinctMemberships.mapIndexed { index, m ->
-      val page = index / pageSize
-      val pos = index % pageSize
-      SpaceItemPlacementEntity(
-        id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
-        spaceId = spaceId,
-        layer = SpaceItemPlacement.LAYER_HOME,
-        pageIndex = page,
-        positionIndex = pos,
-        itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-        packageName = m.packageName,
-        componentName = m.componentName,
-        userHandleId = m.userHandleId
+    val lastRow = 4
+    val page0Count = minOf(cols, distinctMemberships.size)
+    val newPlacements = mutableListOf<SpaceItemPlacementEntity>()
+    for (i in 0 until page0Count) {
+      val m = distinctMemberships[i]
+      newPlacements.add(
+        SpaceItemPlacementEntity(
+          id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+          spaceId = spaceId,
+          layer = SpaceItemPlacement.LAYER_HOME,
+          pageIndex = 0,
+          positionIndex = lastRow * cols + i,
+          itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+          packageName = m.packageName,
+          componentName = m.componentName,
+          userHandleId = m.userHandleId
+        )
+      )
+    }
+    for (i in page0Count until distinctMemberships.size) {
+      val m = distinctMemberships[i]
+      val rem = i - page0Count
+      newPlacements.add(
+        SpaceItemPlacementEntity(
+          id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
+          spaceId = spaceId,
+          layer = SpaceItemPlacement.LAYER_HOME,
+          pageIndex = 1 + (rem / pageSize),
+          positionIndex = rem % pageSize,
+          itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+          packageName = m.packageName,
+          componentName = m.componentName,
+          userHandleId = m.userHandleId
+        )
       )
     }
     layoutDao.insertPlacements(newPlacements)
@@ -1428,9 +1481,17 @@ class RoomSpaceRepository(
       if (missingMemberships.isNotEmpty()) {
         val occupiedPerPage = mutableMapOf<Int, MutableSet<Int>>()
         for (p in allHome) {
-          occupiedPerPage.getOrPut(p.pageIndex) { mutableSetOf() }.add(p.positionIndex)
+          val sX = if (p.itemType == SpaceItemPlacement.ITEM_TYPE_WIDGET) p.spanX.coerceIn(1, cols) else 1
+          val sY = if (p.itemType == SpaceItemPlacement.ITEM_TYPE_WIDGET) p.spanY.coerceIn(1, 5) else 1
+          val r = p.positionIndex / cols
+          val c = p.positionIndex % cols
+          for (dr in 0 until sY) {
+            for (dc in 0 until sX) {
+              occupiedPerPage.getOrPut(p.pageIndex) { mutableSetOf() }.add((r + dr) * cols + (c + dc))
+            }
+          }
         }
-        var curPage = 0
+        var curPage = 1
         var curPos = 0
         val bootstrapped = mutableListOf<SpaceItemPlacementEntity>()
         for (m in missingMemberships) {

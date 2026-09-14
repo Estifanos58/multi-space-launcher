@@ -165,7 +165,8 @@ fun Layer1HomeScreen(
     // Authoritative Layer 1 placements:
     // When placements exist in Room, honor them directly (preserving preset curation, widgets, and user drag-and-drop moves).
     // Never auto-inject unplaced apps or dock apps onto Page 0 over widgets or curated empty space.
-    // Apps on the first page (Page 0) are guaranteed to be positioned on the last row.
+    // CRITICAL: Preset layouts place initial Page 0 apps at the bottom row (cols count),
+    // and users can freely drag them anywhere on the page, BUT NO APP MAY EVER BE LAID ON A WIDGET!
     val effectivePlacements = remember(placements, allApps, space.id, pageSize, gridRows, cols) {
       val basePlacements = if (placements.isNotEmpty()) {
         val seenAppPkgs = mutableSetOf<String>()
@@ -184,31 +185,139 @@ fun Layer1HomeScreen(
         }
         deduplicated
       } else {
-        // Fallback only if there are absolutely NO placements in Room yet
-        allApps.distinctBy { it.packageName }.mapIndexed { idx, app ->
-          SpaceItemPlacement(
-            id = "fallback:${app.packageName}",
-            spaceId = space.id,
-            layer = SpaceItemPlacement.LAYER_HOME,
-            pageIndex = idx / pageSize,
-            positionIndex = idx % pageSize,
-            itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-            packageName = app.packageName,
-            componentName = app.activityName,
-            userHandleId = app.userHandleId
+        // Fallback only if there are absolutely NO placements in Room yet.
+        // Default layout: exactly cols apps on Page 0 at the bottom row (lastRow * cols + i)
+        val lastRow = (gridRows - 1).coerceAtLeast(0)
+        val distinctApps = allApps.distinctBy { it.packageName }
+        val page0Count = minOf(cols, distinctApps.size)
+        val fallbackList = mutableListOf<SpaceItemPlacement>()
+        for (i in 0 until page0Count) {
+          val app = distinctApps[i]
+          fallbackList.add(
+            SpaceItemPlacement(
+              id = "fallback:${app.packageName}",
+              spaceId = space.id,
+              layer = SpaceItemPlacement.LAYER_HOME,
+              pageIndex = 0,
+              positionIndex = lastRow * cols + i,
+              itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+              packageName = app.packageName,
+              componentName = app.activityName,
+              userHandleId = app.userHandleId
+            )
           )
+        }
+        for (i in page0Count until distinctApps.size) {
+          val app = distinctApps[i]
+          val rem = i - page0Count
+          fallbackList.add(
+            SpaceItemPlacement(
+              id = "fallback:${app.packageName}",
+              spaceId = space.id,
+              layer = SpaceItemPlacement.LAYER_HOME,
+              pageIndex = 1 + (rem / pageSize),
+              positionIndex = rem % pageSize,
+              itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+              packageName = app.packageName,
+              componentName = app.activityName,
+              userHandleId = app.userHandleId
+            )
+          )
+        }
+        fallbackList
+      }
+
+      // CRITICAL GUARANTEE: NO APP MAY EVER BE LAID ON A WIDGET!
+      val widgetSlotsByPage = mutableMapOf<Int, MutableSet<Int>>()
+      for (p in basePlacements) {
+        if (p.isWidget) {
+          val r = (p.positionIndex / cols).coerceIn(0, gridRows - 1)
+          val c = (p.positionIndex % cols).coerceIn(0, cols - 1)
+          val sX = p.spanX.coerceIn(1, cols - c)
+          val sY = p.spanY.coerceIn(1, gridRows - r)
+          for (dr in 0 until sY) {
+            for (dc in 0 until sX) {
+              widgetSlotsByPage.getOrPut(p.pageIndex) { mutableSetOf() }.add((r + dr) * cols + (c + dc))
+            }
+          }
         }
       }
 
       val lastRow = (gridRows - 1).coerceAtLeast(0)
-      basePlacements.map { placement ->
-        if (placement.pageIndex == 0 && !placement.isWidget && !placement.isFolder) {
-          val col = placement.positionIndex % cols
-          placement.copy(positionIndex = lastRow * cols + col)
-        } else {
-          placement
+      val resolvedList = mutableListOf<SpaceItemPlacement>()
+      val occupiedSlotsByPage = mutableMapOf<Int, MutableSet<Int>>()
+
+      // 1. Keep all widgets and folders intact
+      for (p in basePlacements) {
+        if (p.isWidget || p.isFolder) {
+          resolvedList.add(p)
+          val r = (p.positionIndex / cols).coerceIn(0, gridRows - 1)
+          val c = (p.positionIndex % cols).coerceIn(0, cols - 1)
+          val sX = if (p.isWidget) p.spanX.coerceIn(1, cols - c) else 1
+          val sY = if (p.isWidget) p.spanY.coerceIn(1, gridRows - r) else 1
+          for (dr in 0 until sY) {
+            for (dc in 0 until sX) {
+              occupiedSlotsByPage.getOrPut(p.pageIndex) { mutableSetOf() }.add((r + dr) * cols + (c + dc))
+            }
+          }
         }
       }
+
+      // 2. Validate and place apps: never allow an app on a widget
+      val apps = basePlacements.filter { !it.isWidget && !it.isFolder }
+      for (app in apps) {
+        val page = app.pageIndex
+        val pos = app.positionIndex
+        val isCoveredByWidget = widgetSlotsByPage[page]?.contains(pos) == true
+        val isSlotTaken = occupiedSlotsByPage[page]?.contains(pos) == true
+
+        if (!isCoveredByWidget && !isSlotTaken) {
+          // Valid placement: can be anywhere the user placed it, as long as it is not on a widget!
+          resolvedList.add(app)
+          occupiedSlotsByPage.getOrPut(page) { mutableSetOf() }.add(pos)
+        } else {
+          // Relocate app away from widget or collision
+          var placed = false
+          if (page == 0) {
+            // If on Page 0: default to the bottom row first
+            for (c in 0 until cols) {
+              val candidatePos = lastRow * cols + c
+              val onWidget = widgetSlotsByPage[0]?.contains(candidatePos) == true
+              val taken = occupiedSlotsByPage[0]?.contains(candidatePos) == true
+              if (!onWidget && !taken) {
+                val relocated = app.copy(pageIndex = 0, positionIndex = candidatePos)
+                resolvedList.add(relocated)
+                occupiedSlotsByPage.getOrPut(0) { mutableSetOf() }.add(candidatePos)
+                placed = true
+                break
+              }
+            }
+          }
+          if (!placed) {
+            // Find first available non-widget slot on Page 1 or beyond
+            var searchPage = maxOf(1, page)
+            var searchPos = 0
+            while (!placed) {
+              val onWidget = widgetSlotsByPage[searchPage]?.contains(searchPos) == true
+              val taken = occupiedSlotsByPage[searchPage]?.contains(searchPos) == true
+              if (!onWidget && !taken) {
+                val relocated = app.copy(pageIndex = searchPage, positionIndex = searchPos)
+                resolvedList.add(relocated)
+                occupiedSlotsByPage.getOrPut(searchPage) { mutableSetOf() }.add(searchPos)
+                placed = true
+              } else {
+                searchPos++
+                if (searchPos >= pageSize) {
+                  searchPage++
+                  searchPos = 0
+                }
+              }
+            }
+          }
+        }
+      }
+
+      resolvedList
     }
 
   val dragSlopPx = with(density) { 8.dp.toPx() }
@@ -523,29 +632,48 @@ fun Layer1HomeScreen(
 
     val draggedSpanX = if (item?.isWidget == true) item.spanX.coerceIn(1, cols) else 1
     val draggedSpanY = if (item?.isWidget == true) item.spanY.coerceIn(1, gridRows) else 1
-    val candidateSlot = calculateSlotForPosition(targetPointerPos, draggedSpanX, draggedSpanY)
-
-    if (previewTargetSlot != candidateSlot) {
-      previewTargetSlot = candidateSlot
-      AppLogger.i(
-        AppLogger.Category.LAUNCHER,
-        "PREVIEW_TARGET: pointerPos=$pointerPos previewTargetSlot=$candidateSlot targetPage=${pagerState.currentPage} targetPos=$candidateSlot gridRows=$gridRows pageSize=$pageSize draggedPlacement.pageIndex=${item?.pageIndex} draggedPlacement.positionIndex=${item?.positionIndex}"
-      )
-      haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-    }
-
     val targetPage = pagerState.currentPage
     val isApp = item?.let { !it.isWidget && !it.isFolder } == true
+    val candidateSlot = calculateSlotForPosition(targetPointerPos, draggedSpanX, draggedSpanY)
+
+    // Check if candidateSlot is covered by a widget on targetPage
+    val isCandidateOverWidget = if (isApp) {
+      effectivePlacements.any { other ->
+        if (other.isWidget && (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL || other.pageIndex == targetPage)) {
+          val r = (other.positionIndex / cols).coerceIn(0, gridRows - 1)
+          val c = (other.positionIndex % cols).coerceIn(0, cols - 1)
+          val sX = other.spanX.coerceIn(1, cols - c)
+          val sY = other.spanY.coerceIn(1, gridRows - r)
+          val targetR = candidateSlot / cols
+          val targetC = candidateSlot % cols
+          targetC in c until (c + sX) && targetR in r until (r + sY)
+        } else false
+      }
+    } else false
+
+    val validCandidateSlot = if (isCandidateOverWidget) null else candidateSlot
+
+    if (previewTargetSlot != validCandidateSlot) {
+      previewTargetSlot = validCandidateSlot
+      AppLogger.i(
+        AppLogger.Category.LAUNCHER,
+        "PREVIEW_TARGET: pointerPos=$pointerPos previewTargetSlot=$validCandidateSlot targetPage=$targetPage targetPos=$validCandidateSlot gridRows=$gridRows pageSize=$pageSize isCandidateOverWidget=$isCandidateOverWidget"
+      )
+      if (validCandidateSlot != null) {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+      }
+    }
+
     if (isApp) {
-      val hovered = findItemAtOffset(pointerPos, targetPage)?.takeIf { it.id != item?.id }
+      val hovered = (findItemAtOffset(pointerPos, targetPage)?.takeIf { it.id != item?.id && !it.isWidget }
         ?: effectivePlacements.firstOrNull { other ->
-          other.id != item?.id &&
+          other.id != item?.id && !other.isWidget &&
           (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL || other.pageIndex == targetPage) &&
           (
             getPlacementFootprintRect(other)?.contains(pointerPos) == true ||
             cellBounds[other.id]?.contains(pointerPos) == true
           )
-        }
+        })
       if (hovered != null && targetHoverPlacement?.id != hovered.id) {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
       }
@@ -888,13 +1016,36 @@ fun Layer1HomeScreen(
         val clampedR = rawR.coerceIn(0, maxOf(0, gridRows - draggedSpanY))
         val targetPos = clampedR * cols + clampedC
 
+        val isDraggedApp = !dragged.isWidget && !dragged.isFolder
+        val isTargetOverWidget = if (isDraggedApp) {
+          effectivePlacements.any { other ->
+            if (other.isWidget && (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL || other.pageIndex == targetPage)) {
+              val r = (other.positionIndex / cols).coerceIn(0, gridRows - 1)
+              val c = (other.positionIndex % cols).coerceIn(0, cols - 1)
+              val sX = other.spanX.coerceIn(1, cols - c)
+              val sY = other.spanY.coerceIn(1, gridRows - r)
+              val targetR = targetPos / cols
+              val targetC = targetPos % cols
+              targetC in c until (c + sX) && targetR in r until (r + sY)
+            } else false
+          }
+        } else false
+
+        if (isDraggedApp && isTargetOverWidget) {
+          AppLogger.w(
+            AppLogger.Category.LAUNCHER,
+            "REJECT_DROP: App ${dragged.packageName} cannot be dropped onto widget at slot $targetPos on page $targetPage"
+          )
+          cleanupDragState()
+          return
+        }
+
         AppLogger.i(
           AppLogger.Category.LAUNCHER,
           "FINAL_DROP: dropPos=$dropPos previewTargetSlot=$previewTargetSlot slotAtDrop=$slotAtDrop targetPage=$targetPage targetPos=$targetPos gridRows=$gridRows pageSize=$pageSize dragged.pageIndex=${dragged.pageIndex} dragged.positionIndex=${dragged.positionIndex}"
         )
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
 
-        val isDraggedApp = !dragged.isWidget && !dragged.isFolder
         if (isDraggedApp && targetHoverPlacement != null) {
           val targetPlacement = targetHoverPlacement!!.takeIf {
             it.id != dragged.id && (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL || it.pageIndex == targetPage)
@@ -1201,8 +1352,8 @@ fun Layer1HomeScreen(
               val coveredSlots = remember(otherPlacements, cols, gridRows) {
                 val set = mutableSetOf<Int>()
                 for (item in otherPlacements) {
-                  val r = item.positionIndex / cols
-                  val c = item.positionIndex % cols
+                  val r = (item.positionIndex / cols).coerceIn(0, (gridRows - 1).coerceAtLeast(0))
+                  val c = (item.positionIndex % cols).coerceIn(0, (cols - 1).coerceAtLeast(0))
                   val sX = if (item.isWidget) item.spanX.coerceIn(1, cols - c) else 1
                   val sY = if (item.isWidget) item.spanY.coerceIn(1, gridRows - r) else 1
                   for (dr in 0 until sY) {
@@ -1251,8 +1402,8 @@ fun Layer1HomeScreen(
 
               // 2. Placed items: apps, folders, and multi-span widgets
               for (item in otherPlacements) {
-                val r = item.positionIndex / cols
-                val c = item.positionIndex % cols
+                val r = (item.positionIndex / cols).coerceIn(0, (gridRows - 1).coerceAtLeast(0))
+                val c = (item.positionIndex % cols).coerceIn(0, (cols - 1).coerceAtLeast(0))
                 val sX = if (item.isWidget) item.spanX.coerceIn(1, cols - c) else 1
                 val sY = if (item.isWidget) item.spanY.coerceIn(1, gridRows - r) else 1
                 val leftDp = (cellWidth + appSpacing) * c

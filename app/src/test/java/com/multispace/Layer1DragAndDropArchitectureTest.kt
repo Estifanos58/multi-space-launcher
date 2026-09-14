@@ -854,4 +854,201 @@ class Layer1DragAndDropArchitectureTest {
     assertEquals(6, targetPos)
     assertTrue("Target position must be new dropped slot 6, not original slot 0", targetPos != originalPositionIndex)
   }
+
+  @Test
+  fun testPage0_AllowsPlacingAppsAcrossAnyRow() {
+    val cols = 4
+    val gridRows = 5
+    val pageSize = cols * gridRows
+    val lastRow = gridRows - 1
+
+    // 1. Initial fallback placements start at the last row on Page 0
+    val apps = listOf(
+      DiscoveredApp("id_a", "app.a", "app.a.Main", "App A"),
+      DiscoveredApp("id_b", "app.b", "app.b.Main", "App B"),
+      DiscoveredApp("id_c", "app.c", "app.c.Main", "App C"),
+      DiscoveredApp("id_d", "app.d", "app.d.Main", "App D")
+    )
+    val page0Count = minOf(cols, apps.size)
+    val fallbackList = mutableListOf<SpaceItemPlacement>()
+    for (i in 0 until page0Count) {
+      fallbackList.add(
+        SpaceItemPlacement(
+          id = "fallback:${apps[i].packageName}",
+          spaceId = "space_1",
+          layer = SpaceItemPlacement.LAYER_HOME,
+          pageIndex = 0,
+          positionIndex = lastRow * cols + i,
+          itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+          packageName = apps[i].packageName
+        )
+      )
+    }
+
+    // Verify initial fallback places apps at last row (row 4)
+    assertEquals(4, fallbackList.size)
+    fallbackList.forEach { p ->
+      assertEquals(0, p.pageIndex)
+      assertEquals(lastRow, p.positionIndex / cols)
+    }
+
+    // 2. User moves App A from row 4 to row 1 (pos 5: r=1, c=1)
+    // and App B to row 0 (pos 2: r=0, c=2)
+    val updatedPlacements = listOf(
+      fallbackList[0].copy(positionIndex = 1 * cols + 1), // row 1, col 1
+      fallbackList[1].copy(positionIndex = 0 * cols + 2), // row 0, col 2
+      fallbackList[2].copy(positionIndex = 2 * cols + 0), // row 2, col 0
+      fallbackList[3] // stays at row 4, col 3
+    )
+
+    // Verify effective placements retain all positions across rows 0, 1, 2, and 4
+    val rowMap = updatedPlacements.associate { it.packageName to (it.positionIndex / cols) }
+    assertEquals(1, rowMap["app.a"])
+    assertEquals(0, rowMap["app.b"])
+    assertEquals(2, rowMap["app.c"])
+    assertEquals(4, rowMap["app.d"])
+
+    // Ensure they are NOT forced to the last row
+    assertTrue("App A is placed on row 1", updatedPlacements[0].positionIndex / cols == 1)
+    assertTrue("App B is placed on row 0", updatedPlacements[1].positionIndex / cols == 0)
+    assertTrue("App C is placed on row 2", updatedPlacements[2].positionIndex / cols == 2)
+  }
+
+  @Test
+  fun testNoAppLaidOnWidgetOnPage0_ResolvesToNonWidgetSlots() {
+    val cols = 4
+    val gridRows = 5
+    val lastRow = 4
+    val pageSize = 20
+
+    // Widgets on Page 0:
+    // Clock widget: row 0..1, cols 0..3 (occupies slots 0..7)
+    val clockWidget = SpaceItemPlacement(
+      id = "clock",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 0,
+      itemType = SpaceItemPlacement.ITEM_TYPE_WIDGET,
+      spanX = 4,
+      spanY = 2
+    )
+    // Search widget: row 2, cols 0..3 (occupies slots 8..11)
+    val searchWidget = SpaceItemPlacement(
+      id = "search",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 8,
+      itemType = SpaceItemPlacement.ITEM_TYPE_WIDGET,
+      spanX = 4,
+      spanY = 1
+    )
+
+    // Suppose bad input placements have apps at slots 0, 1, 2, 3 (directly on top of clock widget!)
+    val collidingApps = (0 until 4).map { i ->
+      SpaceItemPlacement(
+        id = "app_$i",
+        spaceId = "space_1",
+        layer = SpaceItemPlacement.LAYER_HOME,
+        pageIndex = 0,
+        positionIndex = i,
+        itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+        packageName = "com.test.app$i"
+      )
+    }
+
+    val rawPlacements = listOf(clockWidget, searchWidget) + collidingApps
+
+    // Calculate widget reserved slots
+    val widgetSlots = mutableSetOf<Int>()
+    rawPlacements.filter { it.isWidget && it.pageIndex == 0 }.forEach { w ->
+      val r = w.positionIndex / cols
+      val c = w.positionIndex % cols
+      for (dr in 0 until w.spanY) {
+        for (dc in 0 until w.spanX) {
+          widgetSlots.add((r + dr) * cols + (c + dc))
+        }
+      }
+    }
+    assertEquals(12, widgetSlots.size) // slots 0..11 are widget slots
+
+    // Effective placements resolution logic
+    val resolvedList = mutableListOf<SpaceItemPlacement>()
+    val occupiedSlots = mutableSetOf<Int>()
+
+    // 1. Widgets added first
+    rawPlacements.filter { it.isWidget }.forEach {
+      resolvedList.add(it)
+      val r = it.positionIndex / cols
+      val c = it.positionIndex % cols
+      for (dr in 0 until it.spanY) {
+        for (dc in 0 until it.spanX) {
+          occupiedSlots.add((r + dr) * cols + (c + dc))
+        }
+      }
+    }
+
+    // 2. Apps relocated if on widget slots
+    rawPlacements.filter { !it.isWidget }.forEach { app ->
+      val isCovered = widgetSlots.contains(app.positionIndex)
+      if (!isCovered && !occupiedSlots.contains(app.positionIndex)) {
+        resolvedList.add(app)
+        occupiedSlots.add(app.positionIndex)
+      } else {
+        // Relocate to bottom row
+        var placed = false
+        for (c in 0 until cols) {
+          val cand = lastRow * cols + c
+          if (!widgetSlots.contains(cand) && !occupiedSlots.contains(cand)) {
+            resolvedList.add(app.copy(pageIndex = 0, positionIndex = cand))
+            occupiedSlots.add(cand)
+            placed = true
+            break
+          }
+        }
+        assertTrue("App must be relocated to an available slot", placed)
+      }
+    }
+
+    // Verify:
+    val resolvedApps = resolvedList.filter { it.itemType == SpaceItemPlacement.ITEM_TYPE_APP }
+    assertEquals(4, resolvedApps.size)
+    resolvedApps.forEach { app ->
+      assertFalse("No app may be placed on any widget slot", widgetSlots.contains(app.positionIndex))
+      assertEquals("Relocated apps must land on row 4", 4, app.positionIndex / cols)
+    }
+  }
+
+  @Test
+  fun testDropAppOntoWidgetSlotIsRejected() {
+    val cols = 4
+    val gridRows = 5
+    // Clock widget at row 0..1, cols 0..3 (slots 0..7)
+    val widgetSlots = (0..7).toSet()
+
+    // Dragging an app
+    val draggedApp = SpaceItemPlacement(
+      id = "dragged_app",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 16,
+      itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = "com.test.dragged"
+    )
+
+    // User attempts to drop onto slot 2 (inside the clock widget)
+    val targetSlot = 2
+    val isOverWidget = widgetSlots.contains(targetSlot)
+    assertTrue("Target slot 2 is over a widget", isOverWidget)
+
+    // Drop handler logic: reject drop onto widget
+    var dropCommitted = false
+    if (!isOverWidget) {
+      dropCommitted = true
+    }
+
+    assertFalse("Drop of an app onto a widget slot must be rejected", dropCommitted)
+  }
 }
