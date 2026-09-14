@@ -274,44 +274,27 @@ fun LauncherHomeScreen(
     val layer1VelocityTracker = remember { VelocityTracker() }
     val isAnyDragActive = unifiedDragState.isDragging || unifiedDragState.lifecycleState != DragLifecycleState.IDLE
     val useLayer2 = activeSpace?.useLayer2 ?: true
-    val isScrollMode = activeSpace?.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL
-    val isSwipeAllowed = useLayer2
+    val isSwipeAllowed = useLayer2 && activeSpace?.layer2AccessMode == Space.ACCESS_MODE_SWIPE_UP
 
-    val layer1DragModifier = Modifier.pointerInput(screenHeightPx, isAnyDragActive, isSwipeAllowed, isScrollMode) {
+    val layer1DragModifier = Modifier.pointerInput(screenHeightPx, isAnyDragActive, isSwipeAllowed) {
       if (isAnyDragActive || !isSwipeAllowed) return@pointerInput
       detectVerticalDragGestures(
-        onDragStart = { offset ->
-          // In scrolling grid mode, only initiate swipe up from the bottom 35% of the screen so it doesn't conflict with vertical grid scrolling
-          if (isScrollMode && layerTransitionProgress <= 0.001f && offset.y < screenHeightPx * 0.65f) {
-            return@detectVerticalDragGestures
-          }
+        onDragStart = {
           settleJob?.cancel()
           layer1VelocityTracker.resetTracking()
-          if (layerTransitionProgress > 0.001f) {
-            isGestureActive = true
-          }
+          isGestureActive = true
         },
         onDragEnd = {
-          if (isGestureActive) {
-            isGestureActive = false
-            val velocityY = layer1VelocityTracker.calculateVelocity().y
-            settleTransition(layerTransitionProgress, velocityY)
-          }
+          isGestureActive = false
+          val velocityY = layer1VelocityTracker.calculateVelocity().y
+          settleTransition(layerTransitionProgress, velocityY)
         },
         onDragCancel = {
-          if (isGestureActive) {
-            isGestureActive = false
-            settleTransition(layerTransitionProgress, 0f)
-          }
+          isGestureActive = false
+          settleTransition(layerTransitionProgress, 0f)
         },
         onVerticalDrag = { change, dragAmount ->
           if (!isGestureActive) {
-            if (isScrollMode && layerTransitionProgress <= 0.001f && change.position.y < screenHeightPx * 0.65f) {
-              return@detectVerticalDragGestures
-            }
-            if (layerTransitionProgress <= 0.001f && dragAmount > 0f) {
-              return@detectVerticalDragGestures
-            }
             settleJob?.cancel()
             layer1VelocityTracker.resetTracking()
             isGestureActive = true

@@ -133,18 +133,6 @@ class RoomSpaceRepository(
               gridColumns = defaultEntity.gridColumns,
               candidateApps = initialApps
             )
-          } else {
-            // Ensure Layer 1 first page apps are positioned at the bottom row (row 4)
-            val p0Apps = placements.filter { it.pageIndex == 0 && it.itemType == SpaceItemPlacement.ITEM_TYPE_APP }
-            val cols = defaultEntity.gridColumns
-            val row3Apps = p0Apps.filter { it.positionIndex / cols == 3 }
-            val row4Occupied = placements.any { it.pageIndex == 0 && it.positionIndex / cols == 4 }
-            if (row3Apps.isNotEmpty() && !row4Occupied) {
-              row3Apps.forEach { p ->
-                val newPos = 4 * cols + (p.positionIndex % cols)
-                layoutDao.updatePlacement(p.copy(positionIndex = newPos))
-              }
-            }
           }
         }
 
@@ -1430,15 +1418,14 @@ class RoomSpaceRepository(
       }
       val targetPosClamped = targetPosition.coerceIn(0, effectivePageSize - 1)
 
-      layoutDao.pruneDuplicatePlacements()
       var allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
 
-      // 1. Ensure all memberships have persistent placements only if the home screen has never been populated
+      // 1. Ensure all memberships have persistent placements
       val memberships = membershipDao.getMembershipsForSpace(spaceId).distinctBy { it.packageName }
       val placedPkgs = allHome.mapNotNull { it.packageName }.toSet()
       val missingMemberships = memberships.filter { !placedPkgs.contains(it.packageName) }
 
-      if (allHome.isEmpty() && missingMemberships.isNotEmpty()) {
+      if (missingMemberships.isNotEmpty()) {
         val occupiedPerPage = mutableMapOf<Int, MutableSet<Int>>()
         for (p in allHome) {
           occupiedPerPage.getOrPut(p.pageIndex) { mutableSetOf() }.add(p.positionIndex)
@@ -1480,6 +1467,9 @@ class RoomSpaceRepository(
 
       // 2. Resolve the target item to move
       val pkgFromVirtual = when {
+        placementId.startsWith("fallback:") -> {
+          placementId.removePrefix("fallback:")
+        }
         placementId.startsWith("virtual:") -> {
           placementId.removePrefix("virtual:").substringBefore(":")
         }
@@ -1499,11 +1489,22 @@ class RoomSpaceRepository(
       if (itemIndex == -1 && pkgFromVirtual != null) {
         itemIndex = allHome.indexOfFirst { it.packageName?.contains(pkgFromVirtual) == true || pkgFromVirtual.contains(it.packageName ?: "---") }
       }
+      if (itemIndex == -1) {
+        itemIndex = allHome.indexOfFirst { it.id.contains(placementId) || placementId.contains(it.id) }
+      }
 
       val itemToMoveRaw = if (itemIndex != -1) {
         allHome.removeAt(itemIndex)
       } else {
         val matchedMember = memberships.firstOrNull { it.packageName == pkgFromVirtual }
+        val discoveredApp = if (matchedMember == null && context != null && pkgFromVirtual != null) {
+          try {
+            AppDiscoveryManager(context).loadInstalledApps().firstOrNull { it.packageName == pkgFromVirtual }
+          } catch (e: Exception) {
+            null
+          }
+        } else null
+
         SpaceItemPlacementEntity(
           id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
           spaceId = spaceId,
@@ -1512,12 +1513,12 @@ class RoomSpaceRepository(
           positionIndex = targetPosClamped,
           itemType = SpaceItemPlacement.ITEM_TYPE_APP,
           packageName = pkgFromVirtual,
-          componentName = matchedMember?.componentName,
-          userHandleId = matchedMember?.userHandleId ?: 0L
+          componentName = matchedMember?.componentName ?: discoveredApp?.activityName,
+          userHandleId = matchedMember?.userHandleId ?: discoveredApp?.userHandleId ?: 0L
         )
       }
 
-      val itemToMove = if (itemToMoveRaw.id.startsWith("virtual")) {
+      val itemToMove = if (itemToMoveRaw.id.startsWith("virtual") || itemToMoveRaw.id.startsWith("fallback")) {
         itemToMoveRaw.copy(id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10))
       } else {
         itemToMoveRaw

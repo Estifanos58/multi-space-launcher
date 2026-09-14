@@ -166,6 +166,7 @@ class DragGestureController<T : Any>(
   fun handleDrop(dropPos: Offset) {
     isPointerDown = false
     activePointerId = null
+    currentPointerPos = dropPos
     val item = draggedItem ?: activeItem
     if (lifecycleState == DragLifecycleState.DRAGGING && item != null) {
       lifecycleState = DragLifecycleState.DROP

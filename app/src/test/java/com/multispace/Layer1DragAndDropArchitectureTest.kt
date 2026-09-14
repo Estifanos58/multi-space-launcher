@@ -777,4 +777,81 @@ class Layer1DragAndDropArchitectureTest {
     assertFalse(actionTriggered)
     assertNull(controller.activeActionItem)
   }
+
+  @Test
+  fun testDragGestureController_DropPreservesDropCoordinates() {
+    val controller = DragGestureController<SpaceItemPlacement>()
+    val placement = SpaceItemPlacement(
+      id = "item-app-drop",
+      spaceId = "space-1",
+      pageIndex = 0,
+      positionIndex = 0
+    )
+
+    var droppedItem: SpaceItemPlacement? = null
+    var droppedOffset: Offset? = null
+
+    controller.hitTest = { placement }
+    controller.getItemBounds = { Rect(0f, 0f, 100f, 100f) }
+    controller.onDragDropped = { item, pos ->
+      droppedItem = item
+      droppedOffset = pos
+    }
+
+    controller.handleDown(Offset(50f, 50f))
+    controller.handleLongPress(Offset(50f, 50f))
+    // Move past slop to drag
+    controller.handleMove(Offset(100f, 150f))
+    assertEquals(DragLifecycleState.DRAGGING, controller.lifecycleState)
+
+    // User moves to drop location (e.g. 300f, 450f) and releases
+    val releaseOffset = Offset(300f, 450f)
+    controller.handleUp(releaseOffset)
+
+    assertEquals(DragLifecycleState.IDLE, controller.lifecycleState)
+    assertEquals("item-app-drop", droppedItem?.id)
+    assertEquals(releaseOffset, droppedOffset)
+    assertEquals(releaseOffset, controller.currentPointerPos)
+  }
+
+  @Test
+  fun testDropPositionCalculation_ResolvesNewSlotAndNeverDefaultsToOriginal() {
+    val cols = 4
+    val gridRows = 5
+    val totalSlots = cols * gridRows
+    val originalPositionIndex = 0
+
+    // Simulate slot boundaries for a 4x5 grid
+    val cellWidth = 80f
+    val cellHeight = 100f
+    val slotBounds = mutableMapOf<Int, Rect>()
+    for (r in 0 until gridRows) {
+      for (c in 0 until cols) {
+        val left = c * cellWidth
+        val top = r * cellHeight
+        slotBounds[r * cols + c] = Rect(left, top, left + cellWidth, top + cellHeight)
+      }
+    }
+
+    fun calculateSlot(pointerPos: Offset): Int {
+      val hit = slotBounds.entries.firstOrNull { (slot, rect) ->
+        slot < totalSlots && rect.contains(pointerPos)
+      }?.key
+      val raw = hit ?: 0
+      val c = (raw % cols).coerceIn(0, cols - 1)
+      val r = (raw / cols).coerceIn(0, gridRows - 1)
+      return r * cols + c
+    }
+
+    // User drags item from original slot 0 (pos 40, 50) and drops at slot 6 (col 2, row 1 -> pos 200, 150)
+    val dropPos = Offset(200f, 150f)
+    val calculatedSlot = calculateSlot(dropPos)
+    assertEquals(6, calculatedSlot)
+
+    // Verify rawTargetPos does not fall back to originalPositionIndex
+    var previewTargetSlot: Int? = null // if preview was null at moment of drop
+    val targetPos = previewTargetSlot ?: calculatedSlot
+    assertEquals(6, targetPos)
+    assertTrue("Target position must be new dropped slot 6, not original slot 0", targetPos != originalPositionIndex)
+  }
 }

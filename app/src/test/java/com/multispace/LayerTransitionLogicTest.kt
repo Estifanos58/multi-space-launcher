@@ -11,23 +11,23 @@ import org.junit.Test
 class LayerTransitionLogicTest {
 
   @Test
-  fun testSwipeAllowedInBothDockButtonAndSwipeUpModesWhenLayer2Enabled() {
+  fun testSwipeAllowedOnlyInSwipeUpModeWhenLayer2Enabled() {
     // Default space has ACCESS_MODE_DOCK_BUTTON and useLayer2 = true
     val defaultSpace = Space.createDefault()
     assertEquals(Space.ACCESS_MODE_DOCK_BUTTON, defaultSpace.layer2AccessMode)
     assertTrue(defaultSpace.useLayer2)
 
-    val isSwipeAllowedDefault = defaultSpace.useLayer2
-    assertTrue("Swipe must be allowed by default even with ACCESS_MODE_DOCK_BUTTON", isSwipeAllowedDefault)
+    val isSwipeAllowedDefault = defaultSpace.useLayer2 && defaultSpace.layer2AccessMode == Space.ACCESS_MODE_SWIPE_UP
+    assertFalse("Swipe must be disabled by default in ACCESS_MODE_DOCK_BUTTON to prevent gesture conflicts", isSwipeAllowedDefault)
 
     // SWIPE_UP mode with useLayer2 = true
     val swipeUpSpace = defaultSpace.copy(layer2AccessMode = Space.ACCESS_MODE_SWIPE_UP)
-    val isSwipeAllowedSwipeUp = swipeUpSpace.useLayer2
+    val isSwipeAllowedSwipeUp = swipeUpSpace.useLayer2 && swipeUpSpace.layer2AccessMode == Space.ACCESS_MODE_SWIPE_UP
     assertTrue("Swipe must be allowed with ACCESS_MODE_SWIPE_UP", isSwipeAllowedSwipeUp)
 
     // When useLayer2 is disabled
-    val disabledLayer2Space = defaultSpace.copy(useLayer2 = false)
-    val isSwipeAllowedDisabled = disabledLayer2Space.useLayer2
+    val disabledLayer2Space = swipeUpSpace.copy(useLayer2 = false)
+    val isSwipeAllowedDisabled = disabledLayer2Space.useLayer2 && disabledLayer2Space.layer2AccessMode == Space.ACCESS_MODE_SWIPE_UP
     assertFalse("Swipe must be disabled when Layer 2 is turned off", isSwipeAllowedDisabled)
   }
 
