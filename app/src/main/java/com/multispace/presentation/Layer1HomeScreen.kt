@@ -13,11 +13,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import com.multispace.presentation.DragGestureController
+import com.multispace.presentation.dragGestureHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -204,30 +202,29 @@ fun Layer1HomeScreen(
       basePlacements
     }
 
-  // Single authoritative drag state machine: IDLE -> PRESSED_ACTION_VISIBLE -> DRAGGING -> DROP/CANCEL
-  var dragLifecycleState by remember { mutableStateOf(DragLifecycleState.IDLE) }
-  val isDragging = (dragLifecycleState == DragLifecycleState.DRAGGING)
-  var lastLongPressTimestamp by remember { mutableLongStateOf(0L) }
+  val dragSlopPx = with(density) { 8.dp.toPx() }
+  val dragController = remember(space.id, unifiedDragState) {
+    DragGestureController<SpaceItemPlacement>(
+      dragSlopPx = dragSlopPx,
+      longPressTimeoutMs = 400L,
+      unifiedDragState = unifiedDragState,
+      canDirectDrag = { it.isFolder }
+    )
+  }
 
-  var draggedPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
+  val dragLifecycleState = dragController.lifecycleState
+  val isDragging = dragController.isDragging
+  val activeActionPlacement = dragController.activeActionItem
+  val draggedPlacement = dragController.draggedItem
+  val pendingDragPlacement = dragController.pendingDragItem
+  val currentPointerPos = dragController.currentPointerPos
+  val touchOffsetWithinItem = dragController.touchOffsetWithinItem
+
   var resizingWidgetId by remember { mutableStateOf<String?>(null) }
   var targetHoverPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
   var previewTargetSlot by remember { mutableStateOf<Int?>(null) }
-  var currentPointerPos by remember { mutableStateOf(Offset.Zero) }
-  var touchOffsetWithinItem by remember { mutableStateOf(Offset.Zero) }
   var binBounds by remember { mutableStateOf<Rect?>(null) }
   var isOverBin by remember { mutableStateOf(false) }
-
-  // Item identified directly by the touched Layer1ItemCell (eliminating manual hit-testing)
-  var touchedItemFromCell by remember { mutableStateOf<SpaceItemPlacement?>(null) }
-  var touchedItemRootOffset by remember { mutableStateOf(Offset.Zero) }
-
-  // Pre-drag action overlay state
-  var activeActionPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
-  var pendingDragPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
-  var pendingDragStartOffset by remember { mutableStateOf(Offset.Zero) }
-  var accumulatedDragDistance by remember { mutableFloatStateOf(0f) }
-  val dragSlopPx = with(density) { 8.dp.toPx() }
 
   // Root and page geometry measurements
   var rootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -423,11 +420,11 @@ fun Layer1HomeScreen(
 
   LaunchedEffect(pagerState.currentPage, pagerState.isScrollInProgress) {
     if (pagerState.isScrollInProgress) {
-      activeActionPlacement = null
+      dragController.dismissActions()
     }
   }
   LaunchedEffect(space.id) {
-    activeActionPlacement = null
+    dragController.dismissActions()
     resizingWidgetId = null
   }
 
@@ -612,9 +609,9 @@ fun Layer1HomeScreen(
   }
 
   fun handleStartDrag(placement: SpaceItemPlacement, startOffset: Offset) {
-    dragLifecycleState = DragLifecycleState.DRAGGING
-    draggedPlacement = placement
-    currentPointerPos = startOffset
+    dragController.lifecycleState = DragLifecycleState.DRAGGING
+    dragController.draggedItem = placement
+    dragController.currentPointerPos = startOffset
     isOverBin = false
     targetHoverPlacement = null
     activeEdgeZone = EdgePagingDirection.NONE
@@ -625,7 +622,7 @@ fun Layer1HomeScreen(
 
     // Preserve finger-to-icon offset to eliminate visual jumping when drag starts
     val itemRect = getPlacementFootprintRect(placement) ?: cellBounds[placement.id] ?: slotBounds[placement.positionIndex]
-    touchOffsetWithinItem = if (itemRect != null) {
+    val computedTouchOffset = if (itemRect != null) {
       Offset(
         (startOffset.x - itemRect.left).coerceIn(0f, itemRect.width),
         (startOffset.y - itemRect.top).coerceIn(0f, itemRect.height)
@@ -635,6 +632,7 @@ fun Layer1HomeScreen(
       val sY = if (placement.isWidget) placement.spanY.coerceIn(1, gridRows) else 1
       with(density) { Offset((cellWidth * sX).toPx() / 2f, (cellHeight * sY).toPx() / 2f) }
     }
+    dragController.touchOffsetWithinItem = computedTouchOffset
 
     if (unifiedDragState != null) {
       val app = appLookup["${placement.packageName}/${placement.componentName}"]
@@ -644,19 +642,19 @@ fun Layer1HomeScreen(
       unifiedDragState.dragSource = DragSource.LAYER1_DESKTOP
       unifiedDragState.draggedPlacement = placement
       unifiedDragState.draggedApp = app
-      unifiedDragState.touchOffsetInItem = touchOffsetWithinItem
+      unifiedDragState.touchOffsetInItem = computedTouchOffset
       unifiedDragState.rootPointerPos = rootCoordinates?.localToRoot(startOffset) ?: startOffset
       unifiedDragState.currentTargetZone = DragTargetZone.DESKTOP
     }
 
     AppLogger.i(
       AppLogger.Category.LAUNCHER,
-      "DRAG_START item=${placement.id} pkg=${placement.packageName ?: "folder"} page=${placement.pageIndex} slot=${placement.positionIndex} touchOffset=$touchOffsetWithinItem"
+      "DRAG_START item=${placement.id} pkg=${placement.packageName ?: "folder"} page=${placement.pageIndex} slot=${placement.positionIndex} touchOffset=$computedTouchOffset"
     )
   }
 
   fun handleDragMove(newPos: Offset) {
-    currentPointerPos = newPos
+    dragController.currentPointerPos = newPos
     val rootPos = rootCoordinates?.localToRoot(newPos) ?: newPos
     if (unifiedDragState != null) {
       unifiedDragState.rootPointerPos = rootPos
@@ -881,8 +879,7 @@ fun Layer1HomeScreen(
         }
       }
     } finally {
-      dragLifecycleState = DragLifecycleState.IDLE
-      draggedPlacement = null
+      dragController.reset()
       previewTargetSlot = null
       targetHoverPlacement = null
       isOverBin = false
@@ -897,14 +894,64 @@ fun Layer1HomeScreen(
     isTransitioningPage = false
     activeEdgeZone = EdgePagingDirection.NONE
     edgeTriggerState = EdgeTriggerState.IDLE
-    dragLifecycleState = DragLifecycleState.IDLE
-    draggedPlacement = null
+    dragController.reset()
     previewTargetSlot = null
     targetHoverPlacement = null
     isOverBin = false
     extraPagesCount = 0
     unifiedDragState?.reset()
     AppLogger.i(AppLogger.Category.LAUNCHER, "DRAG_CANCEL")
+  }
+
+  // Authoritative gesture controller wiring
+  dragController.hitTest = { offset ->
+    findItemAtOffset(offset, pagerState.currentPage)
+  }
+  dragController.getItemBounds = { item ->
+    getPlacementFootprintRect(item) ?: cellBounds[item.id] ?: slotBounds[item.positionIndex]
+  }
+  dragController.onHapticFeedback = {
+    haptic.performHapticFeedback(it)
+  }
+  dragController.onItemTap = { item ->
+    if (item.isFolder) {
+      val folder = folderLookup[item.folderId]
+      if (folder != null) onOpenFolder(folder)
+    } else if (!item.isWidget) {
+      val app = appLookup["${item.packageName}/${item.componentName}"]
+        ?: allApps.firstOrNull { it.packageName == item.packageName }
+      if (app != null) onLaunchApp(app)
+    }
+  }
+  dragController.onEmptyTap = {
+    if (resizingWidgetId != null) {
+      resizingWidgetId = null
+    }
+    dragController.dismissActions()
+  }
+  dragController.onEmptyLongPress = {
+    if (resizingWidgetId != null) {
+      resizingWidgetId = null
+    } else {
+      haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+      onOpenCustomization(pagerState.currentPage)
+    }
+  }
+  dragController.onLongPressAction = { item, pos ->
+    resizingWidgetId = null
+  }
+  dragController.onDragStarted = { item, startPos ->
+    resizingWidgetId = null
+    handleStartDrag(item, startPos)
+  }
+  dragController.onDragMoved = { newPos ->
+    handleDragMove(newPos)
+  }
+  dragController.onDragDropped = { item, dropPos ->
+    handleEndDrag()
+  }
+  dragController.onDragCancelled = {
+    handleCancelDrag()
   }
 
   Box(
@@ -917,104 +964,7 @@ fun Layer1HomeScreen(
         unifiedDragState?.layer1Coordinates = coordinates
         updatePageGridBounds()
       }
-      .pointerInput(Unit) {
-        detectDragGesturesAfterLongPress(
-          onDragStart = { rootOffset ->
-            lastLongPressTimestamp = android.os.SystemClock.uptimeMillis()
-            val activePage = pagerState.currentPage
-            // Let the touched Layer1ItemCell identify the dragged item, eliminating manual hit-testing
-            val touchedPlacement = touchedItemFromCell ?: findItemAtOffset(rootOffset, activePage)
-
-            if (touchedPlacement != null) {
-              haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-              resizingWidgetId = null
-              if (touchedPlacement.isFolder) {
-                activeActionPlacement = null
-                pendingDragPlacement = null
-                accumulatedDragDistance = 0f
-                dragLifecycleState = DragLifecycleState.DRAGGING
-                unifiedDragState?.lifecycleState = DragLifecycleState.DRAGGING
-                handleStartDrag(touchedPlacement, rootOffset)
-              } else {
-                // Pre-drag long-press interaction layer: transition to PRESSED_ACTION_VISIBLE
-                dragLifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
-                unifiedDragState?.lifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
-                activeActionPlacement = touchedPlacement
-                pendingDragPlacement = touchedPlacement
-                pendingDragStartOffset = rootOffset
-                accumulatedDragDistance = 0f
-              }
-            } else {
-              dragLifecycleState = DragLifecycleState.IDLE
-              unifiedDragState?.lifecycleState = DragLifecycleState.IDLE
-              activeActionPlacement = null
-              pendingDragPlacement = null
-              accumulatedDragDistance = 0f
-              if (resizingWidgetId != null) {
-                resizingWidgetId = null
-              } else {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onOpenCustomization(pagerState.currentPage)
-              }
-            }
-          },
-          onDrag = { change, dragAmount ->
-            if (resizingWidgetId == null) {
-              accumulatedDragDistance += dragAmount.getDistance()
-              if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE &&
-                  pendingDragPlacement != null && accumulatedDragDistance >= dragSlopPx) {
-                // User moved past drag slop: transition to DRAGGING
-                val placementToDrag = pendingDragPlacement!!
-                activeActionPlacement = null
-                pendingDragPlacement = null
-                dragLifecycleState = DragLifecycleState.DRAGGING
-                unifiedDragState?.lifecycleState = DragLifecycleState.DRAGGING
-                handleStartDrag(placementToDrag, pendingDragStartOffset)
-              }
-              if (dragLifecycleState == DragLifecycleState.DRAGGING) {
-                change.consume()
-                handleDragMove(change.position)
-              }
-            }
-          },
-          onDragEnd = {
-            touchedItemFromCell = null
-            if (resizingWidgetId == null) {
-              if (dragLifecycleState == DragLifecycleState.DRAGGING) {
-                dragLifecycleState = DragLifecycleState.DROP
-                unifiedDragState?.lifecycleState = DragLifecycleState.DROP
-                handleEndDrag()
-              } else if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
-                // User held and released without dragging past slop: action box stays visible!
-                pendingDragPlacement = null
-              } else {
-                dragLifecycleState = DragLifecycleState.IDLE
-                unifiedDragState?.lifecycleState = DragLifecycleState.IDLE
-              }
-              accumulatedDragDistance = 0f
-            }
-          },
-          onDragCancel = {
-            touchedItemFromCell = null
-            if (resizingWidgetId == null) {
-              if (dragLifecycleState == DragLifecycleState.DRAGGING) {
-                dragLifecycleState = DragLifecycleState.CANCEL
-                unifiedDragState?.lifecycleState = DragLifecycleState.CANCEL
-                handleCancelDrag()
-              } else if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
-                // User held and released without dragging: action box stays visible until user touches elsewhere
-                pendingDragPlacement = null
-              } else {
-                activeActionPlacement = null
-                pendingDragPlacement = null
-                dragLifecycleState = DragLifecycleState.IDLE
-                unifiedDragState?.lifecycleState = DragLifecycleState.IDLE
-              }
-              accumulatedDragDistance = 0f
-            }
-          }
-        )
-      }
+      .dragGestureHandler(dragController)
   ) {
     Column(modifier = Modifier.fillMaxSize()) {
       // Main content: either Paged or Scrolling
@@ -1072,14 +1022,7 @@ fun Layer1HomeScreen(
                 resizingWidgetId = null
               },
               maxSpanX = space.gridColumns,
-              maxSpanY = 6,
-              onItemTouched = { p, rootPos ->
-                touchedItemFromCell = p
-                touchedItemRootOffset = rootPos
-              },
-              isActionActive = { activeActionPlacement != null },
-              getDragLifecycleState = { dragLifecycleState },
-              getLastLongPressTimestamp = { lastLongPressTimestamp }
+              maxSpanY = 6
             )
           }
         }
@@ -1087,7 +1030,7 @@ fun Layer1HomeScreen(
         // Horizontal paged layout (Default)
         HorizontalPager(
           state = pagerState,
-          userScrollEnabled = !isDragging,
+          userScrollEnabled = !isDragging && dragLifecycleState == DragLifecycleState.IDLE,
           modifier = Modifier
             .weight(1f)
             .fillMaxSize()
@@ -1179,13 +1122,7 @@ fun Layer1HomeScreen(
                     } else if (!isCovered) {
                       EmptyGridCell(
                         slotIndex = slotIndex,
-                        isDragging = isDragging && !isOverBin,
-                        onClick = {
-                          if (resizingWidgetId != null) {
-                            resizingWidgetId = null
-                          }
-                        },
-                        onLongClick = { onOpenCustomization(page) }
+                        isDragging = isDragging && !isOverBin
                       )
                     }
                   }
@@ -1252,14 +1189,7 @@ fun Layer1HomeScreen(
                       resizingWidgetId = null
                     },
                     maxSpanX = cols,
-                    maxSpanY = gridRows,
-                    onItemTouched = { p, rootPos ->
-                      touchedItemFromCell = p
-                      touchedItemRootOffset = rootPos
-                    },
-                    isActionActive = { activeActionPlacement != null },
-                    getDragLifecycleState = { dragLifecycleState },
-                    getLastLongPressTimestamp = { lastLongPressTimestamp }
+                    maxSpanY = gridRows
                   )
                 }
               }
@@ -1440,9 +1370,7 @@ fun Layer1HomeScreen(
           .pointerInput(activeActionPlacement) {
             detectTapGestures(
               onPress = {
-                activeActionPlacement = null
-                dragLifecycleState = DragLifecycleState.IDLE
-                unifiedDragState?.lifecycleState = DragLifecycleState.IDLE
+                dragController.dismissActions()
               }
             )
           }
@@ -1471,9 +1399,7 @@ fun Layer1HomeScreen(
           } catch (e: Exception) {
             AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to open App Info for ${appToOpen.packageName}", e)
           }
-          activeActionPlacement = null
-          dragLifecycleState = DragLifecycleState.IDLE
-          unifiedDragState?.lifecycleState = DragLifecycleState.IDLE
+          dragController.dismissActions()
         },
         onUninstallApp = { appToUninstall ->
           try {
@@ -1481,9 +1407,7 @@ fun Layer1HomeScreen(
           } catch (e: Exception) {
             com.multispace.platform.PackageActionHelper.launchUninstallConfirmation(context, appToUninstall.packageName)
           }
-          activeActionPlacement = null
-          dragLifecycleState = DragLifecycleState.IDLE
-          unifiedDragState?.lifecycleState = DragLifecycleState.IDLE
+          dragController.dismissActions()
         },
         onForceStopApp = { appToForceStop ->
           try {
@@ -1491,20 +1415,14 @@ fun Layer1HomeScreen(
           } catch (e: Exception) {
             com.multispace.platform.PackageActionHelper.forceStopPackage(context, appToForceStop.packageName)
           }
-          activeActionPlacement = null
-          dragLifecycleState = DragLifecycleState.IDLE
-          unifiedDragState?.lifecycleState = DragLifecycleState.IDLE
+          dragController.dismissActions()
         },
         onActivateResize = { widgetId ->
           resizingWidgetId = widgetId
-          activeActionPlacement = null
-          dragLifecycleState = DragLifecycleState.IDLE
-          unifiedDragState?.lifecycleState = DragLifecycleState.IDLE
+          dragController.dismissActions()
         },
         onDismiss = {
-          activeActionPlacement = null
-          dragLifecycleState = DragLifecycleState.IDLE
-          unifiedDragState?.lifecycleState = DragLifecycleState.IDLE
+          dragController.dismissActions()
         },
         modifier = Modifier.zIndex(850f)
       )
@@ -1701,22 +1619,14 @@ private fun DropTargetLandingSlot(
   }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EmptyGridCell(
   slotIndex: Int,
   isDragging: Boolean,
-  onClick: () -> Unit = {},
-  onLongClick: () -> Unit = {},
   modifier: Modifier = Modifier
 ) {
   Box(
-    modifier = modifier
-      .fillMaxSize()
-      .combinedClickable(
-        onClick = onClick,
-        onLongClick = onLongClick
-      ),
+    modifier = modifier.fillMaxSize(),
     contentAlignment = Alignment.Center
   ) {
     if (isDragging) {
@@ -1739,8 +1649,8 @@ private fun Layer1ItemCell(
   allApps: List<DiscoveredApp>,
   iconSizeModifier: Modifier,
   getBitmap: (DiscoveredApp) -> android.graphics.Bitmap?,
-  onLaunchApp: (DiscoveredApp) -> Unit,
-  onOpenFolder: (SpaceFolder) -> Unit,
+  onLaunchApp: (DiscoveredApp) -> Unit = {},
+  onOpenFolder: (SpaceFolder) -> Unit = {},
   onRemovePlacement: (String) -> Unit = {},
   appWidgetHost: AppWidgetHost? = null,
   onPositioned: (Rect) -> Unit,
@@ -1776,46 +1686,10 @@ private fun Layer1ItemCell(
           onPositioned(Rect(localOffset, coordinates.size.toSize()))
         }
       }
-      .pointerInput(placement.id) {
-        awaitPointerEventScope {
-          while (true) {
-            val event = awaitPointerEvent(PointerEventPass.Initial)
-            if (event.type == PointerEventType.Press) {
-              val firstChange = event.changes.firstOrNull()
-              if (firstChange != null) {
-                val root = rootCoordinates
-                val cell = cellCoordinates
-                val rootOffset = if (root != null && cell != null && root.isAttached && cell.isAttached) {
-                  root.localPositionOf(cell, firstChange.position)
-                } else {
-                  firstChange.position
-                }
-                onItemTouched?.invoke(placement, rootOffset)
-              }
-            }
-          }
-        }
-      }
       .graphicsLayer {
         alpha = if (isBeingDragged) 0.0f else 1.0f
         scaleX = if (isTargetHover) 1.08f else 1.0f
         scaleY = if (isTargetHover) 1.08f else 1.0f
-      }
-      .clickable(
-        enabled = !isBeingDragged && !placement.isWidget
-      ) {
-        val now = android.os.SystemClock.uptimeMillis()
-        if (isActionActive() ||
-            getDragLifecycleState() != DragLifecycleState.IDLE ||
-            (now - getLastLongPressTimestamp()) < 800L
-        ) {
-          return@clickable
-        }
-        if (placement.isFolder) {
-          if (folder != null) onOpenFolder(folder)
-        } else {
-          if (app != null) onLaunchApp(app)
-        }
       }
       .testTag(if (placement.isFolder) "layer1_folder_${placement.folderId}" else if (placement.isWidget) "layer1_widget_${placement.id}" else "layer1_app_${placement.packageName}")
   ) {
