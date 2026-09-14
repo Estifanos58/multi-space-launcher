@@ -25,6 +25,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Folder
@@ -212,6 +214,7 @@ fun Layer1HomeScreen(
   val dragSlopPx = with(density) { 8.dp.toPx() }
   var dragLifecycleState by remember { mutableStateOf(DragLifecycleState.IDLE) }
   var isDragging by remember { mutableStateOf(false) }
+  var isDropping by remember { mutableStateOf(false) }
   var activeActionPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
   var draggedPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
   var pendingDragPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
@@ -219,6 +222,15 @@ fun Layer1HomeScreen(
   var touchOffsetWithinItem by remember { mutableStateOf(Offset.Zero) }
   var accumulatedDragDistance by remember { mutableFloatStateOf(0f) }
   var lastLongPressTimestamp by remember { mutableLongStateOf(0L) }
+
+  val currentPlacements by rememberUpdatedState(effectivePlacements)
+  val currentSpace by rememberUpdatedState(space)
+  val currentAllApps by rememberUpdatedState(allApps)
+  val currentAppLookup by rememberUpdatedState(appLookup)
+  val currentFolderLookup by rememberUpdatedState(folderLookup)
+  val currentOnLaunchApp by rememberUpdatedState(onLaunchApp)
+  val currentOnOpenFolder by rememberUpdatedState(onOpenFolder)
+  val currentOnOpenCustomization by rememberUpdatedState(onOpenCustomization)
 
   fun dismissActions() {
     activeActionPlacement = null
@@ -321,8 +333,8 @@ fun Layer1HomeScreen(
   }
 
   fun findItemAtOffset(offset: Offset, page: Int): SpaceItemPlacement? {
-    val pagePlacements = effectivePlacements.filter {
-      if (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL) true else it.pageIndex == page
+    val pagePlacements = currentPlacements.filter {
+      if (currentSpace.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL) true else it.pageIndex == page
     }
 
     // PRIORITY 1: Physical footprint of widgets (ensuring multi-cell bounds participate fully)
@@ -567,8 +579,10 @@ fun Layer1HomeScreen(
     }
   }
 
+  var handleDragMoveRef: ((Offset) -> Unit)? = null
+
   fun performPageTransition(direction: EdgePagingDirection) {
-    if (!isDragging || isTransitioningPage || pagerState.isScrollInProgress) return
+    if (!isDragging || isDropping || isTransitioningPage || pagerState.isScrollInProgress) return
 
     if (direction == EdgePagingDirection.LEFT && pagerState.currentPage > 0) {
       isTransitioningPage = true
@@ -582,11 +596,18 @@ fun Layer1HomeScreen(
           AppLogger.i(AppLogger.Category.LAUNCHER, "PAGE_TRANSITION_COMPLETE page=$targetPage")
         } finally {
           isTransitioningPage = false
-          // Edge trigger becomes CONSUMED: finger staying at edge will not trigger another transition
-          edgeTriggerState = EdgeTriggerState.CONSUMED
-          AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_TRIGGER_CONSUMED direction=LEFT page=$targetPage")
+          edgeDwellJob?.cancel()
           edgeDwellJob = null
           updatePreviewTargetSlot()
+          // Allow continuous edge dwell to trigger next page transition after a 550ms cooldown
+          edgeDwellJob = coroutineScope.launch {
+            delay(550L)
+            edgeTriggerState = EdgeTriggerState.IDLE
+            activeEdgeZone = EdgePagingDirection.NONE
+            if (isDragging && !isDropping) {
+              handleDragMoveRef?.invoke(currentPointerPos)
+            }
+          }
         }
       }
     } else if (direction == EdgePagingDirection.RIGHT) {
@@ -605,11 +626,18 @@ fun Layer1HomeScreen(
           AppLogger.i(AppLogger.Category.LAUNCHER, "PAGE_TRANSITION_COMPLETE page=$targetPage")
         } finally {
           isTransitioningPage = false
-          // Edge trigger becomes CONSUMED: finger staying at edge will not trigger another transition or page creation
-          edgeTriggerState = EdgeTriggerState.CONSUMED
-          AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_TRIGGER_CONSUMED direction=RIGHT page=$targetPage")
+          edgeDwellJob?.cancel()
           edgeDwellJob = null
           updatePreviewTargetSlot()
+          // Allow continuous edge dwell to trigger next page transition after a 550ms cooldown
+          edgeDwellJob = coroutineScope.launch {
+            delay(550L)
+            edgeTriggerState = EdgeTriggerState.IDLE
+            activeEdgeZone = EdgePagingDirection.NONE
+            if (isDragging && !isDropping) {
+              handleDragMoveRef?.invoke(currentPointerPos)
+            }
+          }
         }
       }
     }
@@ -618,6 +646,7 @@ fun Layer1HomeScreen(
   fun handleStartDrag(placement: SpaceItemPlacement, startOffset: Offset) {
     dragLifecycleState = DragLifecycleState.DRAGGING
     isDragging = true
+    isDropping = false
     draggedPlacement = placement
     currentPointerPos = startOffset
     isOverBin = false
@@ -716,8 +745,8 @@ fun Layer1HomeScreen(
 
     // Robust edge paging state machine (horizontal pager mode only)
     if (space.layer1DisplayMode != Space.DISPLAY_MODE_SCROLL && viewportWidth > 0f && !isTransitioningPage && !pagerState.isScrollInProgress) {
-      val inLeftEdge = newPos.x in 0f..edgeZonePx
-      val inRightEdge = newPos.x in (viewportWidth - edgeZonePx)..viewportWidth
+      val inLeftEdge = newPos.x <= edgeZonePx
+      val inRightEdge = newPos.x >= (viewportWidth - edgeZonePx)
 
       when {
         inLeftEdge -> {
@@ -786,136 +815,10 @@ fun Layer1HomeScreen(
       }
     }
   }
+  handleDragMoveRef = { handleDragMove(it) }
 
-  fun handleEndDrag(draggedOverride: SpaceItemPlacement? = null, dropPosOverride: Offset? = null) {
-    edgeDwellJob?.cancel()
-    edgeDwellJob = null
-    isTransitioningPage = false
-    activeEdgeZone = EdgePagingDirection.NONE
-    edgeTriggerState = EdgeTriggerState.IDLE
-
-    try {
-      val dragged = draggedOverride ?: draggedPlacement
-      if (dragged != null) {
-        val dropPos = dropPosOverride ?: currentPointerPos
-        val targetZone = unifiedDragState?.currentTargetZone ?: if (isOverBin) DragTargetZone.REMOVE_BIN else DragTargetZone.DESKTOP
-        when (targetZone) {
-          DragTargetZone.REMOVE_BIN -> {
-            AppLogger.i(AppLogger.Category.LAUNCHER, "DROP_REMOVE item=${dragged.id} pkg=${dragged.packageName}")
-            onRemovePlacement(dragged.id)
-          }
-          DragTargetZone.DOCK_BAR -> {
-            if (!dragged.isWidget) {
-              val app = appLookup["${dragged.packageName}/${dragged.componentName}"]
-                ?: allApps.firstOrNull { it.packageName == dragged.packageName }
-              if (app != null) {
-                AppLogger.i(AppLogger.Category.LAUNCHER, "DROP_TO_DOCK item=${dragged.id} pkg=${dragged.packageName} slot=${unifiedDragState?.targetDockIndex}")
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onDropItemToDock?.invoke(dragged, app, unifiedDragState?.targetDockIndex ?: -1)
-              }
-            }
-          }
-          DragTargetZone.DESKTOP, DragTargetZone.NONE -> {
-            val targetPage = pagerState.currentPage
-            val draggedSpanX = if (dragged.isWidget) dragged.spanX.coerceIn(1, cols) else 1
-            val draggedSpanY = if (dragged.isWidget) dragged.spanY.coerceIn(1, gridRows) else 1
-
-            val cellWPx = with(density) { cellWidth.toPx() }
-            val cellHPx = with(density) { cellHeight.toPx() }
-            val touchOffset = touchOffsetWithinItem
-            val targetPointerPos = if (dragged.isWidget) {
-              val widgetTopLeft = dropPos - touchOffset
-              Offset(widgetTopLeft.x + cellWPx / 2f, widgetTopLeft.y + cellHPx / 2f)
-            } else {
-              dropPos
-            }
-
-            val slotAtDrop = calculateSlotForPosition(targetPointerPos, draggedSpanX, draggedSpanY)
-            val rawTargetPos = previewTargetSlot ?: slotAtDrop
-            val rawC = rawTargetPos % cols
-            val rawR = rawTargetPos / cols
-            val clampedC = rawC.coerceIn(0, maxOf(0, cols - draggedSpanX))
-            val clampedR = rawR.coerceIn(0, maxOf(0, gridRows - draggedSpanY))
-            val targetPos = clampedR * cols + clampedC
-
-            AppLogger.i(
-              AppLogger.Category.LAUNCHER,
-              "FINAL_DROP: dropPos=$dropPos previewTargetSlot=$previewTargetSlot slotAtDrop=$slotAtDrop targetPage=$targetPage targetPos=$targetPos gridRows=$gridRows pageSize=$pageSize dragged.pageIndex=${dragged.pageIndex} dragged.positionIndex=${dragged.positionIndex}"
-            )
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-
-            val isDraggedApp = !dragged.isWidget && !dragged.isFolder
-            if (isDraggedApp && targetHoverPlacement != null) {
-              val targetPlacement = targetHoverPlacement!!.takeIf {
-                it.id != dragged.id && (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL || it.pageIndex == targetPage)
-              }
-
-              if (targetPlacement != null) {
-                if (!targetPlacement.isWidget && !targetPlacement.isFolder) {
-                  // Dropped directly on another app -> initiate folder creation containing both apps!
-                  val sourceApp = appLookup["${dragged.packageName}/${dragged.componentName}"]
-                    ?: allApps.firstOrNull { it.packageName == dragged.packageName }
-                  val targetApp = appLookup["${targetPlacement.packageName}/${targetPlacement.componentName}"]
-                    ?: allApps.firstOrNull { it.packageName == targetPlacement.packageName }
-
-                  if (sourceApp != null && targetApp != null) {
-                    AppLogger.i(
-                      AppLogger.Category.LAUNCHER,
-                      "DROP_CREATE_FOLDER: source=${sourceApp.label} (${dragged.id}) target=${targetApp.label} (${targetPlacement.id}) page=$targetPage pos=${targetPlacement.positionIndex}"
-                    )
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onCreateFolderFromApps(
-                      sourceApp,
-                      targetApp,
-                      dragged.id,
-                      targetPlacement.id,
-                      targetPlacement.pageIndex,
-                      targetPlacement.positionIndex
-                    )
-                    return
-                  }
-                } else if (targetPlacement.isFolder && targetPlacement.folderId != null) {
-                  // Dropped directly onto an existing folder -> add to folder!
-                  val sourceApp = appLookup["${dragged.packageName}/${dragged.componentName}"]
-                    ?: allApps.firstOrNull { it.packageName == dragged.packageName }
-                  if (sourceApp != null) {
-                    AppLogger.i(
-                      AppLogger.Category.LAUNCHER,
-                      "DROP_ADD_TO_FOLDER: source=${sourceApp.label} folderId=${targetPlacement.folderId}"
-                    )
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onAddAppToExistingFolder(targetPlacement.folderId, sourceApp, dragged.id)
-                    return
-                  }
-                }
-              }
-            }
-
-            // Authoritative placement is decided and persisted by the ViewModel/repository flow
-            onMovePlacement(dragged.id, targetPage, targetPos, pageSize)
-          }
-        }
-      }
-    } finally {
-      isDragging = false
-      draggedPlacement = null
-      pendingDragPlacement = null
-      dragLifecycleState = DragLifecycleState.IDLE
-      previewTargetSlot = null
-      targetHoverPlacement = null
-      isOverBin = false
-      extraPagesCount = 0
-      accumulatedDragDistance = 0f
-      unifiedDragState?.reset()
-    }
-  }
-
-  fun handleCancelDrag() {
-    edgeDwellJob?.cancel()
-    edgeDwellJob = null
-    isTransitioningPage = false
-    activeEdgeZone = EdgePagingDirection.NONE
-    edgeTriggerState = EdgeTriggerState.IDLE
+  fun cleanupDragState() {
+    isDropping = false
     isDragging = false
     draggedPlacement = null
     pendingDragPlacement = null
@@ -926,6 +829,155 @@ fun Layer1HomeScreen(
     extraPagesCount = 0
     accumulatedDragDistance = 0f
     unifiedDragState?.reset()
+  }
+
+  fun handleEndDrag(draggedOverride: SpaceItemPlacement? = null, dropPosOverride: Offset? = null) {
+    if (isDropping) return
+    edgeDwellJob?.cancel()
+    edgeDwellJob = null
+    isTransitioningPage = false
+    activeEdgeZone = EdgePagingDirection.NONE
+    edgeTriggerState = EdgeTriggerState.IDLE
+
+    val dragged = draggedOverride ?: draggedPlacement
+    if (dragged == null) {
+      cleanupDragState()
+      return
+    }
+
+    val dropPos = dropPosOverride ?: currentPointerPos
+    val targetZone = unifiedDragState?.currentTargetZone ?: if (isOverBin) DragTargetZone.REMOVE_BIN else DragTargetZone.DESKTOP
+    when (targetZone) {
+      DragTargetZone.REMOVE_BIN -> {
+        AppLogger.i(AppLogger.Category.LAUNCHER, "DROP_REMOVE item=${dragged.id} pkg=${dragged.packageName}")
+        onRemovePlacement(dragged.id)
+        cleanupDragState()
+      }
+      DragTargetZone.DOCK_BAR -> {
+        if (!dragged.isWidget) {
+          val app = appLookup["${dragged.packageName}/${dragged.componentName}"]
+            ?: allApps.firstOrNull { it.packageName == dragged.packageName }
+          if (app != null) {
+            AppLogger.i(AppLogger.Category.LAUNCHER, "DROP_TO_DOCK item=${dragged.id} pkg=${dragged.packageName} slot=${unifiedDragState?.targetDockIndex}")
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onDropItemToDock?.invoke(dragged, app, unifiedDragState?.targetDockIndex ?: -1)
+          }
+        }
+        cleanupDragState()
+      }
+      DragTargetZone.DESKTOP, DragTargetZone.NONE -> {
+        val targetPage = pagerState.currentPage
+        val draggedSpanX = if (dragged.isWidget) dragged.spanX.coerceIn(1, cols) else 1
+        val draggedSpanY = if (dragged.isWidget) dragged.spanY.coerceIn(1, gridRows) else 1
+
+        val cellWPx = with(density) { cellWidth.toPx() }
+        val cellHPx = with(density) { cellHeight.toPx() }
+        val touchOffset = touchOffsetWithinItem
+        val targetPointerPos = if (dragged.isWidget) {
+          val widgetTopLeft = dropPos - touchOffset
+          Offset(widgetTopLeft.x + cellWPx / 2f, widgetTopLeft.y + cellHPx / 2f)
+        } else {
+          dropPos
+        }
+
+        val slotAtDrop = calculateSlotForPosition(targetPointerPos, draggedSpanX, draggedSpanY)
+        val rawTargetPos = previewTargetSlot ?: slotAtDrop
+        val rawC = rawTargetPos % cols
+        val rawR = rawTargetPos / cols
+        val clampedC = rawC.coerceIn(0, maxOf(0, cols - draggedSpanX))
+        val clampedR = rawR.coerceIn(0, maxOf(0, gridRows - draggedSpanY))
+        val targetPos = clampedR * cols + clampedC
+
+        AppLogger.i(
+          AppLogger.Category.LAUNCHER,
+          "FINAL_DROP: dropPos=$dropPos previewTargetSlot=$previewTargetSlot slotAtDrop=$slotAtDrop targetPage=$targetPage targetPos=$targetPos gridRows=$gridRows pageSize=$pageSize dragged.pageIndex=${dragged.pageIndex} dragged.positionIndex=${dragged.positionIndex}"
+        )
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+
+        val isDraggedApp = !dragged.isWidget && !dragged.isFolder
+        if (isDraggedApp && targetHoverPlacement != null) {
+          val targetPlacement = targetHoverPlacement!!.takeIf {
+            it.id != dragged.id && (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL || it.pageIndex == targetPage)
+          }
+
+          if (targetPlacement != null) {
+            if (!targetPlacement.isWidget && !targetPlacement.isFolder) {
+              // Dropped directly on another app -> initiate folder creation containing both apps!
+              val sourceApp = appLookup["${dragged.packageName}/${dragged.componentName}"]
+                ?: allApps.firstOrNull { it.packageName == dragged.packageName }
+              val targetApp = appLookup["${targetPlacement.packageName}/${targetPlacement.componentName}"]
+                ?: allApps.firstOrNull { it.packageName == targetPlacement.packageName }
+
+              if (sourceApp != null && targetApp != null) {
+                AppLogger.i(
+                  AppLogger.Category.LAUNCHER,
+                  "DROP_CREATE_FOLDER: source=${sourceApp.label} (${dragged.id}) target=${targetApp.label} (${targetPlacement.id}) page=$targetPage pos=${targetPlacement.positionIndex}"
+                )
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onCreateFolderFromApps(
+                  sourceApp,
+                  targetApp,
+                  dragged.id,
+                  targetPlacement.id,
+                  targetPlacement.pageIndex,
+                  targetPlacement.positionIndex
+                )
+                cleanupDragState()
+                return
+              }
+            } else if (targetPlacement.isFolder && targetPlacement.folderId != null) {
+              // Dropped directly onto an existing folder -> add to folder!
+              val sourceApp = appLookup["${dragged.packageName}/${dragged.componentName}"]
+                ?: allApps.firstOrNull { it.packageName == dragged.packageName }
+              if (sourceApp != null) {
+                AppLogger.i(
+                  AppLogger.Category.LAUNCHER,
+                  "DROP_ADD_TO_FOLDER: source=${sourceApp.label} folderId=${targetPlacement.folderId}"
+                )
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onAddAppToExistingFolder(targetPlacement.folderId, sourceApp, dragged.id)
+                cleanupDragState()
+                return
+              }
+            }
+          }
+        }
+
+        // Animate smooth drop glide to destination slot
+        val targetRect = slotBounds[targetPos]
+        if (targetRect != null && draggedOverride == null) {
+          isDropping = true
+          val targetDest = Offset(targetRect.left + touchOffset.x, targetRect.top + touchOffset.y)
+          val startPos = currentPointerPos
+          coroutineScope.launch {
+            try {
+              val anim = Animatable(0f)
+              anim.animateTo(1f, animationSpec = tween(120, easing = FastOutSlowInEasing)) {
+                currentPointerPos = Offset(
+                  startPos.x + (targetDest.x - startPos.x) * value,
+                  startPos.y + (targetDest.y - startPos.y) * value
+                )
+              }
+              onMovePlacement(dragged.id, targetPage, targetPos, pageSize)
+            } finally {
+              cleanupDragState()
+            }
+          }
+        } else {
+          onMovePlacement(dragged.id, targetPage, targetPos, pageSize)
+          cleanupDragState()
+        }
+      }
+    }
+  }
+
+  fun handleCancelDrag() {
+    edgeDwellJob?.cancel()
+    edgeDwellJob = null
+    isTransitioningPage = false
+    activeEdgeZone = EdgePagingDirection.NONE
+    edgeTriggerState = EdgeTriggerState.IDLE
+    cleanupDragState()
     AppLogger.i(AppLogger.Category.LAUNCHER, "DRAG_CANCEL")
   }
 
@@ -939,21 +991,22 @@ fun Layer1HomeScreen(
         unifiedDragState?.layer1Coordinates = coordinates
         updatePageGridBounds()
       }
-      .pointerInput(space.id, pagerState.currentPage, effectivePlacements) {
+      .pointerInput(space.id) {
         detectTapGestures(
           onTap = { offset ->
+            if (isDropping) return@detectTapGestures
             if (activeActionPlacement != null) {
               dismissActions()
             } else {
               val hitItem = findItemAtOffset(offset, pagerState.currentPage)
               if (hitItem != null) {
                 if (hitItem.isFolder) {
-                  val folder = folderLookup[hitItem.folderId]
-                  if (folder != null) onOpenFolder(folder)
+                  val folder = currentFolderLookup[hitItem.folderId]
+                  if (folder != null) currentOnOpenFolder(folder)
                 } else if (!hitItem.isWidget) {
-                  val app = appLookup["${hitItem.packageName}/${hitItem.componentName}"]
-                    ?: allApps.firstOrNull { it.packageName == hitItem.packageName }
-                  if (app != null) onLaunchApp(app)
+                  val app = currentAppLookup["${hitItem.packageName}/${hitItem.componentName}"]
+                    ?: currentAllApps.firstOrNull { it.packageName == hitItem.packageName }
+                  if (app != null) currentOnLaunchApp(app)
                 }
               } else {
                 if (resizingWidgetId != null) {
@@ -963,21 +1016,23 @@ fun Layer1HomeScreen(
             }
           },
           onLongPress = { offset ->
+            if (isDropping) return@detectTapGestures
             val hitItem = findItemAtOffset(offset, pagerState.currentPage)
             if (hitItem == null) {
               if (resizingWidgetId != null) {
                 resizingWidgetId = null
               } else {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onOpenCustomization(pagerState.currentPage)
+                currentOnOpenCustomization(pagerState.currentPage)
               }
             }
           }
         )
       }
-      .pointerInput(space.id, pagerState.currentPage, effectivePlacements) {
+      .pointerInput(space.id) {
         detectDragGesturesAfterLongPress(
           onDragStart = { startOffset ->
+            if (isDropping) return@detectDragGesturesAfterLongPress
             val hitItem = findItemAtOffset(startOffset, pagerState.currentPage)
             if (hitItem != null) {
               resizingWidgetId = null
@@ -995,6 +1050,7 @@ fun Layer1HomeScreen(
             }
           },
           onDrag = { change, dragAmount ->
+            if (isDropping) return@detectDragGesturesAfterLongPress
             change.consume()
             accumulatedDragDistance += dragAmount.getDistance()
             if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE && pendingDragPlacement != null) {
@@ -1009,6 +1065,7 @@ fun Layer1HomeScreen(
             }
           },
           onDragEnd = {
+            if (isDropping) return@detectDragGesturesAfterLongPress
             if (isDragging) {
               handleEndDrag()
             } else if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
@@ -1018,6 +1075,7 @@ fun Layer1HomeScreen(
             }
           },
           onDragCancel = {
+            if (isDropping) return@detectDragGesturesAfterLongPress
             if (isDragging) {
               handleCancelDrag()
             } else if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
@@ -1093,7 +1151,7 @@ fun Layer1HomeScreen(
         // Horizontal paged layout (Default)
         HorizontalPager(
           state = pagerState,
-          userScrollEnabled = !isDragging && dragLifecycleState == DragLifecycleState.IDLE,
+          userScrollEnabled = !isDragging && !isDropping && dragLifecycleState == DragLifecycleState.IDLE,
           modifier = Modifier
             .weight(1f)
             .fillMaxSize()
@@ -1295,53 +1353,111 @@ fun Layer1HomeScreen(
     )
 
     // Subtle edge auto-paging activation indicator cues
-    if (isDragging && space.layer1DisplayMode != Space.DISPLAY_MODE_SCROLL && !isOverBin) {
+    if (isDragging && space.layer1DisplayMode != Space.DISPLAY_MODE_SCROLL && !isOverBin && !isDropping) {
       if (activeEdgeZone == EdgePagingDirection.LEFT && edgeTriggerState == EdgeTriggerState.ARMED) {
         Box(
           modifier = Modifier
             .fillMaxHeight()
-            .width(28.dp)
+            .width(36.dp)
             .align(Alignment.CenterStart)
             .background(
               Brush.horizontalGradient(
                 colors = listOf(
-                  QuantumViolet.copy(alpha = 0.35f),
+                  QuantumViolet.copy(alpha = 0.4f),
                   Color.Transparent
                 )
               )
             )
-            .zIndex(100f)
-        )
+            .zIndex(100f),
+          contentAlignment = Alignment.CenterStart
+        ) {
+          Box(
+            modifier = Modifier
+              .padding(start = 6.dp)
+              .size(30.dp)
+              .clip(CircleShape)
+              .background(QuantumViolet.copy(alpha = 0.85f)),
+            contentAlignment = Alignment.Center
+          ) {
+            Icon(
+              imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+              contentDescription = "Previous Page",
+              tint = Color.White,
+              modifier = Modifier.size(16.dp)
+            )
+          }
+        }
       } else if (activeEdgeZone == EdgePagingDirection.RIGHT && edgeTriggerState == EdgeTriggerState.ARMED) {
         Box(
           modifier = Modifier
             .fillMaxHeight()
-            .width(28.dp)
+            .width(36.dp)
             .align(Alignment.CenterEnd)
             .background(
               Brush.horizontalGradient(
                 colors = listOf(
                   Color.Transparent,
-                  QuantumViolet.copy(alpha = 0.35f)
+                  QuantumViolet.copy(alpha = 0.4f)
                 )
               )
             )
-            .zIndex(100f)
-        )
+            .zIndex(100f),
+          contentAlignment = Alignment.CenterEnd
+        ) {
+          Box(
+            modifier = Modifier
+              .padding(end = 6.dp)
+              .size(30.dp)
+              .clip(CircleShape)
+              .background(QuantumViolet.copy(alpha = 0.85f)),
+            contentAlignment = Alignment.Center
+          ) {
+            Icon(
+              imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+              contentDescription = "Next Page",
+              tint = Color.White,
+              modifier = Modifier.size(16.dp)
+            )
+          }
+        }
       }
     }
 
     // Floating dragged item follow overlay (rendered in root coordinate space)
-    if (isDragging && draggedPlacement != null) {
+    if ((isDragging || isDropping) && draggedPlacement != null) {
       val dragged = draggedPlacement!!
       val app = appLookup["${dragged.packageName}/${dragged.componentName}"]
         ?: allApps.firstOrNull { it.packageName == dragged.packageName }
       val bitmap = remember(app?.id) { app?.let { getBitmap(it) } }
 
+      var lastPointerX by remember { mutableFloatStateOf(currentPointerPos.x) }
+      var targetTilt by remember { mutableFloatStateOf(0f) }
+      LaunchedEffect(currentPointerPos.x) {
+        val dx = currentPointerPos.x - lastPointerX
+        lastPointerX = currentPointerPos.x
+        targetTilt = (dx * 0.16f).coerceIn(-6f, 6f)
+      }
+
+      val targetScale = when {
+        isDropping -> 1.0f
+        isOverBin -> 0.82f
+        targetHoverPlacement != null -> 1.16f
+        else -> 1.12f
+      }
       val dragScale by animateFloatAsState(
-        targetValue = 1.08f,
+        targetValue = targetScale,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "dragScale"
+      )
+      val dragTilt by animateFloatAsState(
+        targetValue = if (isDropping) 0f else targetTilt,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "dragTilt"
+      )
+      val dragElevation by animateDpAsState(
+        targetValue = if (isDropping) 2.dp else if (isOverBin) 8.dp else 22.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "dragElevation"
       )
 
       Box(
@@ -1356,7 +1472,9 @@ fun Layer1HomeScreen(
           .graphicsLayer {
             scaleX = dragScale
             scaleY = dragScale
-            shadowElevation = 16.dp.toPx()
+            rotationZ = dragTilt
+            shadowElevation = dragElevation.toPx()
+            alpha = if (isOverBin) 0.75f else 1.0f
           }
           .zIndex(999f)
           .testTag("floating_dragged_item"),
@@ -1651,20 +1769,44 @@ private fun DropTargetLandingSlot(
   iconSizeModifier: Modifier,
   modifier: Modifier = Modifier
 ) {
+  val infiniteTransition = rememberInfiniteTransition(label = "slotGlow")
+  val pulseAlpha by infiniteTransition.animateFloat(
+    initialValue = 0.16f,
+    targetValue = 0.32f,
+    animationSpec = infiniteRepeatable(
+      animation = tween(750, easing = FastOutSlowInEasing),
+      repeatMode = RepeatMode.Reverse
+    ),
+    label = "pulseAlpha"
+  )
+  val pulseScale by infiniteTransition.animateFloat(
+    initialValue = 1.0f,
+    targetValue = 1.04f,
+    animationSpec = infiniteRepeatable(
+      animation = tween(750, easing = FastOutSlowInEasing),
+      repeatMode = RepeatMode.Reverse
+    ),
+    label = "pulseScale"
+  )
+
   Box(
     modifier = modifier.fillMaxSize(),
     contentAlignment = Alignment.Center
   ) {
     Column(
       horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement = Arrangement.Center
+      verticalArrangement = Arrangement.Center,
+      modifier = Modifier.graphicsLayer {
+        scaleX = pulseScale
+        scaleY = pulseScale
+      }
     ) {
       Box(
         modifier = iconSizeModifier
           .clip(ShapeRoundMd)
-          .background(QuantumViolet.copy(alpha = 0.14f))
+          .background(QuantumViolet.copy(alpha = pulseAlpha))
           .border(
-            BorderStroke(1.5.dp, QuantumViolet.copy(alpha = 0.65f)),
+            BorderStroke(1.75.dp, QuantumViolet.copy(alpha = 0.8f)),
             ShapeRoundMd
           )
       )
@@ -1674,7 +1816,7 @@ private fun DropTargetLandingSlot(
           .width(36.dp)
           .height(6.dp)
           .clip(CircleShape)
-          .background(QuantumViolet.copy(alpha = 0.22f))
+          .background(QuantumViolet.copy(alpha = 0.35f))
       )
     }
   }
@@ -1734,6 +1876,17 @@ private fun Layer1ItemCell(
   val folder = if (placement.isFolder) folderLookup[placement.folderId] else null
   var cellCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
+  val hoverScale by animateFloatAsState(
+    targetValue = if (isTargetHover) 1.12f else 1.0f,
+    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+    label = "cellHoverScale"
+  )
+  val cellAlpha by animateFloatAsState(
+    targetValue = if (isBeingDragged) 0.0f else 1.0f,
+    animationSpec = tween(120),
+    label = "cellAlpha"
+  )
+
   Column(
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.Center,
@@ -1748,9 +1901,9 @@ private fun Layer1ItemCell(
         }
       }
       .graphicsLayer {
-        alpha = if (isBeingDragged) 0.0f else 1.0f
-        scaleX = if (isTargetHover) 1.08f else 1.0f
-        scaleY = if (isTargetHover) 1.08f else 1.0f
+        alpha = cellAlpha
+        scaleX = hoverScale
+        scaleY = hoverScale
       }
       .testTag(if (placement.isFolder) "layer1_folder_${placement.folderId}" else if (placement.isWidget) "layer1_widget_${placement.id}" else "layer1_app_${placement.packageName}")
   ) {
