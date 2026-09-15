@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.net.Uri
 import com.multispace.diagnostics.AppLogger
+import com.multispace.domain.model.AppIdentity
 import com.multispace.domain.model.DiscoveredApp
 
 /**
@@ -29,6 +30,10 @@ object PackageActionHelper {
    */
   fun isPackageUninstallable(context: Context, app: DiscoveredApp): Boolean {
     return isPackageUninstallable(context, app.packageName, app.isUninstallable)
+  }
+
+  fun isPackageUninstallable(context: Context, identity: AppIdentity, fallbackUninstallable: Boolean = true): Boolean {
+    return isPackageUninstallable(context, identity.packageName, fallbackUninstallable)
   }
 
   fun isPackageUninstallable(

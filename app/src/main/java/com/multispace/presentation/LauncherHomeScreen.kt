@@ -208,21 +208,15 @@ fun LauncherHomeScreen(
     } else if (activeMemberships.isEmpty()) {
       emptyList()
     } else {
-      val appsByComponent = discoveryUiState.allApps.associateBy { "${it.packageName}/${it.activityName}" }
-      val appsByPackage = discoveryUiState.allApps.associateBy { it.packageName }
-
+      val lookup = AppIdentityLookup(discoveryUiState.allApps)
       val result = mutableListOf<DiscoveredApp>()
-      val includedKeys = mutableSetOf<String>()
+      val includedIdentities = mutableSetOf<AppIdentity>()
 
       for (membership in activeMemberships) {
-        val matchedApp = appsByComponent["${membership.packageName}/${membership.componentName}"]
-          ?: appsByPackage[membership.packageName]
+        val matchedApp = lookup[membership.appIdentity]
 
-        if (matchedApp != null) {
-          val appKey = "${matchedApp.packageName}/${matchedApp.activityName}/${matchedApp.userHandleId}"
-          if (includedKeys.add(appKey)) {
-            result.add(matchedApp)
-          }
+        if (matchedApp != null && includedIdentities.add(matchedApp.appIdentity)) {
+          result.add(matchedApp)
         }
       }
       result
@@ -702,7 +696,9 @@ fun LauncherHomeScreen(
                               it.pageIndex == targetPage && it.positionIndex == targetPos
                             }
                             if (existing != null && !existing.isWidget && !existing.isFolder) {
-                              val targetApp = spaceScopedApps.firstOrNull { it.packageName == existing.packageName }
+                              val targetApp = existing.appIdentity?.let { identity ->
+                                spaceScopedApps.firstOrNull { identity.matches(it.appIdentity) }
+                              } ?: spaceScopedApps.firstOrNull { it.packageName == existing.packageName }
                               if (targetApp != null) {
                                 spaceViewModel.createFolderFromApps(
                                   spaceId = space.id,

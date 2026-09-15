@@ -51,6 +51,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.multispace.R
 import com.multispace.domain.model.DiscoveredApp
+import com.multispace.domain.model.appIdentity
 import com.multispace.domain.model.ImportReport
 import com.multispace.domain.model.LayoutPreset
 import com.multispace.domain.model.PageTurnEffect
@@ -403,7 +404,7 @@ fun CreateSpaceScreen(
       val memberships = spaceViewModel.spaceRepository.getMembershipsForSpace(editingSpace.id)
       val memberIds = mutableSetOf<String>()
       for (m in memberships) {
-        val matched = allApps.firstOrNull { it.packageName == m.packageName && (m.componentName.isBlank() || it.activityName == m.componentName) }
+        val matched = allApps.firstOrNull { m.appIdentity.matches(it.appIdentity) }
         if (matched != null) {
           memberIds.add(matched.id)
         } else {

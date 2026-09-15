@@ -138,12 +138,7 @@ fun Layer1HomeScreen(
     val haptic = LocalHapticFeedback.current
 
     val appLookup = remember(allApps) {
-      val map = mutableMapOf<String, DiscoveredApp>()
-      for (app in allApps) {
-        map["${app.packageName}/${app.activityName}"] = app
-        map[app.packageName] = app
-      }
-      map
+      AppIdentityLookup(allApps)
     }
     val folderLookup = remember(folders) {
       folders.associateBy { it.id }
@@ -828,8 +823,7 @@ fun Layer1HomeScreen(
     touchOffsetWithinItem = computedTouchOffset
 
     if (unifiedDragState != null) {
-      val app = appLookup["${placement.packageName}/${placement.componentName}"]
-        ?: allApps.firstOrNull { it.packageName == placement.packageName }
+      val app = appLookup[placement]
       unifiedDragState.lifecycleState = DragLifecycleState.DRAGGING
       unifiedDragState.isDragging = true
       unifiedDragState.dragSource = DragSource.LAYER1_DESKTOP
@@ -1011,8 +1005,7 @@ fun Layer1HomeScreen(
       }
       DragTargetZone.DOCK_BAR -> {
         if (!dragged.isWidget) {
-          val app = appLookup["${dragged.packageName}/${dragged.componentName}"]
-            ?: allApps.firstOrNull { it.packageName == dragged.packageName }
+          val app = appLookup[dragged]
           if (app != null) {
             AppLogger.i(AppLogger.Category.LAUNCHER, "DROP_TO_DOCK item=${dragged.id} pkg=${dragged.packageName} slot=${unifiedDragState?.targetDockIndex}")
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1082,10 +1075,8 @@ fun Layer1HomeScreen(
           if (targetPlacement != null) {
             if (!targetPlacement.isWidget && !targetPlacement.isFolder) {
               // Dropped directly on another app -> initiate folder creation containing both apps!
-              val sourceApp = appLookup["${dragged.packageName}/${dragged.componentName}"]
-                ?: allApps.firstOrNull { it.packageName == dragged.packageName }
-              val targetApp = appLookup["${targetPlacement.packageName}/${targetPlacement.componentName}"]
-                ?: allApps.firstOrNull { it.packageName == targetPlacement.packageName }
+              val sourceApp = appLookup[dragged]
+              val targetApp = appLookup[targetPlacement]
 
               if (sourceApp != null && targetApp != null) {
                 AppLogger.i(
@@ -1106,8 +1097,7 @@ fun Layer1HomeScreen(
               }
             } else if (targetPlacement.isFolder && targetPlacement.folderId != null) {
               // Dropped directly onto an existing folder -> add to folder!
-              val sourceApp = appLookup["${dragged.packageName}/${dragged.componentName}"]
-                ?: allApps.firstOrNull { it.packageName == dragged.packageName }
+              val sourceApp = appLookup[dragged]
               if (sourceApp != null) {
                 AppLogger.i(
                   AppLogger.Category.LAUNCHER,
@@ -1194,8 +1184,7 @@ fun Layer1HomeScreen(
                 val folder = currentFolderLookup[hitItem.folderId]
                 if (folder != null) currentOnOpenFolder(folder)
               } else if (!hitItem.isWidget) {
-                val app = currentAppLookup["${hitItem.packageName}/${hitItem.componentName}"]
-                  ?: currentAllApps.firstOrNull { it.packageName == hitItem.packageName }
+                val app = currentAppLookup[hitItem]
                 if (app != null) currentOnLaunchApp(app)
               }
             } else {
@@ -1620,8 +1609,7 @@ fun Layer1HomeScreen(
     // Floating dragged item follow overlay (rendered in root coordinate space)
     if ((isDragging || isDropping) && draggedPlacement != null) {
       val dragged = draggedPlacement!!
-      val app = appLookup["${dragged.packageName}/${dragged.componentName}"]
-        ?: allApps.firstOrNull { it.packageName == dragged.packageName }
+      val app = appLookup[dragged]
       val bitmap = remember(app?.id) { app?.let { getBitmap(it) } }
 
       var lastPointerX by remember { mutableFloatStateOf(currentPointerPos.x) }
@@ -1757,8 +1745,7 @@ fun Layer1HomeScreen(
       val targetRect = getPlacementFootprintRect(targetPlacement)
         ?: cellBounds[targetPlacement.id]
         ?: slotBounds[targetPlacement.positionIndex]
-      val app = appLookup["${targetPlacement.packageName}/${targetPlacement.componentName}"]
-        ?: allApps.firstOrNull { it.packageName == targetPlacement.packageName }
+      val app = appLookup[targetPlacement]
 
       PreDragActionBoxOverlay(
         placement = targetPlacement,
@@ -2041,7 +2028,7 @@ private fun EmptyGridCell(
 private fun Layer1ItemCell(
   placement: SpaceItemPlacement,
   space: Space,
-  appLookup: Map<String, DiscoveredApp>,
+  appLookup: AppIdentityLookup,
   folderLookup: Map<String, SpaceFolder>,
   allApps: List<DiscoveredApp>,
   iconSizeModifier: Modifier,
@@ -2065,8 +2052,7 @@ private fun Layer1ItemCell(
   getDragLifecycleState: () -> DragLifecycleState = { DragLifecycleState.IDLE },
   getLastLongPressTimestamp: () -> Long = { 0L }
 ) {
-  val key = "${placement.packageName}/${placement.componentName}"
-  val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == placement.packageName }
+  val app = appLookup[placement]
   val folder = if (placement.isFolder) folderLookup[placement.folderId] else null
   var cellCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
@@ -2212,13 +2198,12 @@ private fun Layer1ItemCell(
 @Composable
 private fun MiniAppIcon(
   item: SpaceFolderItem,
-  appLookup: Map<String, DiscoveredApp>,
+  appLookup: AppIdentityLookup,
   allApps: List<DiscoveredApp>,
   appTheme: String,
   getBitmap: (DiscoveredApp) -> android.graphics.Bitmap?
 ) {
-  val key = "${item.packageName}/${item.componentName}"
-  val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == item.packageName }
+  val app = appLookup[item]
   val bitmap = remember(app?.id) { app?.let { getBitmap(it) } }
 
   ThemedMiniAppIcon(

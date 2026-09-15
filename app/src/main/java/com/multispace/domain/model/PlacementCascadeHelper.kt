@@ -101,7 +101,8 @@ object PlacementCascadeHelper {
       isSameItem = { a, b ->
         a.id == b.id || (
           !a.isFolder && !a.isWidget && !b.isFolder && !b.isWidget &&
-          a.packageName != null && a.packageName == b.packageName
+          a.appIdentity != null && b.appIdentity != null &&
+          a.appIdentity!!.matches(b.appIdentity!!)
         )
       },
       getSpanX = { if (it.isWidget) it.spanX else 1 },
@@ -131,7 +132,8 @@ object PlacementCascadeHelper {
     for (p in allCurrentPlacements) {
       val isSameItem = p.id == itemToInsert.id ||
         (!p.isFolder && !p.isWidget && !itemToInsert.isFolder && !itemToInsert.isWidget &&
-          p.packageName != null && p.packageName == itemToInsert.packageName)
+          p.appIdentity != null && itemToInsert.appIdentity != null &&
+          p.appIdentity!!.matches(itemToInsert.appIdentity!!))
       if (isSameItem) continue
       val shifted = updatedMap[p.id]
       if (shifted != null) {
@@ -145,23 +147,22 @@ object PlacementCascadeHelper {
       ?: itemToInsert.copy(pageIndex = targetPage, positionIndex = targetPosition)
     result.add(finalPlaced)
 
-    // Strict deduplication: ensure each app package only appears once, preserving finalPlaced at target
+    // Strict deduplication: ensure each app identity only appears once, preserving finalPlaced at target
     val deduplicated = mutableListOf<SpaceItemPlacement>()
-    val seenPackages = mutableSetOf<String>()
+    val seenIdentities = mutableSetOf<AppIdentity>()
     val seenIds = mutableSetOf<String>()
 
     // finalPlaced takes precedence to guarantee placement at target
     deduplicated.add(finalPlaced)
     seenIds.add(finalPlaced.id)
-    if (!finalPlaced.isFolder && !finalPlaced.isWidget && finalPlaced.packageName != null) {
-      seenPackages.add(finalPlaced.packageName!!)
-    }
+    finalPlaced.appIdentity?.let { seenIdentities.add(it) }
 
     for (p in result) {
       if (seenIds.contains(p.id)) continue
-      if (!p.isFolder && !p.isWidget && p.packageName != null) {
-        if (seenPackages.contains(p.packageName)) continue
-        seenPackages.add(p.packageName!!)
+      val identity = p.appIdentity
+      if (identity != null) {
+        if (seenIdentities.any { it.matches(identity) }) continue
+        seenIdentities.add(identity)
       }
       seenIds.add(p.id)
       deduplicated.add(p)

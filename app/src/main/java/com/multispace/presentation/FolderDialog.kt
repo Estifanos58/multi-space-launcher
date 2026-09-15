@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.multispace.domain.model.AppIdentityLookup
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.SpaceFolder
 import com.multispace.domain.model.SpaceFolderItem
@@ -59,7 +60,7 @@ fun FolderDialog(
   var selectedItemForAction by remember { mutableStateOf<SpaceFolderItem?>(null) }
 
   val appLookup = remember(allApps) {
-    allApps.associateBy { "${it.packageName}/${it.activityName}" }
+    AppIdentityLookup(allApps)
   }
 
   Dialog(onDismissRequest = onDismiss) {
@@ -212,8 +213,7 @@ fun FolderDialog(
             contentPadding = PaddingValues(vertical = AppDimens.Spacing8)
           ) {
             items(folder.items, key = { it.id }) { item ->
-              val key = "${item.packageName}/${item.componentName}"
-              val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == item.packageName }
+              val app = appLookup[item]
 
               Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -284,8 +284,7 @@ fun FolderDialog(
   // Action Dialog for selected folder item
   if (selectedItemForAction != null) {
     val targetItem = selectedItemForAction!!
-    val key = "${targetItem.packageName}/${targetItem.componentName}"
-    val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == targetItem.packageName }
+    val app = appLookup[targetItem]
 
     ModernDialogContainer(
       title = "Folder Item",

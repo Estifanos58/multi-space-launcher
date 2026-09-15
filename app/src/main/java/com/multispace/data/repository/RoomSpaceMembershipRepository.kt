@@ -130,11 +130,12 @@ class RoomSpaceMembershipRepository(
   ): Result<Unit> {
     return try {
       val memberships = membershipDao.getMembershipsForSpace(spaceId)
-      val membershipMap = memberships.associateBy { "${it.packageName}/${it.componentName}" }
+      val membershipByIdentity = memberships.associateBy { it.appIdentity }
 
       orderedApps.forEachIndexed { index, app ->
-        val key = "${app.packageName}/${app.activityName}"
-        val membership = membershipMap[key] ?: memberships.firstOrNull { it.packageName == app.packageName }
+        val membership = membershipByIdentity[app.appIdentity]
+          ?: memberships.firstOrNull { it.appIdentity.matches(app.appIdentity) }
+          ?: memberships.firstOrNull { it.packageName == app.packageName }
         if (membership != null) {
           membershipDao.updateMembershipOrder(
             spaceId = spaceId,

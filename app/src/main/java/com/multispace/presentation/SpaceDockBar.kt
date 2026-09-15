@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.zIndex
+import com.multispace.domain.model.AppIdentityLookup
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceDockItem
@@ -100,7 +101,7 @@ fun SpaceDockBar(
   val slotBounds = remember { mutableStateMapOf<String, Rect>() }
 
   val appLookup = remember(allApps) {
-    allApps.associateBy { "${it.packageName}/${it.activityName}" }
+    AppIdentityLookup(allApps)
   }
 
   val isReceivingDrop = unifiedDragState.isDragging &&
@@ -228,8 +229,7 @@ fun SpaceDockBar(
                 accumulatedDragDistance = 0f
                 currentPointerPos = rootOffset
 
-                val key = "${touchedItem.packageName}/${touchedItem.componentName}"
-                val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == touchedItem.packageName }
+                val app = appLookup[touchedItem]
 
                 val rect = slotBounds[touchedItem.id]
                 touchOffsetInSlot = if (rect != null) {
@@ -300,8 +300,7 @@ fun SpaceDockBar(
             onDragEnd = {
               if (draggedItem != null) {
                 val item = draggedItem!!
-                val key = "${item.packageName}/${item.componentName}"
-                val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == item.packageName }
+                val app = appLookup[item]
 
                 when (unifiedDragState.currentTargetZone) {
                   DragTargetZone.REMOVE_BIN -> {
@@ -462,8 +461,7 @@ fun SpaceDockBar(
   // Modernized Remove from Dock Confirmation Dialog
   if (itemForAction != null) {
     val target = itemForAction!!
-    val key = "${target.packageName}/${target.componentName}"
-    val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == target.packageName }
+    val app = appLookup[target]
 
     ModernDialogContainer(
       title = "Dock Shortcut",
@@ -491,7 +489,7 @@ fun SpaceDockBar(
 private fun DockAppSlot(
   item: SpaceDockItem,
   allApps: List<DiscoveredApp>,
-  appLookup: Map<String, DiscoveredApp>,
+  appLookup: AppIdentityLookup,
   isGhost: Boolean,
   getBitmap: (DiscoveredApp) -> android.graphics.Bitmap?,
   onLaunchApp: (DiscoveredApp) -> Unit,
@@ -501,8 +499,7 @@ private fun DockAppSlot(
   appTheme: String = Space.THEME_DEFAULT,
   isInteractable: Boolean = true
 ) {
-  val key = "${item.packageName}/${item.componentName}"
-  val app = appLookup[key] ?: allApps.firstOrNull { it.packageName == item.packageName }
+  val app = appLookup[item]
 
   Box(
     modifier = modifier

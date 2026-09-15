@@ -13,6 +13,8 @@ import com.multispace.data.entity.SpaceMembershipEntity
 import com.multispace.data.preferences.LauncherPreferences
 import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.ActiveSpaceState
+import com.multispace.domain.model.AppIdentity
+import com.multispace.domain.model.appIdentity
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.ImportReport
 import com.multispace.domain.model.LayoutPreset
@@ -281,7 +283,9 @@ class RoomSpaceRepository(
     if (installedApps.isEmpty()) return
 
     val existingDockApps = existingDockEntities.map { entity ->
-      installedApps.firstOrNull { it.packageName == entity.packageName }
+      val targetIdentity = entity.appIdentity
+      installedApps.firstOrNull { targetIdentity.matches(it.appIdentity) }
+        ?: installedApps.firstOrNull { it.packageName == entity.packageName }
         ?: DiscoveredApp(
           id = "${entity.packageName}/${entity.componentName}#${entity.userHandleId}",
           packageName = entity.packageName,
@@ -1226,7 +1230,7 @@ class RoomSpaceRepository(
         }
       }
 
-      val distinctActiveApps = activeApps.distinctBy { it.packageName }
+      val distinctActiveApps = activeApps.distinctBy { it.appIdentity }
       layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
       layoutDao.deleteAllDockItemsForSpace(spaceId)
 

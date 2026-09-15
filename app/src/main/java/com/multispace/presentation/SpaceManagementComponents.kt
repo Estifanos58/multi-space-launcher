@@ -55,9 +55,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.multispace.domain.model.AppIdentity
+import com.multispace.domain.model.AppIdentityLookup
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceMembership
+import com.multispace.domain.model.appIdentity
 import com.multispace.ui.theme.DarkTerminalAccent
 import com.multispace.ui.theme.DarkTerminalSurface
 import com.multispace.ui.theme.DarkTerminalText
@@ -261,13 +264,12 @@ fun SpaceManagementSection(
     }
     val memberships by membershipsFlow.collectAsState(initial = emptyList())
     val spaceApps = remember(allApps, memberships) {
-      val appsByComponent = allApps.associateBy { "${it.packageName}/${it.activityName}" }
-      val appsByPackage = allApps.associateBy { it.packageName }
+      val lookup = AppIdentityLookup(allApps)
       val result = mutableListOf<DiscoveredApp>()
-      val included = mutableSetOf<String>()
+      val included = mutableSetOf<AppIdentity>()
       for (m in memberships) {
-        val app = appsByComponent["${m.packageName}/${m.componentName}"] ?: appsByPackage[m.packageName]
-        if (app != null && included.add("${app.packageName}/${app.activityName}/${app.userHandleId}")) {
+        val app = lookup[m.appIdentity]
+        if (app != null && included.add(app.appIdentity)) {
           result.add(app)
         }
       }
@@ -732,11 +734,8 @@ fun ManageMembershipsDialog(
   val memberships by membershipsFlow.collectAsState(initial = emptyList())
   var searchQuery by remember { mutableStateOf("") }
 
-  val memberPackageSet = remember(memberships) {
-    memberships.map { it.packageName }.toSet()
-  }
-  val memberComponentSet = remember(memberships) {
-    memberships.map { "${it.packageName}/${it.componentName}" }.toSet()
+  val memberIdentities = remember(memberships) {
+    memberships.map { it.appIdentity }
   }
 
   val filteredApps = remember(allApps, searchQuery) {
@@ -818,7 +817,7 @@ fun ManageMembershipsDialog(
           OutlinedButton(
             onClick = {
               filteredApps.forEach { app ->
-                val isMember = memberComponentSet.contains("${app.packageName}/${app.activityName}") || memberPackageSet.contains(app.packageName)
+                val isMember = memberIdentities.any { it.matches(app.appIdentity) }
                 if (!isMember) {
                   spaceViewModel.addAppToSpace(space.id, app)
                 }
@@ -834,7 +833,7 @@ fun ManageMembershipsDialog(
           OutlinedButton(
             onClick = {
               filteredApps.forEach { app ->
-                val isMember = memberComponentSet.contains("${app.packageName}/${app.activityName}") || memberPackageSet.contains(app.packageName)
+                val isMember = memberIdentities.any { it.matches(app.appIdentity) }
                 if (isMember) {
                   spaceViewModel.removeAppFromSpace(space.id, app)
                 }
@@ -863,8 +862,7 @@ fun ManageMembershipsDialog(
             key = { it.id },
             contentType = { "membership_item" }
           ) { app ->
-            val isMember = memberComponentSet.contains("${app.packageName}/${app.activityName}") ||
-              memberPackageSet.contains(app.packageName)
+            val isMember = memberIdentities.any { it.matches(app.appIdentity) }
 
             Surface(
               shape = RoundedCornerShape(10.dp),

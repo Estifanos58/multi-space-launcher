@@ -24,8 +24,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.multispace.domain.model.AppIdentity
+import com.multispace.domain.model.AppIdentityLookup
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
+import com.multispace.domain.model.appIdentity
 import com.multispace.ui.components.ModernCard
 import com.multispace.ui.components.ModernSectionHeader
 import com.multispace.ui.components.ModernStatusBadge
@@ -454,13 +457,12 @@ fun LauncherConfigurationScreen(
     }
     val memberships by membershipsFlow.collectAsState(initial = emptyList())
     val spaceApps = remember(discoveryUiState.allApps, memberships) {
-      val appsByComponent = discoveryUiState.allApps.associateBy { "${it.packageName}/${it.activityName}" }
-      val appsByPackage = discoveryUiState.allApps.associateBy { it.packageName }
+      val lookup = AppIdentityLookup(discoveryUiState.allApps)
       val result = mutableListOf<DiscoveredApp>()
-      val included = mutableSetOf<String>()
+      val included = mutableSetOf<AppIdentity>()
       for (m in memberships) {
-        val app = appsByComponent["${m.packageName}/${m.componentName}"] ?: appsByPackage[m.packageName]
-        if (app != null && included.add("${app.packageName}/${app.activityName}/${app.userHandleId}")) {
+        val app = lookup[m.appIdentity]
+        if (app != null && included.add(app.appIdentity)) {
           result.add(app)
         }
       }

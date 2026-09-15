@@ -11,7 +11,9 @@ import android.os.Process
 import android.os.UserHandle
 import android.os.UserManager
 import com.multispace.diagnostics.AppLogger
+import com.multispace.domain.model.AppIdentity
 import com.multispace.domain.model.DiscoveredApp
+import com.multispace.domain.model.appIdentity
 
 /**
  * Result of an application launch attempt.
@@ -76,12 +78,13 @@ class AppLaunchManager(private val context: Context) {
    * 5. If application is uninstalled/disabled or launch fails, handle gracefully without crashing.
    */
   fun launchApp(app: DiscoveredApp, sourceBounds: Rect? = null): LaunchResult {
-    val targetComponent = ComponentName(app.packageName, app.activityName)
-    val userHandle = resolveUserHandle(app.userHandleId)
+    val identity = app.appIdentity
+    val targetComponent = identity.toComponentName()
+    val userHandle = resolveUserHandle(identity.userHandleId)
 
     AppLogger.i(
       AppLogger.Category.LAUNCH,
-      "LAUNCH_REQUESTED: ${app.label} [${app.packageName}/${app.activityName}] (profile: $userHandle)"
+      "LAUNCH_REQUESTED: ${app.label} [$identity] (profile: $userHandle)"
     )
 
     AppLogger.d(
@@ -96,7 +99,7 @@ class AppLaunchManager(private val context: Context) {
           launcherApps.getActivityList(app.packageName, userHandle)
 
         val matchingActivity = activities?.firstOrNull {
-          it.componentName.className == app.activityName
+          it.componentName == targetComponent || it.componentName.className == identity.componentName
         }
 
         if (matchingActivity != null) {
