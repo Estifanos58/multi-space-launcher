@@ -13,8 +13,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.verticalDrag
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -117,6 +121,11 @@ fun Layer1HomeScreen(
   appWidgetHost: AppWidgetHost? = null,
   unifiedDragState: UnifiedDragState? = null,
   onDropItemToDock: ((placement: SpaceItemPlacement, app: DiscoveredApp, targetDockIndex: Int) -> Unit)? = null,
+  isSwipeAllowed: Boolean = false,
+  onEmptySpaceSwipeStart: () -> Unit = {},
+  onEmptySpaceSwipeMove: (dragAmount: Float, change: PointerInputChange) -> Unit = { _, _ -> },
+  onEmptySpaceSwipeEnd: () -> Unit = {},
+  onEmptySpaceSwipeCancel: () -> Unit = {},
   modifier: Modifier = Modifier
 ) {
   BoxWithConstraints(
@@ -1141,6 +1150,60 @@ fun Layer1HomeScreen(
         viewportHeight = coordinates.size.height.toFloat()
         unifiedDragState?.layer1Coordinates = coordinates
         updatePageGridBounds()
+      }
+      .pointerInput(space.id, isSwipeAllowed) {
+        if (!isSwipeAllowed) return@pointerInput
+        awaitEachGesture {
+          val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+          val initialHit = findItemAtOffset(down.position, pagerState.currentPage)
+          // ONE gesture-arbitration decision per pointer:
+          // If the initial touch is on an app/widget/drag target, item drag owns the gesture.
+          // Layer transition must not consume it.
+          if (initialHit != null) {
+            return@awaitEachGesture
+          }
+
+          // If the initial touch is on empty Layer 1 space, Layer transition owns the gesture.
+          // Empty-space swipe must remain truly finger-following:
+          // continuously update layerTransitionProgress from pointer movement:
+          // layerTransitionProgress += -dragDeltaY / screenHeightPx with no threshold during the drag; only settle on release.
+          val pointerId = down.id
+          var isDraggingLayer = false
+          var previousY = down.position.y
+
+          while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+
+            if (change.changedToUp()) {
+              if (isDraggingLayer) {
+                change.consume()
+                onEmptySpaceSwipeEnd()
+              }
+              break
+            }
+
+            if (!change.pressed) {
+              if (isDraggingLayer) {
+                onEmptySpaceSwipeCancel()
+              }
+              break
+            }
+
+            val currentY = change.position.y
+            val dragDeltaY = currentY - previousY
+            previousY = currentY
+
+            if (dragDeltaY != 0f) {
+              if (!isDraggingLayer) {
+                isDraggingLayer = true
+                onEmptySpaceSwipeStart()
+              }
+              onEmptySpaceSwipeMove(dragDeltaY, change)
+              change.consume()
+            }
+          }
+        }
       }
       .pointerInput(space.id) {
         detectTapGestures(

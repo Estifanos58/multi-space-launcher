@@ -245,7 +245,7 @@ fun LauncherHomeScreen(
         val targetValue = when {
           velocityY < -flingThresholdPx && currentProgress > 0.02f -> 1.0f
           velocityY > flingThresholdPx && currentProgress < 0.98f -> 0.0f
-          currentProgress >= 0.60f -> 1.0f
+          currentProgress >= 0.40f -> 1.0f
           else -> 0.0f
         }
 
@@ -270,42 +270,11 @@ fun LauncherHomeScreen(
       }
     }
 
-    // Gesture detector for Layer 1 upward / downward continuous drag
+    // Velocity tracker for Layer 1 upward / downward continuous drag
     val layer1VelocityTracker = remember { VelocityTracker() }
     val isAnyDragActive = unifiedDragState.isDragging || unifiedDragState.lifecycleState != DragLifecycleState.IDLE
     val useLayer2 = activeSpace?.useLayer2 ?: true
-    val isSwipeAllowed = useLayer2 && activeSpace?.layer2AccessMode == Space.ACCESS_MODE_SWIPE_UP
-
-    val layer1DragModifier = Modifier.pointerInput(screenHeightPx, isAnyDragActive, isSwipeAllowed) {
-      if (isAnyDragActive || !isSwipeAllowed) return@pointerInput
-      detectVerticalDragGestures(
-        onDragStart = {
-          settleJob?.cancel()
-          layer1VelocityTracker.resetTracking()
-          isGestureActive = true
-        },
-        onDragEnd = {
-          isGestureActive = false
-          val velocityY = layer1VelocityTracker.calculateVelocity().y
-          settleTransition(layerTransitionProgress, velocityY)
-        },
-        onDragCancel = {
-          isGestureActive = false
-          settleTransition(layerTransitionProgress, 0f)
-        },
-        onVerticalDrag = { change, dragAmount ->
-          if (!isGestureActive) {
-            settleJob?.cancel()
-            layer1VelocityTracker.resetTracking()
-            isGestureActive = true
-          }
-          layer1VelocityTracker.addPosition(change.uptimeMillis, change.position)
-          val progressDelta = -dragAmount / screenHeightPx
-          layerTransitionProgress = (layerTransitionProgress + progressDelta).coerceIn(0f, 1f)
-          change.consume()
-        }
-      )
-    }
+    val isSwipeAllowed = useLayer2
 
     // Gesture detector for Layer 2 Header / Search Bar area downward drag
     val layer2HeaderVelocityTracker = remember { VelocityTracker() }
@@ -663,8 +632,8 @@ fun LauncherHomeScreen(
           val shouldComposeLayer2 by remember {
             derivedStateOf { isGestureActive || layerTransitionProgress > 0f || activeLayerIndex == 2 }
           }
-          val canDragLayer1 by remember(isAnyDragActive, isSwipeAllowed) {
-            derivedStateOf { layerTransitionProgress < 1f && !isAnyDragActive && isSwipeAllowed }
+          val canDragLayer1 by remember(useLayer2) {
+            derivedStateOf { layerTransitionProgress < 1f && useLayer2 }
           }
 
           // Cache most used apps: avoid recomputing on every layerTransitionProgress frame
@@ -714,10 +683,6 @@ fun LauncherHomeScreen(
                     translationY = -screenHeightPx * 0.08f * p
                     alpha = (1f - p).coerceIn(0f, 1f)
                   }
-                  .then(
-                    if (canDragLayer1) layer1DragModifier
-                    else Modifier
-                  )
               ) {
                 Scaffold(
                   modifier = Modifier.fillMaxSize(),
@@ -851,6 +816,31 @@ fun LauncherHomeScreen(
                             targetDockIndex = targetDockIndex
                           )
                         }
+                      },
+                      isSwipeAllowed = canDragLayer1,
+                      onEmptySpaceSwipeStart = {
+                        settleJob?.cancel()
+                        layer1VelocityTracker.resetTracking()
+                        isGestureActive = true
+                      },
+                      onEmptySpaceSwipeMove = { dragAmount, change ->
+                        if (!isGestureActive) {
+                          settleJob?.cancel()
+                          layer1VelocityTracker.resetTracking()
+                          isGestureActive = true
+                        }
+                        layer1VelocityTracker.addPosition(change.uptimeMillis, change.position)
+                        val progressDelta = -dragAmount / screenHeightPx
+                        layerTransitionProgress = (layerTransitionProgress + progressDelta).coerceIn(0f, 1f)
+                      },
+                      onEmptySpaceSwipeEnd = {
+                        isGestureActive = false
+                        val velocityY = layer1VelocityTracker.calculateVelocity().y
+                        settleTransition(layerTransitionProgress, velocityY)
+                      },
+                      onEmptySpaceSwipeCancel = {
+                        isGestureActive = false
+                        settleTransition(layerTransitionProgress, 0f)
                       }
                     )
                   }

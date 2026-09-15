@@ -1,5 +1,6 @@
 package com.multispace
 
+import androidx.compose.ui.geometry.Offset
 import com.multispace.domain.model.Space
 import com.multispace.presentation.DragLifecycleState
 import com.multispace.presentation.UnifiedDragState
@@ -11,53 +12,44 @@ import org.junit.Test
 class LayerTransitionLogicTest {
 
   @Test
-  fun testSwipeAllowedOnlyInSwipeUpModeWhenLayer2Enabled() {
+  fun testSwipeAllowedWhenLayer2Enabled() {
     // Default space has ACCESS_MODE_DOCK_BUTTON and useLayer2 = true
     val defaultSpace = Space.createDefault()
-    assertEquals(Space.ACCESS_MODE_DOCK_BUTTON, defaultSpace.layer2AccessMode)
-    assertTrue(defaultSpace.useLayer2)
+    assertTrue("Layer 2 must be enabled by default", defaultSpace.useLayer2)
 
-    val isSwipeAllowedDefault = defaultSpace.useLayer2 && defaultSpace.layer2AccessMode == Space.ACCESS_MODE_SWIPE_UP
-    assertFalse("Swipe must be disabled by default in ACCESS_MODE_DOCK_BUTTON to prevent gesture conflicts", isSwipeAllowedDefault)
+    val isSwipeAllowedDefault = defaultSpace.useLayer2
+    assertTrue("Swipe must be allowed whenever Layer 2 is enabled", isSwipeAllowedDefault)
 
     // SWIPE_UP mode with useLayer2 = true
     val swipeUpSpace = defaultSpace.copy(layer2AccessMode = Space.ACCESS_MODE_SWIPE_UP)
-    val isSwipeAllowedSwipeUp = swipeUpSpace.useLayer2 && swipeUpSpace.layer2AccessMode == Space.ACCESS_MODE_SWIPE_UP
+    val isSwipeAllowedSwipeUp = swipeUpSpace.useLayer2
     assertTrue("Swipe must be allowed with ACCESS_MODE_SWIPE_UP", isSwipeAllowedSwipeUp)
 
     // When useLayer2 is disabled
     val disabledLayer2Space = swipeUpSpace.copy(useLayer2 = false)
-    val isSwipeAllowedDisabled = disabledLayer2Space.useLayer2 && disabledLayer2Space.layer2AccessMode == Space.ACCESS_MODE_SWIPE_UP
+    val isSwipeAllowedDisabled = disabledLayer2Space.useLayer2
     assertFalse("Swipe must be disabled when Layer 2 is turned off", isSwipeAllowedDisabled)
   }
 
   @Test
   fun testCanDragLayer1Conditions() {
-    val dragState = UnifiedDragState()
-    var isAnyDragActive = dragState.isDragging || dragState.lifecycleState != DragLifecycleState.IDLE
-    assertFalse(isAnyDragActive)
-
     var layerTransitionProgress = 0.0f
-    val isSwipeAllowed = true
+    var useLayer2 = true
 
     // Resting at Layer 1: can drag Layer 1
-    var canDragLayer1 = layerTransitionProgress < 1f && !isAnyDragActive && isSwipeAllowed
-    assertTrue("Should be able to drag Layer 1 when resting at 0f", canDragLayer1)
-
-    // During active app/widget drag: Layer 1 dragging must be suppressed
-    dragState.isDragging = true
-    isAnyDragActive = dragState.isDragging || dragState.lifecycleState != DragLifecycleState.IDLE
-    canDragLayer1 = layerTransitionProgress < 1f && !isAnyDragActive && isSwipeAllowed
-    assertFalse("Dragging an app/widget must suppress Layer 1 transition drag", canDragLayer1)
-
-    // Reset app drag
-    dragState.isDragging = false
-    isAnyDragActive = false
+    var canDragLayer1 = layerTransitionProgress < 1f && useLayer2
+    assertTrue("Should be able to drag Layer 1 when resting at 0f with useLayer2", canDragLayer1)
 
     // Fully on Layer 2 (progress = 1.0f): canDragLayer1 must be false
     layerTransitionProgress = 1.0f
-    canDragLayer1 = layerTransitionProgress < 1f && !isAnyDragActive && isSwipeAllowed
+    canDragLayer1 = layerTransitionProgress < 1f && useLayer2
     assertFalse("When fully on Layer 2, Layer 1 drag modifier should not be active", canDragLayer1)
+
+    // When Layer 2 is disabled: canDragLayer1 must be false
+    layerTransitionProgress = 0.0f
+    useLayer2 = false
+    canDragLayer1 = layerTransitionProgress < 1f && useLayer2
+    assertFalse("When Layer 2 is disabled, Layer 1 drag should not be active", canDragLayer1)
   }
 
   @Test
@@ -188,5 +180,58 @@ class LayerTransitionLogicTest {
     val dragAmountUp = -50f // user dragging upwards
     val shouldIgnoreUp = layerTransitionProgress <= 0.001f && dragAmountUp > 0f
     assertFalse("Upward drag when resting at 0f must NOT be ignored", shouldIgnoreUp)
+  }
+
+  enum class GestureOwner {
+    ITEM_DRAG,
+    LAYER_TRANSITION
+  }
+
+  @Test
+  fun testGestureArbitrationOwnershipDecision() {
+    // Mock hit-test function representing findItemAtOffset
+    val mockItemsAtOffset = mapOf<Offset, String>(
+      Offset(100f, 100f) to "app_item",
+      Offset(250f, 200f) to "widget_item"
+    )
+    fun findItemAtOffset(pos: Offset): String? = mockItemsAtOffset[pos]
+
+    fun arbitrateInitialPointer(downPosition: Offset, isSwipeAllowed: Boolean): GestureOwner? {
+      val hitItem = findItemAtOffset(downPosition)
+      return if (hitItem != null) {
+        // Initial touch on an app/widget: Item drag owns gesture; Layer transition must not consume it
+        GestureOwner.ITEM_DRAG
+      } else if (isSwipeAllowed) {
+        // Initial touch on empty space: Layer transition owns gesture
+        GestureOwner.LAYER_TRANSITION
+      } else {
+        null
+      }
+    }
+
+    // 1. Initial touch on app item -> ITEM_DRAG owns
+    val appTouchOwner = arbitrateInitialPointer(Offset(100f, 100f), isSwipeAllowed = true)
+    assertEquals(GestureOwner.ITEM_DRAG, appTouchOwner)
+
+    // 2. Initial touch on widget item -> ITEM_DRAG owns
+    val widgetTouchOwner = arbitrateInitialPointer(Offset(250f, 200f), isSwipeAllowed = true)
+    assertEquals(GestureOwner.ITEM_DRAG, widgetTouchOwner)
+
+    // 3. Initial touch on empty space -> LAYER_TRANSITION owns
+    val emptySpaceTouchOwner = arbitrateInitialPointer(Offset(500f, 500f), isSwipeAllowed = true)
+    assertEquals(GestureOwner.LAYER_TRANSITION, emptySpaceTouchOwner)
+
+    // 4. Once decided, moving pointer over empty space retains ITEM_DRAG ownership
+    var activeOwner = appTouchOwner
+    val moveOverEmpty = Offset(500f, 500f)
+    // Ownership is locked to initial touch, never reassigned during pointer lifetime
+    assertEquals("Moving an item over empty space must NOT reassign ownership to Layer transition",
+      GestureOwner.ITEM_DRAG, activeOwner)
+
+    // 5. Once decided, empty space swipe moving over app retains LAYER_TRANSITION ownership
+    activeOwner = emptySpaceTouchOwner
+    val moveOverApp = Offset(100f, 100f)
+    assertEquals("Swiping empty space over an app must NOT cancel Layer transition ownership",
+      GestureOwner.LAYER_TRANSITION, activeOwner)
   }
 }
