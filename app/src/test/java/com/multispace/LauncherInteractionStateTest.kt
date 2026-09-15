@@ -50,6 +50,95 @@ class LauncherInteractionStateTest {
   }
 
   @Test
+  fun testNormalAppTapAllowsLaunchInteraction() {
+    val coordinator = LauncherInteractionCoordinator()
+    assertTrue("Initial state must be Idle", coordinator.currentState is LauncherInteractionState.Idle)
+    assertTrue("Normal app tap must allow launch when Idle", coordinator.canLaunchApp())
+    assertTrue("Item interaction is allowed when Idle", coordinator.canStartItemInteraction())
+    assertTrue("Horizontal paging is allowed when Idle", coordinator.canPageHorizontally())
+    assertTrue("Layer transition is allowed when Idle", coordinator.canTransitionLayer())
+  }
+
+  @Test
+  fun testLongPressEntersActionStateAndSuppressesLaunch() {
+    val coordinator = LauncherInteractionCoordinator()
+    val longPressAccepted = coordinator.toLongPressing("app-123")
+    assertTrue("Long press should be accepted from Idle", longPressAccepted)
+    assertTrue("State should be LongPressingApp", coordinator.currentState is LauncherInteractionState.LongPressingApp)
+    assertEquals("app-123", (coordinator.currentState as LauncherInteractionState.LongPressingApp).itemId)
+
+    // Invariant: launch must be suppressed in action state
+    assertFalse("Normal app tap-to-launch must be suppressed while long pressing", coordinator.canLaunchApp())
+    // However, dragging from long-press remains allowed
+    assertTrue("Item interaction remains allowed from LongPressingApp", coordinator.canStartItemInteraction())
+  }
+
+  @Test
+  fun testLongPressPlusMovementPastSlopTransitionsToDragging() {
+    val coordinator = LauncherInteractionCoordinator()
+    coordinator.toLongPressing("app-123")
+
+    // Movement past slop transitions to DraggingApp
+    val dragTransitionAccepted = coordinator.toDragging("app-123", "com.example.notes")
+    assertTrue("Transition from long-press to dragging should succeed", dragTransitionAccepted)
+    assertTrue("State should be DraggingApp", coordinator.currentState is LauncherInteractionState.DraggingApp)
+    val draggingState = coordinator.currentState as LauncherInteractionState.DraggingApp
+    assertEquals("app-123", draggingState.itemId)
+    assertEquals("com.example.notes", draggingState.packageName)
+
+    // Launch remains suppressed while dragging
+    assertFalse("Tap-to-launch must be suppressed while dragging", coordinator.canLaunchApp())
+  }
+
+  @Test
+  fun testDraggingBlocksLayerTransition() {
+    val coordinator = LauncherInteractionCoordinator()
+    coordinator.startDraggingApp("app-123", "com.example.notes")
+    assertTrue("Must be in DraggingApp state", coordinator.currentState is LauncherInteractionState.DraggingApp)
+
+    // Invariant: layer transition must be blocked while dragging
+    assertFalse("Layer transition must be blocked while dragging", coordinator.canTransitionLayer())
+    val transitionAttempt = coordinator.startTransition(fromLayer = 1)
+    assertFalse("Transition attempt must be rejected while dragging", transitionAttempt)
+    assertTrue("State must remain DraggingApp", coordinator.currentState is LauncherInteractionState.DraggingApp)
+  }
+
+  @Test
+  fun testLayerTransitionBlocksAppDrag() {
+    val coordinator = LauncherInteractionCoordinator()
+    val transitionStarted = coordinator.startTransition(fromLayer = 1)
+    assertTrue(transitionStarted)
+    assertTrue("Must be in TransitioningLayer state", coordinator.currentState is LauncherInteractionState.TransitioningLayer)
+
+    // Invariant: app drag and long-press must be blocked during layer transition
+    assertFalse("Item interaction must be blocked during layer transition", coordinator.canStartItemInteraction())
+    val dragAttempt = coordinator.startDraggingApp("app-123", "com.example.notes")
+    assertFalse("App drag attempt must be blocked during layer transition", dragAttempt)
+
+    val longPressAttempt = coordinator.toLongPressing("app-123")
+    assertFalse("Long press attempt must be blocked during layer transition", longPressAttempt)
+
+    assertTrue("State must remain TransitioningLayer", coordinator.currentState is LauncherInteractionState.TransitioningLayer)
+  }
+
+  @Test
+  fun testLayerTransitionBlocksHorizontalPageInteraction() {
+    val coordinator = LauncherInteractionCoordinator()
+    coordinator.startTransition(fromLayer = 1)
+    assertTrue(coordinator.currentState is LauncherInteractionState.TransitioningLayer)
+
+    // Invariant: horizontal paging must be blocked during layer transition
+    assertFalse("Horizontal paging must be blocked on coordinator", coordinator.canPageHorizontally())
+    val isScrollEnabled = HorizontalPageGesturePolicy.isScrollEnabled(
+      interactionState = coordinator.currentState,
+      isDragging = false,
+      isDropping = false,
+      dragLifecycleState = DragLifecycleState.IDLE
+    )
+    assertFalse("Horizontal page scrolling must be disabled via policy during layer transition", isScrollEnabled)
+  }
+
+  @Test
   fun testHorizontalPageGesturePolicyEnforcesExclusivity() {
     // 1. Idle state -> page scroll enabled
     val idleEnabled = HorizontalPageGesturePolicy.isScrollEnabled(

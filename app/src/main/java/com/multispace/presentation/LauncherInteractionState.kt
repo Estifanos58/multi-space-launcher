@@ -80,6 +80,14 @@ class LauncherInteractionCoordinator(
     return currentState is LauncherInteractionState.Idle
   }
 
+  /**
+   * Returns whether a normal app tap-to-launch is permitted in the current state.
+   * Suppressed when in long-press action state, dragging, or during layer transition.
+   */
+  fun canLaunchApp(): Boolean {
+    return currentState is LauncherInteractionState.Idle
+  }
+
   fun toIdle() {
     currentState = LauncherInteractionState.Idle
   }
