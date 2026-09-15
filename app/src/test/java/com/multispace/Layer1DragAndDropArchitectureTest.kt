@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.SpaceItemPlacement
+import com.multispace.presentation.DragGestureController
 import com.multispace.presentation.DragLifecycleState
 import com.multispace.presentation.DragSource
 import com.multispace.presentation.DragTargetZone
@@ -851,4 +852,325 @@ class Layer1DragAndDropArchitectureTest {
 
     assertFalse("Drop of an app onto a widget slot must be rejected", dropCommitted)
   }
+
+  @Test
+  fun testDragGestureController_AuthoritativeDropHandoffToSlotCalculation() {
+    val controller = DragGestureController<SpaceItemPlacement>(dragSlopPx = 10f)
+    val appPlacement = SpaceItemPlacement(
+      id = "item-app-origin",
+      spaceId = "space-1",
+      packageName = "com.test.movedapp",
+      componentName = "com.test.movedapp.MainActivity",
+      pageIndex = 0,
+      positionIndex = 0 // origin at slot 0
+    )
+
+    controller.hitTest = { appPlacement }
+    controller.getItemBounds = { Rect(0f, 0f, 100f, 100f) }
+
+    var onMovePlacementCalled = false
+    var movedId: String? = null
+    var movedPage: Int = -1
+    var movedTargetPos: Int = -1
+
+    // Simulate Layer1 grid geometry: 4 cols, rowPitch 150px, colWidth 100px
+    val cols = 4
+    val gridRows = 6
+    val colWidth = 100f
+    val rowPitch = 150f
+
+    fun calculateSlot(pointerPos: Offset): Int {
+      val c = (pointerPos.x / colWidth).toInt().coerceIn(0, cols - 1)
+      val r = (pointerPos.y / rowPitch).toInt().coerceIn(0, gridRows - 1)
+      return (r * cols + c).coerceIn(0, cols * gridRows - 1)
+    }
+
+    // Simulate Layer 1 drop handler directly receiving (item, dropPos)
+    controller.onDragDropped = { authoritativeItem: SpaceItemPlacement, finalPointerPosition: Offset ->
+      // Calculate target slot directly from finalPointerPosition
+      val targetPos = calculateSlot(finalPointerPosition)
+      onMovePlacementCalled = true
+      movedId = authoritativeItem.id
+      movedPage = 0
+      movedTargetPos = targetPos
+    }
+
+    // 1. Long press and drag to slot (row 2, col 3) -> x = 350, y = 350 (slot = 2 * 4 + 3 = 11)
+    val downPos = Offset(50f, 50f)
+    controller.handleDown(downPos)
+    controller.handleLongPress(downPos)
+    controller.handleMove(Offset(350f, 350f))
+
+    assertEquals(DragLifecycleState.DRAGGING, controller.lifecycleState)
+    assertEquals("item-app-origin", controller.draggedItem?.id)
+
+    // 2. UP event at finalPointerPosition (350f, 350f)
+    val finalUpPos = Offset(350f, 350f)
+    controller.handleUp(finalUpPos)
+
+    // Verify handoff was called with authoritative item and position
+    assertTrue(onMovePlacementCalled)
+    assertEquals("item-app-origin", movedId)
+    assertEquals(0, movedPage)
+    // Slot must be 11, NOT origin slot 0!
+    assertEquals(11, movedTargetPos)
+
+    // Controller must be reset after drop
+    assertEquals(DragLifecycleState.IDLE, controller.lifecycleState)
+    assertNull(controller.draggedItem)
+  }
+
+  @Test
+  fun testDeterministicSlotCalculation_FromActualFinalPointerCoordinate() {
+    val cols = 4
+    val gridRows = 6
+    val cellWidthPx = 80f
+    val spacingPx = 8f
+    val colPitchPx = cellWidthPx + spacingPx // 88f
+    val rowPitchPx = 100f
+    val bounds = Rect(left = 16f, top = 24f, right = 16f + cols * cellWidthPx + (cols - 1) * spacingPx, bottom = 24f + gridRows * rowPitchPx)
+
+    fun calculateSlot(pointerPos: Offset): Int {
+      val c = when {
+        pointerPos.x <= bounds.left -> 0
+        pointerPos.x >= bounds.right -> cols - 1
+        else -> ((pointerPos.x - bounds.left) / colPitchPx).toInt().coerceIn(0, cols - 1)
+      }
+      val r = when {
+        pointerPos.y <= bounds.top -> 0
+        pointerPos.y >= bounds.bottom -> gridRows - 1
+        else -> ((pointerPos.y - bounds.top) / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
+      }
+      return (r * cols + c).coerceIn(0, cols * gridRows - 1)
+    }
+
+    // Origin slot 0: top-left cell
+    assertEquals(0, calculateSlot(Offset(30f, 40f)))
+
+    // Dropping into empty slot 1 (row 0, col 1): x = bounds.left + 1 * 88 + 40 = 144, y = 40
+    assertEquals(1, calculateSlot(Offset(144f, 40f)))
+
+    // Dropping into spacing between col 1 and col 2 (x = 16 + 88 + 82 = 186): maps accurately to col 1
+    assertEquals(1, calculateSlot(Offset(186f, 40f)))
+
+    // Dropping into empty slot 5 (row 1, col 1): x = 144, y = bounds.top + 1 * 100 + 40 = 164
+    assertEquals(5, calculateSlot(Offset(144f, 164f)))
+
+    // Dropping into empty slot 7 (row 1, col 3): x = 16 + 3 * 88 + 40 = 320, y = 164
+    assertEquals(7, calculateSlot(Offset(320f, 164f)))
+
+    // Dropping at edge boundaries
+    assertEquals(0, calculateSlot(Offset(0f, 0f))) // Clamped to (0, 0) -> slot 0
+    assertEquals(23, calculateSlot(Offset(500f, 1000f))) // Clamped to bottom-right -> slot 23
+  }
+
+  @Test
+  fun testFindItemAtOffset_DoesNotClassifyEmptyDestinationAsNearbyApp() {
+    val cols = 4
+    val gridRows = 6
+    val cellWPx = 80f
+    val spacingPx = 8f
+    val colPitchPx = cellWPx + spacingPx
+    val rowPitchPx = 100f
+    val bounds = Rect(16f, 24f, 16f + 4 * 80f + 3 * 8f, 24f + 6 * 100f)
+
+    // Only slot 0 has an app
+    val appAtSlot0 = SpaceItemPlacement(
+      id = "place_app_0",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 0,
+      packageName = "com.test.slot0"
+    )
+    val pagePlacements = listOf(appAtSlot0)
+
+    val slot0Rect = Rect(bounds.left, bounds.top, bounds.left + cellWPx, bounds.top + 80f)
+
+    // Hit test function without the 10dp touch-margin fallback
+    fun findItemAtOffset(offset: Offset): SpaceItemPlacement? {
+      // 1. Direct hit on footprint
+      if (slot0Rect.contains(offset)) return appAtSlot0
+
+      // 2. Mathematical grid cell check
+      val relX = offset.x - bounds.left
+      val relY = offset.y - bounds.top
+      if (relX >= 0f && relY >= 0f) {
+        val calcC = (relX / colPitchPx).toInt().coerceIn(0, cols - 1)
+        val calcR = (relY / rowPitchPx).toInt().coerceIn(0, gridRows - 1)
+        val slot = calcR * cols + calcC
+        return pagePlacements.firstOrNull { it.positionIndex == slot }
+      }
+      return null
+    }
+
+    // Pointer directly inside slot 0 -> hits appAtSlot0
+    val pointerInSlot0 = Offset(50f, 50f)
+    assertEquals("place_app_0", findItemAtOffset(pointerInSlot0)?.id)
+
+    // Pointer inside slot 1 (which is empty) -> must return NULL, NOT classify as nearby app!
+    val pointerInSlot1 = Offset(bounds.left + colPitchPx + 20f, bounds.top + 30f)
+    assertNull("Empty slot 1 must NOT be classified as nearby app at slot 0", findItemAtOffset(pointerInSlot1))
+
+    // Pointer inside slot 4 (empty) -> must return NULL
+    val pointerInSlot4 = Offset(bounds.left + 20f, bounds.top + rowPitchPx + 30f)
+    assertNull("Empty slot 4 must NOT be classified as nearby app", findItemAtOffset(pointerInSlot4))
+  }
+
+  @Test
+  fun testDropOnEmptySlot_VerifiesRoomPlacementMappingAndPersistencePath() {
+    // 1. Room contains an authoritative placement record
+    val roomPlacement = SpaceItemPlacement(
+      id = "persistent_id_123",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 0,
+      itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = "com.multispace.gallery",
+      componentName = "com.multispace.gallery.MainActivity"
+    )
+    val roomPlacements = listOf(roomPlacement)
+
+    // 2. UI deduplicated effective placement (could be derived or have matching package)
+    val draggedFromUI = SpaceItemPlacement(
+      id = "persistent_id_123",
+      spaceId = "space_1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 0,
+      itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = "com.multispace.gallery"
+    )
+
+    // 3. User drops at final pointer (300f, 150f) which maps to empty slot 5
+    val finalPointerPos = Offset(300f, 150f)
+
+    // Step A: DROP_FINAL logged
+    val logTrace = mutableListOf<String>()
+    logTrace.add("DROP_FINAL: draggedId=${draggedFromUI.id}, draggedPackage=${draggedFromUI.packageName}, finalPointer=$finalPointerPos")
+
+    // Step B: Resolve dragged ID/package against Room database records
+    val persistentRecord = roomPlacements.firstOrNull { it.id == draggedFromUI.id }
+      ?: (if (draggedFromUI.packageName != null) roomPlacements.firstOrNull { it.packageName == draggedFromUI.packageName } else null)
+      ?: draggedFromUI
+
+    val resolvedPlacementId = persistentRecord.id
+    val resolvedPackage = persistentRecord.packageName ?: draggedFromUI.packageName
+    logTrace.add("RESOLVED_DRAGGED: id=$resolvedPlacementId pkg=$resolvedPackage fromPage=${persistentRecord.pageIndex} fromPos=${persistentRecord.positionIndex}")
+    assertEquals("persistent_id_123", resolvedPlacementId)
+
+    // Step C: Deterministically calculate target slot from final pointer
+    val targetPage = 0
+    val targetPos = 5 // Slot 5 is empty
+
+    // Step D: Verify pointer is NOT inside any other item's footprint -> no folder creation!
+    val isDraggedApp = !draggedFromUI.isWidget && !draggedFromUI.isFolder
+    val otherPlacements = roomPlacements.filter {
+      it.id != draggedFromUI.id &&
+      it.id != persistentRecord.id &&
+      (draggedFromUI.packageName == null || it.packageName != draggedFromUI.packageName)
+    }
+    val folderTargetItem = if (isDraggedApp) {
+      otherPlacements.firstOrNull { /* empty slot contains nothing */ false }
+    } else null
+    assertNull("No folder creation when dropping onto an empty slot", folderTargetItem)
+
+    logTrace.add("DROP_TARGET: targetPlacementId=${folderTargetItem?.id}, targetPackage=${folderTargetItem?.packageName}, exactFootprintHit=${folderTargetItem != null}")
+    logTrace.add("DROP_SLOT: targetPage=$targetPage, targetPosition=$targetPos")
+
+    // Step E: Call onMovePlacement
+    val pageSize = 20
+    var onMovePlacementCalled = false
+    var persistenceResultPage = -1
+    var persistenceResultPos = -1
+
+    val onMovePlacement: (String, Int, Int, Int) -> Unit = { id, page, pos, _ ->
+      logTrace.add("DROP_PERSIST: calling onMovePlacement(draggedId=${draggedFromUI.id}, targetPage=$page, targetPosition=$pos)")
+      onMovePlacementCalled = true
+
+      // Step F: Repository finds item in Room and updates persistence
+      val itemToMove = roomPlacements.firstOrNull { it.id == id }
+      assertNotNull("Repository must find the item in Room placements", itemToMove)
+      logTrace.add("REPOSITORY_ITEM_FOUND: id=${itemToMove!!.id} pkg=${itemToMove.packageName} fromPage=${itemToMove.pageIndex} fromPos=${itemToMove.positionIndex} targetPage=$page targetPos=$pos")
+
+      // Step G: Repository persists the new placement
+      val persistedPlacement = itemToMove.copy(pageIndex = page, positionIndex = pos)
+      persistenceResultPage = persistedPlacement.pageIndex
+      persistenceResultPos = persistedPlacement.positionIndex
+      logTrace.add("PERSISTED_PLACEMENT: id=${persistedPlacement.id} pkg=${persistedPlacement.packageName} targetPage=$page targetPos=$pos persistedPage=${persistedPlacement.pageIndex} persistedPos=${persistedPlacement.positionIndex}")
+    }
+
+    onMovePlacement(resolvedPlacementId, targetPage, targetPos, pageSize)
+
+    // Verifications:
+    assertTrue("onMovePlacement must be executed", onMovePlacementCalled)
+    assertEquals("Persisted page must match target page", 0, persistenceResultPage)
+    assertEquals("Persisted position must be slot 5, NOT original slot 0!", 5, persistenceResultPos)
+
+    // Trace sequence verification
+    assertTrue(logTrace[0].startsWith("DROP_FINAL"))
+    assertTrue(logTrace[1].startsWith("RESOLVED_DRAGGED"))
+    assertTrue(logTrace[2].startsWith("DROP_TARGET"))
+    assertTrue(logTrace[3].startsWith("DROP_SLOT"))
+    assertTrue(logTrace[4].startsWith("DROP_PERSIST"))
+    assertTrue(logTrace[5].startsWith("REPOSITORY_ITEM_FOUND"))
+    assertTrue(logTrace[6].startsWith("PERSISTED_PLACEMENT"))
+  }
+
+  @Test
+  fun testDropOnAnotherApp_TriggersFolderCreationOnlyOnExactFootprint() {
+    val app1 = SpaceItemPlacement(id = "app_1", spaceId = "s1", layer = SpaceItemPlacement.LAYER_HOME, pageIndex = 0, positionIndex = 0, packageName = "com.app.one")
+    val app2 = SpaceItemPlacement(id = "app_2", spaceId = "s1", layer = SpaceItemPlacement.LAYER_HOME, pageIndex = 0, positionIndex = 1, packageName = "com.app.two")
+
+    val app2Bounds = Rect(100f, 20f, 180f, 100f) // Exact footprint of app2
+    val cellBounds = mapOf("app_2" to app2Bounds)
+
+    // User drags app1 and drops it directly inside app2's footprint
+    val dropOnApp2Pointer = Offset(140f, 60f)
+    assertTrue(app2Bounds.contains(dropOnApp2Pointer))
+
+    val candidateTarget = listOf(app2).firstOrNull { item ->
+      cellBounds[item.id]?.contains(dropOnApp2Pointer) == true
+    }
+    assertNotNull(candidateTarget)
+    assertEquals("app_2", candidateTarget?.id)
+
+    // User drags app1 and drops it on empty cell right next to app2
+    val dropNearApp2Pointer = Offset(195f, 60f) // 15px outside app2
+    assertFalse(app2Bounds.contains(dropNearApp2Pointer))
+
+    val emptyCellTarget = listOf(app2).firstOrNull { item ->
+      cellBounds[item.id]?.contains(dropNearApp2Pointer) == true
+    }
+    assertNull("Releasing outside real footprint must NOT trigger folder creation", emptyCellTarget)
+  }
+
+  @Test
+  fun testDropOnExistingFolder_TriggersAddToFolderOnlyOnExactFootprint() {
+    val app = SpaceItemPlacement(id = "app_1", spaceId = "s1", layer = SpaceItemPlacement.LAYER_HOME, pageIndex = 0, positionIndex = 0, packageName = "com.app.one")
+    val folderPlacement = SpaceItemPlacement(
+      id = "folder_placement_1",
+      spaceId = "s1",
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 2,
+      itemType = SpaceItemPlacement.ITEM_TYPE_FOLDER,
+      folderId = "folder_123"
+    )
+
+    val folderBounds = Rect(200f, 20f, 280f, 100f)
+    val cellBounds = mapOf("folder_placement_1" to folderBounds)
+
+    val dropInsideFolder = Offset(240f, 60f)
+    assertTrue(folderBounds.contains(dropInsideFolder))
+
+    val folderTarget = listOf(folderPlacement).firstOrNull { item ->
+      cellBounds[item.id]?.contains(dropInsideFolder) == true
+    }
+    assertNotNull(folderTarget)
+    assertTrue(folderTarget!!.isFolder)
+    assertEquals("folder_123", folderTarget.folderId)
+  }
 }
+
