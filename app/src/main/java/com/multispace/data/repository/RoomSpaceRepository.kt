@@ -17,6 +17,7 @@ import com.multispace.domain.model.ImportReport
 import com.multispace.domain.model.LayoutPreset
 import com.multispace.domain.model.PageTurnEffect
 import com.multispace.domain.model.PlacementCascadeHelper
+import com.multispace.domain.model.PlacementValidator
 import com.multispace.domain.model.PresetLayoutHelper
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceDockItem
@@ -1332,13 +1333,28 @@ class RoomSpaceRepository(
 
   override fun getPlacementsForSpaceLayerFlow(spaceId: String, layer: Int): Flow<List<SpaceItemPlacement>> {
     return layoutDao.getPlacementsForSpaceLayerFlow(spaceId, layer).map { list ->
-      list.map { it.toDomain() }
+      val domainList = list.map { it.toDomain() }
+      val report = PlacementValidator.validatePlacements(domainList)
+      if (report.hasIssues) {
+        AppLogger.w(
+          AppLogger.Category.LAUNCHER,
+          "Placement validation detected ${report.issues.size} issues for Space '$spaceId' (layer $layer): ${report.issues.take(3)}"
+        )
+      }
+      domainList
     }
   }
 
   override suspend fun getPlacementsForSpaceLayer(spaceId: String, layer: Int): List<SpaceItemPlacement> {
     val existing = layoutDao.getPlacementsForSpaceLayer(spaceId, layer).map { it.toDomain() }
     if (existing.isNotEmpty() || layer != SpaceItemPlacement.LAYER_HOME) {
+      val report = PlacementValidator.validatePlacements(existing)
+      if (report.hasIssues) {
+        AppLogger.w(
+          AppLogger.Category.LAUNCHER,
+          "Placement validation detected ${report.issues.size} issues in loaded placements for Space '$spaceId' (layer $layer): ${report.issues.take(3)}"
+        )
+      }
       return existing
     }
 

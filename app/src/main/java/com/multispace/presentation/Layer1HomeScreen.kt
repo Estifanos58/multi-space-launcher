@@ -68,6 +68,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.multispace.presentation.gesture.*
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.zIndex
 import com.multispace.diagnostics.AppLogger
@@ -326,6 +327,14 @@ fun Layer1HomeScreen(
         }
       }
 
+      val validationReport = PlacementValidator.validatePlacements(resolvedList, cols = cols, rows = gridRows)
+      if (validationReport.hasIssues) {
+        AppLogger.w(
+          AppLogger.Category.LAUNCHER,
+          "Placement validation detected ${validationReport.issues.size} issues on desktop layout for space '${space.name}': ${validationReport.issues.take(3)}"
+        )
+      }
+
       resolvedList
     }
 
@@ -340,6 +349,16 @@ fun Layer1HomeScreen(
   var touchOffsetWithinItem by remember { mutableStateOf(Offset.Zero) }
   var accumulatedDragDistance by remember { mutableFloatStateOf(0f) }
   var lastLongPressTimestamp by remember { mutableLongStateOf(0L) }
+
+  val launcherInteractionState by remember {
+    derivedStateOf {
+      when {
+        isDragging -> LauncherInteractionState.DraggingApp(draggedPlacement?.id, draggedPlacement?.packageName)
+        dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE -> LauncherInteractionState.LongPressingApp(activeActionPlacement?.id)
+        else -> LauncherInteractionState.Idle
+      }
+    }
+  }
 
   val currentPlacements by rememberUpdatedState(effectivePlacements)
   val currentSpace by rememberUpdatedState(space)
@@ -1151,178 +1170,111 @@ fun Layer1HomeScreen(
         unifiedDragState?.layer1Coordinates = coordinates
         updatePageGridBounds()
       }
-      .pointerInput(space.id, isSwipeAllowed) {
-        if (!isSwipeAllowed) return@pointerInput
-        val touchSlop = viewConfiguration.touchSlop
-        awaitEachGesture {
-          val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-          val initialHit = findItemAtOffset(down.position, pagerState.currentPage)
-          // ONE gesture-arbitration decision per pointer:
-          // If the initial touch is on an app/widget/drag target, item drag owns the gesture.
-          // Layer transition must not consume it.
-          if (initialHit != null) {
-            return@awaitEachGesture
-          }
-
-          // If the initial touch is on empty Layer 1 space:
-          // 1. First track movement without consuming it.
-          // 2. Wait until movement passes touch-slop.
-          // 3. Compare abs(deltaX) vs abs(deltaY):
-          //    - If horizontal wins -> abort without consuming so HorizontalPager handles it.
-          //    - If vertical wins -> claim gesture, consume subsequent movement, and follow finger.
-          val pointerId = down.id
-          var isDraggingLayer = false
-          var previousY = down.position.y
-
-          while (true) {
-            val event = awaitPointerEvent(PointerEventPass.Initial)
-            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-
-            if (change.changedToUp()) {
-              if (isDraggingLayer) {
-                change.consume()
-                onEmptySpaceSwipeEnd()
-              }
-              break
-            }
-
-            if (!change.pressed) {
-              if (isDraggingLayer) {
-                onEmptySpaceSwipeCancel()
-              }
-              break
-            }
-
-            if (!isDraggingLayer) {
-              val totalDeltaX = change.position.x - down.position.x
-              val totalDeltaY = change.position.y - down.position.y
-              val absX = kotlin.math.abs(totalDeltaX)
-              val absY = kotlin.math.abs(totalDeltaY)
-
-              // Wait until movement passes touch-slop
-              if (absX >= touchSlop || absY >= touchSlop) {
-                if (absY > absX) {
-                  // Vertical dominance: claim the gesture for Layer transition
-                  isDraggingLayer = true
-                  onEmptySpaceSwipeStart()
-                  val dragDeltaY = change.position.y - down.position.y
-                  previousY = change.position.y
-                  onEmptySpaceSwipeMove(dragDeltaY, change)
-                  change.consume()
-                } else {
-                  // Horizontal dominance: abort Layer transition detector WITHOUT consuming
-                  // so HorizontalPager handles left/right swiping normally
-                  return@awaitEachGesture
-                }
+      .layerTransitionEmptySpaceSwipe(
+        spaceId = space.id,
+        isSwipeAllowed = isSwipeAllowed,
+        canTransition = { !isDragging && !isDropping && dragLifecycleState == DragLifecycleState.IDLE },
+        findItemAtOffset = { offset -> findItemAtOffset(offset, pagerState.currentPage) },
+        onSwipeStart = onEmptySpaceSwipeStart,
+        onSwipeMove = onEmptySpaceSwipeMove,
+        onSwipeEnd = onEmptySpaceSwipeEnd,
+        onSwipeCancel = onEmptySpaceSwipeCancel
+      )
+      .desktopTapAndEmptyLongPressGesture(
+        spaceId = space.id,
+        enabled = true,
+        onTap = { offset ->
+          if (isDropping) return@desktopTapAndEmptyLongPressGesture
+          if (activeActionPlacement != null) {
+            dismissActions()
+          } else {
+            val hitItem = findItemAtOffset(offset, pagerState.currentPage)
+            if (hitItem != null) {
+              if (hitItem.isFolder) {
+                val folder = currentFolderLookup[hitItem.folderId]
+                if (folder != null) currentOnOpenFolder(folder)
+              } else if (!hitItem.isWidget) {
+                val app = currentAppLookup["${hitItem.packageName}/${hitItem.componentName}"]
+                  ?: currentAllApps.firstOrNull { it.packageName == hitItem.packageName }
+                if (app != null) currentOnLaunchApp(app)
               }
             } else {
-              val currentY = change.position.y
-              val dragDeltaY = currentY - previousY
-              previousY = currentY
-
-              if (dragDeltaY != 0f) {
-                onEmptySpaceSwipeMove(dragDeltaY, change)
-                change.consume()
+              if (resizingWidgetId != null) {
+                resizingWidgetId = null
               }
+            }
+          }
+        },
+        onEmptyLongPress = { offset ->
+          if (isDropping) return@desktopTapAndEmptyLongPressGesture
+          val hitItem = findItemAtOffset(offset, pagerState.currentPage)
+          if (hitItem == null) {
+            if (resizingWidgetId != null) {
+              resizingWidgetId = null
+            } else {
+              haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+              currentOnOpenCustomization(pagerState.currentPage)
             }
           }
         }
-      }
-      .pointerInput(space.id) {
-        detectTapGestures(
-          onTap = { offset ->
-            if (isDropping) return@detectTapGestures
-            if (activeActionPlacement != null) {
-              dismissActions()
+      )
+      .appDragGestures(
+        spaceId = space.id,
+        enabled = true,
+        onDragStart = { startOffset ->
+          if (isDropping) return@appDragGestures
+          val hitItem = findItemAtOffset(startOffset, pagerState.currentPage)
+          if (hitItem != null) {
+            resizingWidgetId = null
+            if (hitItem.isFolder) {
+              haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+              handleStartDrag(hitItem, startOffset)
             } else {
-              val hitItem = findItemAtOffset(offset, pagerState.currentPage)
-              if (hitItem != null) {
-                if (hitItem.isFolder) {
-                  val folder = currentFolderLookup[hitItem.folderId]
-                  if (folder != null) currentOnOpenFolder(folder)
-                } else if (!hitItem.isWidget) {
-                  val app = currentAppLookup["${hitItem.packageName}/${hitItem.componentName}"]
-                    ?: currentAllApps.firstOrNull { it.packageName == hitItem.packageName }
-                  if (app != null) currentOnLaunchApp(app)
-                }
-              } else {
-                if (resizingWidgetId != null) {
-                  resizingWidgetId = null
-                }
-              }
-            }
-          },
-          onLongPress = { offset ->
-            if (isDropping) return@detectTapGestures
-            val hitItem = findItemAtOffset(offset, pagerState.currentPage)
-            if (hitItem == null) {
-              if (resizingWidgetId != null) {
-                resizingWidgetId = null
-              } else {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                currentOnOpenCustomization(pagerState.currentPage)
-              }
+              haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+              lastLongPressTimestamp = System.currentTimeMillis()
+              dragLifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
+              activeActionPlacement = hitItem
+              pendingDragPlacement = hitItem
+              accumulatedDragDistance = 0f
             }
           }
-        )
-      }
-      .pointerInput(space.id) {
-        detectDragGesturesAfterLongPress(
-          onDragStart = { startOffset ->
-            if (isDropping) return@detectDragGesturesAfterLongPress
-            val hitItem = findItemAtOffset(startOffset, pagerState.currentPage)
-            if (hitItem != null) {
-              resizingWidgetId = null
-              if (hitItem.isFolder) {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                handleStartDrag(hitItem, startOffset)
-              } else {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                lastLongPressTimestamp = System.currentTimeMillis()
-                dragLifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
-                activeActionPlacement = hitItem
-                pendingDragPlacement = hitItem
-                accumulatedDragDistance = 0f
-              }
-            }
-          },
-          onDrag = { change, dragAmount ->
-            if (isDropping) return@detectDragGesturesAfterLongPress
-            change.consume()
-            accumulatedDragDistance += dragAmount.getDistance()
-            if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE && pendingDragPlacement != null) {
-              if (accumulatedDragDistance >= dragSlopPx) {
-                val itemToDrag = pendingDragPlacement!!
-                activeActionPlacement = null
-                pendingDragPlacement = null
-                handleStartDrag(itemToDrag, change.position)
-              }
-            } else if (isDragging) {
-              handleDragMove(change.position)
-            }
-          },
-          onDragEnd = {
-            if (isDropping) return@detectDragGesturesAfterLongPress
-            if (isDragging) {
-              handleEndDrag()
-            } else if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
+        },
+        onDrag = { change, dragAmount ->
+          if (isDropping) return@appDragGestures
+          change.consume()
+          accumulatedDragDistance += dragAmount.getDistance()
+          if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE && pendingDragPlacement != null) {
+            if (accumulatedDragDistance >= dragSlopPx) {
+              val itemToDrag = pendingDragPlacement!!
+              activeActionPlacement = null
               pendingDragPlacement = null
-            } else {
-              handleCancelDrag()
+              handleStartDrag(itemToDrag, change.position)
             }
-          },
-          onDragCancel = {
-            if (isDropping) return@detectDragGesturesAfterLongPress
-            if (isDragging) {
-              handleCancelDrag()
-            } else if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
-              pendingDragPlacement = null
-            } else {
-              handleCancelDrag()
-            }
+          } else if (isDragging) {
+            handleDragMove(change.position)
           }
-        )
-      }
+        },
+        onDragEnd = {
+          if (isDropping) return@appDragGestures
+          if (isDragging) {
+            handleEndDrag()
+          } else if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
+            pendingDragPlacement = null
+          } else {
+            handleCancelDrag()
+          }
+        },
+        onDragCancel = {
+          if (isDropping) return@appDragGestures
+          if (isDragging) {
+            handleCancelDrag()
+          } else if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
+            pendingDragPlacement = null
+          } else {
+            handleCancelDrag()
+          }
+        }
+      )
   ) {
     Column(modifier = Modifier.fillMaxSize()) {
       // Main content: either Paged or Scrolling
@@ -1388,7 +1340,12 @@ fun Layer1HomeScreen(
         // Horizontal paged layout (Default)
         HorizontalPager(
           state = pagerState,
-          userScrollEnabled = !isDragging && !isDropping && dragLifecycleState == DragLifecycleState.IDLE,
+          userScrollEnabled = HorizontalPageGesturePolicy.isScrollEnabled(
+            interactionState = launcherInteractionState,
+            isDragging = isDragging,
+            isDropping = isDropping,
+            dragLifecycleState = dragLifecycleState
+          ),
           modifier = Modifier
             .weight(1f)
             .fillMaxSize()

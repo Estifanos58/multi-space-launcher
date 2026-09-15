@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.multispace.presentation.gesture.LayerTransitionGestureHelper
 import kotlin.math.roundToInt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -241,17 +242,8 @@ fun LauncherHomeScreen(
       settleJob?.cancel()
       settleJob = coroutineScope.launch {
         isGestureActive = false
-        val flingThresholdPx = 500f
-        val targetValue = when {
-          velocityY < -flingThresholdPx && currentProgress > 0.02f -> 1.0f
-          velocityY > flingThresholdPx && currentProgress < 0.98f -> 0.0f
-          currentProgress >= 0.40f -> 1.0f
-          else -> 0.0f
-        }
-
-        val progressVelocity = if (screenHeightPx > 0f) {
-          -velocityY / screenHeightPx
-        } else 0f
+        val targetValue = LayerTransitionGestureHelper.calculateSettleTarget(currentProgress, velocityY)
+        val progressVelocity = LayerTransitionGestureHelper.calculateProgressVelocity(velocityY, screenHeightPx)
 
         val animatable = Animatable(currentProgress)
         animatable.animateTo(
@@ -830,7 +822,7 @@ fun LauncherHomeScreen(
                           isGestureActive = true
                         }
                         layer1VelocityTracker.addPosition(change.uptimeMillis, change.position)
-                        val progressDelta = -dragAmount / screenHeightPx
+                        val progressDelta = LayerTransitionGestureHelper.calculateProgressDelta(dragAmount, screenHeightPx)
                         layerTransitionProgress = (layerTransitionProgress + progressDelta).coerceIn(0f, 1f)
                       },
                       onEmptySpaceSwipeEnd = {

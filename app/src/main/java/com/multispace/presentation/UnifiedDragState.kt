@@ -62,6 +62,21 @@ class UnifiedDragState {
   // Trash / Removal Bin
   var isOverBin by mutableStateOf(false)
 
+  /**
+   * Maps current drag lifecycle and dragging state to the authoritative [LauncherInteractionState].
+   */
+  val interactionState: LauncherInteractionState
+    get() = when {
+      isDragging -> LauncherInteractionState.DraggingApp(
+        itemId = draggedPlacement?.id ?: draggedDockItem?.id,
+        packageName = draggedPlacement?.packageName ?: draggedDockItem?.packageName ?: draggedApp?.packageName
+      )
+      lifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE -> LauncherInteractionState.LongPressingApp(
+        itemId = draggedPlacement?.id ?: draggedDockItem?.id
+      )
+      else -> LauncherInteractionState.Idle
+    }
+
   // Coordinate tracking for cross-component hit testing
   var rootCoordinates by mutableStateOf<LayoutCoordinates?>(null)
   var layer1Coordinates by mutableStateOf<LayoutCoordinates?>(null)
