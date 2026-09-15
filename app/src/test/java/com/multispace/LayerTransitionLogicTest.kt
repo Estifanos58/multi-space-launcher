@@ -187,6 +187,12 @@ class LayerTransitionLogicTest {
     LAYER_TRANSITION
   }
 
+  enum class AxisClassification {
+    PENDING,
+    HORIZONTAL_PAGER_WINS,
+    VERTICAL_LAYER_TRANSITION_WINS
+  }
+
   @Test
   fun testGestureArbitrationOwnershipDecision() {
     // Mock hit-test function representing findItemAtOffset
@@ -233,5 +239,39 @@ class LayerTransitionLogicTest {
     val moveOverApp = Offset(100f, 100f)
     assertEquals("Swiping empty space over an app must NOT cancel Layer transition ownership",
       GestureOwner.LAYER_TRANSITION, activeOwner)
+  }
+
+  @Test
+  fun testEmptySpaceGestureAxisClassification() {
+    val touchSlop = 18f
+
+    fun classifyEmptySpaceGesture(deltaX: Float, deltaY: Float): AxisClassification {
+      val absX = kotlin.math.abs(deltaX)
+      val absY = kotlin.math.abs(deltaY)
+
+      if (absX >= touchSlop || absY >= touchSlop) {
+        return if (absY > absX) {
+          AxisClassification.VERTICAL_LAYER_TRANSITION_WINS
+        } else {
+          AxisClassification.HORIZONTAL_PAGER_WINS
+        }
+      }
+      return AxisClassification.PENDING
+    }
+
+    // 1. Movement under touch-slop remains pending (unconsumed, tracking)
+    assertEquals(AxisClassification.PENDING, classifyEmptySpaceGesture(deltaX = 5f, deltaY = 10f))
+    assertEquals(AxisClassification.PENDING, classifyEmptySpaceGesture(deltaX = -12f, deltaY = 3f))
+
+    // 2. Horizontal swipe past touch-slop -> HORIZONTAL_PAGER_WINS (Layer transition aborts without consuming)
+    assertEquals(AxisClassification.HORIZONTAL_PAGER_WINS, classifyEmptySpaceGesture(deltaX = 25f, deltaY = 5f))
+    assertEquals(AxisClassification.HORIZONTAL_PAGER_WINS, classifyEmptySpaceGesture(deltaX = -30f, deltaY = -10f))
+
+    // 3. Vertical swipe upward past touch-slop -> VERTICAL_LAYER_TRANSITION_WINS (Claims and follows finger)
+    assertEquals(AxisClassification.VERTICAL_LAYER_TRANSITION_WINS, classifyEmptySpaceGesture(deltaX = 4f, deltaY = -35f))
+    assertEquals(AxisClassification.VERTICAL_LAYER_TRANSITION_WINS, classifyEmptySpaceGesture(deltaX = -8f, deltaY = 28f))
+
+    // 4. Equal 45-degree diagonal movement past touch-slop -> defaults to HORIZONTAL_PAGER_WINS
+    assertEquals(AxisClassification.HORIZONTAL_PAGER_WINS, classifyEmptySpaceGesture(deltaX = 20f, deltaY = 20f))
   }
 }

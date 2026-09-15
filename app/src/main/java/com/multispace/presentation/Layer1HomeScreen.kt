@@ -1153,6 +1153,7 @@ fun Layer1HomeScreen(
       }
       .pointerInput(space.id, isSwipeAllowed) {
         if (!isSwipeAllowed) return@pointerInput
+        val touchSlop = viewConfiguration.touchSlop
         awaitEachGesture {
           val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
           val initialHit = findItemAtOffset(down.position, pagerState.currentPage)
@@ -1163,10 +1164,12 @@ fun Layer1HomeScreen(
             return@awaitEachGesture
           }
 
-          // If the initial touch is on empty Layer 1 space, Layer transition owns the gesture.
-          // Empty-space swipe must remain truly finger-following:
-          // continuously update layerTransitionProgress from pointer movement:
-          // layerTransitionProgress += -dragDeltaY / screenHeightPx with no threshold during the drag; only settle on release.
+          // If the initial touch is on empty Layer 1 space:
+          // 1. First track movement without consuming it.
+          // 2. Wait until movement passes touch-slop.
+          // 3. Compare abs(deltaX) vs abs(deltaY):
+          //    - If horizontal wins -> abort without consuming so HorizontalPager handles it.
+          //    - If vertical wins -> claim gesture, consume subsequent movement, and follow finger.
           val pointerId = down.id
           var isDraggingLayer = false
           var previousY = down.position.y
@@ -1190,17 +1193,37 @@ fun Layer1HomeScreen(
               break
             }
 
-            val currentY = change.position.y
-            val dragDeltaY = currentY - previousY
-            previousY = currentY
+            if (!isDraggingLayer) {
+              val totalDeltaX = change.position.x - down.position.x
+              val totalDeltaY = change.position.y - down.position.y
+              val absX = kotlin.math.abs(totalDeltaX)
+              val absY = kotlin.math.abs(totalDeltaY)
 
-            if (dragDeltaY != 0f) {
-              if (!isDraggingLayer) {
-                isDraggingLayer = true
-                onEmptySpaceSwipeStart()
+              // Wait until movement passes touch-slop
+              if (absX >= touchSlop || absY >= touchSlop) {
+                if (absY > absX) {
+                  // Vertical dominance: claim the gesture for Layer transition
+                  isDraggingLayer = true
+                  onEmptySpaceSwipeStart()
+                  val dragDeltaY = change.position.y - down.position.y
+                  previousY = change.position.y
+                  onEmptySpaceSwipeMove(dragDeltaY, change)
+                  change.consume()
+                } else {
+                  // Horizontal dominance: abort Layer transition detector WITHOUT consuming
+                  // so HorizontalPager handles left/right swiping normally
+                  return@awaitEachGesture
+                }
               }
-              onEmptySpaceSwipeMove(dragDeltaY, change)
-              change.consume()
+            } else {
+              val currentY = change.position.y
+              val dragDeltaY = currentY - previousY
+              previousY = currentY
+
+              if (dragDeltaY != 0f) {
+                onEmptySpaceSwipeMove(dragDeltaY, change)
+                change.consume()
+              }
             }
           }
         }
