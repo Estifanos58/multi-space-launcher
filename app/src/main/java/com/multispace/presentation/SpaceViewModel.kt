@@ -7,6 +7,7 @@ import com.multispace.data.database.LauncherDatabase
 import com.multispace.data.preferences.LauncherPreferences
 import com.multispace.data.repository.RoomSpaceRepository
 import com.multispace.diagnostics.AppLogger
+import com.multispace.domain.model.ActiveSpaceState
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.PageTurnEffect
 import com.multispace.domain.model.Space
@@ -57,6 +58,9 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     _activeLayerIndex.value = if (_activeLayerIndex.value == 1) 2 else 1
   }
 
+  private val _unlockedSpaceIds = MutableStateFlow<Set<String>>(emptySet())
+  val unlockedSpaceIds: StateFlow<Set<String>> = _unlockedSpaceIds.asStateFlow()
+
   val allSpaces: StateFlow<List<Space>> = spaceRepository.allSpacesFlow
     .stateIn(
       scope = viewModelScope,
@@ -64,63 +68,53 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
       initialValue = emptyList()
     )
 
-  val activeSpace: StateFlow<Space?> = spaceRepository.activeSpaceFlow
+  val activeSpaceState: StateFlow<ActiveSpaceState> = combine(
+    spaceRepository.activeSpaceStateFlow,
+    activeLayerIndex,
+    _unlockedSpaceIds
+  ) { state, layer, unlockedIds ->
+    val isUnlocked = state.space?.let { !it.isProtected || unlockedIds.contains(it.id) } ?: true
+    state.copy(layer = layer, unlocked = isUnlocked)
+  }.stateIn(
+    scope = viewModelScope,
+    started = SharingStarted.Eagerly,
+    initialValue = ActiveSpaceState(space = null)
+  )
+
+  val activeSpace: StateFlow<Space?> = activeSpaceState
+    .map { it.space }
     .stateIn(
       scope = viewModelScope,
       started = SharingStarted.Eagerly,
       initialValue = null
     )
 
-  val activeMemberships: StateFlow<List<SpaceMembership>> = spaceRepository.activeSpaceFlow
-    .flatMapLatest { space ->
-      if (space != null) {
-        spaceRepository.getMembershipsForSpaceFlow(space.id)
-      } else {
-        flowOf(emptyList())
-      }
-    }
+  val activeMemberships: StateFlow<List<SpaceMembership>> = activeSpaceState
+    .map { it.memberships }
     .stateIn(
       scope = viewModelScope,
       started = SharingStarted.Eagerly,
       initialValue = emptyList()
     )
 
-  val activePlacements: StateFlow<List<com.multispace.domain.model.SpaceItemPlacement>> = spaceRepository.activeSpaceFlow
-    .flatMapLatest { space ->
-      if (space != null) {
-        spaceRepository.getPlacementsForSpaceLayerFlow(space.id, com.multispace.domain.model.SpaceItemPlacement.LAYER_HOME)
-      } else {
-        flowOf(emptyList())
-      }
-    }
+  val activePlacements: StateFlow<List<com.multispace.domain.model.SpaceItemPlacement>> = activeSpaceState
+    .map { it.placements }
     .stateIn(
       scope = viewModelScope,
       started = SharingStarted.Eagerly,
       initialValue = emptyList()
     )
 
-  val activeFolders: StateFlow<List<com.multispace.domain.model.SpaceFolder>> = spaceRepository.activeSpaceFlow
-    .flatMapLatest { space ->
-      if (space != null) {
-        spaceRepository.getFoldersForSpaceFlow(space.id)
-      } else {
-        flowOf(emptyList())
-      }
-    }
+  val activeFolders: StateFlow<List<com.multispace.domain.model.SpaceFolder>> = activeSpaceState
+    .map { it.folders }
     .stateIn(
       scope = viewModelScope,
       started = SharingStarted.Eagerly,
       initialValue = emptyList()
     )
 
-  val activeDockItems: StateFlow<List<com.multispace.domain.model.SpaceDockItem>> = spaceRepository.activeSpaceFlow
-    .flatMapLatest { space ->
-      if (space != null) {
-        spaceRepository.getDockItemsForSpaceFlow(space.id)
-      } else {
-        flowOf(emptyList())
-      }
-    }
+  val activeDockItems: StateFlow<List<com.multispace.domain.model.SpaceDockItem>> = activeSpaceState
+    .map { it.dockItems }
     .stateIn(
       scope = viewModelScope,
       started = SharingStarted.Eagerly,
@@ -514,9 +508,6 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
       )
     }
   }
-
-  private val _unlockedSpaceIds = MutableStateFlow<Set<String>>(emptySet())
-  val unlockedSpaceIds: StateFlow<Set<String>> = _unlockedSpaceIds.asStateFlow()
 
   private val _isPhoneLocked = MutableStateFlow(false)
   val isPhoneLocked: StateFlow<Boolean> = _isPhoneLocked.asStateFlow()

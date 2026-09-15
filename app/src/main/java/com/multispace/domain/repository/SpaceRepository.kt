@@ -9,10 +9,11 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Domain Repository interface for Space management, Space persistence, and Space membership.
  */
-interface SpaceRepository {
+interface SpaceRepository : SpaceMembershipRepository, PlacementRepository, FolderRepository, DockRepository {
   val allSpacesFlow: Flow<List<Space>>
   val activeSpaceIdFlow: Flow<String?>
   val activeSpaceFlow: Flow<Space?>
+  val activeSpaceStateFlow: Flow<com.multispace.domain.model.ActiveSpaceState>
 
   suspend fun ensureDefaultSpaceInitialized(initialApps: List<DiscoveredApp> = emptyList()): Result<Space>
   suspend fun getSpaceById(spaceId: String): Space?
@@ -132,12 +133,6 @@ interface SpaceRepository {
     intensity: Float = Space.DEFAULT_PAGE_TURN_INTENSITY
   ): Result<Unit>
 
-  fun getMembershipsForSpaceFlow(spaceId: String): Flow<List<SpaceMembership>>
-  suspend fun getMembershipsForSpace(spaceId: String): List<SpaceMembership>
-  suspend fun addAppToSpace(spaceId: String, app: DiscoveredApp): Result<Unit>
-  suspend fun removeAppFromSpace(spaceId: String, app: DiscoveredApp): Result<Unit>
-  suspend fun isAppInSpace(spaceId: String, app: DiscoveredApp): Boolean
-
   suspend fun setSpacePin(spaceId: String, pin: String): Result<Unit>
   suspend fun changeSpacePin(spaceId: String, currentPin: String, newPin: String): Result<Unit>
   suspend fun disableSpacePin(spaceId: String, currentPin: String): Result<Unit>
@@ -154,53 +149,6 @@ interface SpaceRepository {
     labelVisibility: Boolean
   ): Result<Unit>
 
-  suspend fun reorderSpaceApp(
-    spaceId: String,
-    app: DiscoveredApp,
-    direction: Int
-  ): Result<Unit>
-
-  suspend fun reorderSpaceApps(
-    spaceId: String,
-    orderedApps: List<DiscoveredApp>
-  ): Result<Unit>
-
-  // --- Layer 1 & 2 Placements, Pages, & Folders ---
-  fun getPlacementsForSpaceLayerFlow(spaceId: String, layer: Int): Flow<List<com.multispace.domain.model.SpaceItemPlacement>>
-  suspend fun getPlacementsForSpaceLayer(spaceId: String, layer: Int): List<com.multispace.domain.model.SpaceItemPlacement>
-  suspend fun addPlacement(placement: com.multispace.domain.model.SpaceItemPlacement): Result<Unit>
-  suspend fun removePlacement(placementId: String): Result<Unit>
-  suspend fun updatePlacements(placements: List<com.multispace.domain.model.SpaceItemPlacement>): Result<Unit>
-  suspend fun moveAppToPage(spaceId: String, placementId: String, targetPage: Int, targetPosition: Int, pageSize: Int? = null): Result<Unit>
-  suspend fun createFolderFromApps(
-    spaceId: String,
-    pageIndex: Int,
-    positionIndex: Int,
-    folderName: String,
-    sourceApp: DiscoveredApp,
-    targetApp: DiscoveredApp,
-    sourcePlacementId: String?,
-    targetPlacementId: String?
-  ): Result<com.multispace.domain.model.SpaceFolder>
-
-  // --- Folders ---
-  fun getFoldersForSpaceFlow(spaceId: String): Flow<List<com.multispace.domain.model.SpaceFolder>>
-  suspend fun getFoldersForSpace(spaceId: String): List<com.multispace.domain.model.SpaceFolder>
-  suspend fun renameFolder(folderId: String, newName: String): Result<Unit>
-  suspend fun addAppToFolder(folderId: String, app: DiscoveredApp): Result<Unit>
-  suspend fun removeAppFromFolder(folderId: String, folderItemId: String): Result<Unit>
-  suspend fun deleteFolder(folderId: String): Result<Unit>
-
-  // --- Dock ---
-  fun getDockItemsForSpaceFlow(spaceId: String): Flow<List<com.multispace.domain.model.SpaceDockItem>>
-  suspend fun getDockItemsForSpace(spaceId: String): List<com.multispace.domain.model.SpaceDockItem>
-  suspend fun addAppToDock(spaceId: String, app: DiscoveredApp, orderIndex: Int = -1): Result<Unit>
-  suspend fun removeAppFromDock(spaceId: String, dockItemId: String): Result<Unit>
-  suspend fun reorderDockItems(spaceId: String, dockItems: List<com.multispace.domain.model.SpaceDockItem>): Result<Unit>
-  suspend fun cleanupDuplicateDockItems(spaceId: String): Result<Unit>
-  suspend fun moveAppFromHomeToDock(spaceId: String, placementId: String, app: DiscoveredApp, targetDockIndex: Int = -1): Result<Unit>
-  suspend fun moveAppFromDockToHome(spaceId: String, dockItemId: String, app: DiscoveredApp, targetPage: Int, targetPosition: Int, pageSize: Int? = null): Result<Unit>
-
   // --- Layout Configuration & Presets ---
   suspend fun updateSpaceLayoutSettings(
     spaceId: String,
@@ -216,8 +164,6 @@ interface SpaceRepository {
   suspend fun cleanupUninstalledApp(packageName: String): Result<Unit>
 
   // --- Desktop Customization & Page Control ---
-  suspend fun addPage(spaceId: String): Result<Int>
-  suspend fun deletePage(spaceId: String, pageIndex: Int): Result<Unit>
   suspend fun updateSpaceTheme(
     spaceId: String,
     appTheme: String,
@@ -230,21 +176,5 @@ interface SpaceRepository {
     wallpaperType: String,
     wallpaperColor: Long?,
     wallpaperImageUri: String?
-  ): Result<Unit>
-  suspend fun addWidgetPlacement(
-    spaceId: String,
-    pageIndex: Int,
-    widgetType: String,
-    spanX: Int = 1,
-    spanY: Int = 1,
-    appWidgetId: Int = -1,
-    packageName: String? = null,
-    componentName: String? = null
-  ): Result<com.multispace.domain.model.SpaceItemPlacement>
-  suspend fun updateWidgetSpan(
-    placementId: String,
-    spanX: Int,
-    spanY: Int,
-    positionIndex: Int? = null
   ): Result<Unit>
 }
