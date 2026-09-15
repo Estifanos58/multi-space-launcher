@@ -46,6 +46,7 @@ import com.multispace.domain.model.AppIdentityLookup
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceDockItem
+import com.multispace.domain.model.appIdentity
 import com.multispace.ui.components.ModernDialogContainer
 import com.multispace.ui.components.ModernGlassCard
 import com.multispace.ui.theme.AppDimens
@@ -74,7 +75,7 @@ fun SpaceDockBar(
   appTheme: String = Space.THEME_DEFAULT
 ) {
   val deduplicatedDockItems = remember(dockItems) {
-    dockItems.distinctBy { it.packageName }
+    dockItems.distinctBy { it.appIdentity }
   }
   val isCenterDrawerButton = useLayer2 && accessMode == Space.ACCESS_MODE_DOCK_BUTTON
   val maxAppSlots = if (isCenterDrawerButton) (capacity - 1).coerceAtLeast(1) else capacity

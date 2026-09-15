@@ -174,18 +174,20 @@ fun Layer1HomeScreen(
     // and users can freely drag them anywhere on the page, BUT NO APP MAY EVER BE LAID ON A WIDGET!
     val effectivePlacements = remember(placements, allApps, space.id, pageSize, gridRows, cols) {
       val basePlacements = if (placements.isNotEmpty()) {
-        val seenAppPkgs = mutableSetOf<String>()
+        val seenAppIdentities = mutableSetOf<AppIdentity>()
         val deduplicated = mutableListOf<SpaceItemPlacement>()
         for (p in placements) {
           if (p.isFolder || p.isWidget) {
             deduplicated.add(p)
-          } else if (p.packageName != null) {
-            if (!seenAppPkgs.contains(p.packageName)) {
-              seenAppPkgs.add(p.packageName!!)
+          } else {
+            val identity = p.appIdentity
+            if (identity != null) {
+              if (seenAppIdentities.add(identity)) {
+                deduplicated.add(p)
+              }
+            } else {
               deduplicated.add(p)
             }
-          } else {
-            deduplicated.add(p)
           }
         }
         deduplicated
@@ -193,14 +195,14 @@ fun Layer1HomeScreen(
         // Fallback only if there are absolutely NO placements in Room yet.
         // Default layout: exactly cols apps on Page 0 at the bottom row (lastRow * cols + i)
         val lastRow = (gridRows - 1).coerceAtLeast(0)
-        val distinctApps = allApps.distinctBy { it.packageName }
+        val distinctApps = allApps.distinctBy { it.appIdentity }
         val page0Count = minOf(cols, distinctApps.size)
         val fallbackList = mutableListOf<SpaceItemPlacement>()
         for (i in 0 until page0Count) {
           val app = distinctApps[i]
           fallbackList.add(
             SpaceItemPlacement(
-              id = "fallback:${app.packageName}",
+              id = "fallback:${app.id}",
               spaceId = space.id,
               layer = SpaceItemPlacement.LAYER_HOME,
               pageIndex = 0,
@@ -217,7 +219,7 @@ fun Layer1HomeScreen(
           val rem = i - page0Count
           fallbackList.add(
             SpaceItemPlacement(
-              id = "fallback:${app.packageName}",
+              id = "fallback:${app.id}",
               spaceId = space.id,
               layer = SpaceItemPlacement.LAYER_HOME,
               pageIndex = 1 + (rem / pageSize),

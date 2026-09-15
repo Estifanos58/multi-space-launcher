@@ -58,13 +58,7 @@ class AppLaunchManager(private val context: Context) {
    * Resolves the UserHandle corresponding to the discovered app's user profile.
    */
   private fun resolveUserHandle(userHandleId: Long): UserHandle {
-    val profiles = userManager?.userProfiles ?: emptyList()
-    for (profile in profiles) {
-      if (profile.hashCode().toLong() == userHandleId) {
-        return profile
-      }
-    }
-    return Process.myUserHandle()
+    return UserHandleHelper.resolveUserHandle(userManager, userHandleId)
   }
 
   /**

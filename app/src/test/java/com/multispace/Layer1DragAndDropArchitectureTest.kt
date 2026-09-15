@@ -571,10 +571,7 @@ class Layer1DragAndDropArchitectureTest {
     )
 
     val allPlacements = listOf(sourcePlacement, targetPlacement)
-    val appLookup = mapOf(
-      sourceApp.key to sourceApp,
-      targetApp.key to targetApp
-    )
+    val appLookup = com.multispace.domain.model.AppIdentityLookup(listOf(sourceApp, targetApp))
 
     // Simulate drop on target slot (positionIndex = 5)
     var folderCreated = false
@@ -599,8 +596,8 @@ class Layer1DragAndDropArchitectureTest {
     assertFalse(hitTarget!!.isWidget)
     assertFalse(hitTarget.isFolder)
 
-    val srcApp = appLookup["${sourcePlacement.packageName}/${sourcePlacement.componentName}"]
-    val tgtApp = appLookup["${hitTarget.packageName}/${hitTarget.componentName}"]
+    val srcApp = appLookup[sourcePlacement]
+    val tgtApp = appLookup[hitTarget]
 
     if (srcApp != null && tgtApp != null) {
       folderCreated = true

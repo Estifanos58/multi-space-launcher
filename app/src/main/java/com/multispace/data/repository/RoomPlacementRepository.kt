@@ -7,10 +7,12 @@ import com.multispace.data.dao.SpaceMembershipDao
 import com.multispace.data.entity.SpaceDockItemEntity
 import com.multispace.data.entity.SpaceItemPlacementEntity
 import com.multispace.diagnostics.AppLogger
+import com.multispace.domain.model.AppIdentity
 import com.multispace.domain.model.PlacementCascadeHelper
 import com.multispace.domain.model.PlacementValidator
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceItemPlacement
+import com.multispace.domain.model.appIdentity
 import com.multispace.domain.repository.PlacementRepository
 import com.multispace.platform.AppDiscoveryManager
 import java.util.UUID
@@ -56,7 +58,7 @@ class RoomPlacementRepository(
       return emptyList()
     }
     val memberships = membershipDao.getMembershipsForSpace(spaceId)
-    val distinctMemberships = memberships.distinctBy { it.packageName }
+    val distinctMemberships = memberships.distinctBy { it.appIdentity }
     if (distinctMemberships.isEmpty()) {
       return emptyList()
     }
@@ -126,11 +128,16 @@ class RoomPlacementRepository(
   override suspend fun addPlacement(placement: SpaceItemPlacement): Result<Unit> {
     return try {
       // Invariant 1: If an app placement, remove any previous placement of this app on this layer/space to prevent duplicates
-      if (placement.itemType == SpaceItemPlacement.ITEM_TYPE_APP && !placement.packageName.isNullOrBlank()) {
-        val existing = layoutDao.getPlacementsForSpaceLayer(placement.spaceId, placement.layer)
-        for (p in existing) {
-          if (p.itemType == SpaceItemPlacement.ITEM_TYPE_APP && p.packageName == placement.packageName && p.id != placement.id) {
-            layoutDao.deletePlacementById(p.id)
+      if (placement.itemType == SpaceItemPlacement.ITEM_TYPE_APP) {
+        val targetIdentity = placement.appIdentity
+        if (targetIdentity != null) {
+          val existing = layoutDao.getPlacementsForSpaceLayer(placement.spaceId, placement.layer)
+          for (p in existing) {
+            if (p.itemType == SpaceItemPlacement.ITEM_TYPE_APP && p.id != placement.id) {
+              if (p.appIdentity?.matches(targetIdentity) == true) {
+                layoutDao.deletePlacementById(p.id)
+              }
+            }
           }
         }
       }
@@ -203,9 +210,9 @@ class RoomPlacementRepository(
       var allHome = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME).toMutableList()
 
       // 1. Ensure all memberships have persistent placements
-      val memberships = membershipDao?.getMembershipsForSpace(spaceId)?.distinctBy { it.packageName } ?: emptyList()
-      val placedPkgs = allHome.mapNotNull { it.packageName }.toSet()
-      val missingMemberships = memberships.filter { !placedPkgs.contains(it.packageName) }
+      val memberships = membershipDao?.getMembershipsForSpace(spaceId)?.distinctBy { it.appIdentity } ?: emptyList()
+      val placedIdentities = allHome.mapNotNull { it.appIdentity }.toSet()
+      val missingMemberships = memberships.filter { mem -> placedIdentities.none { it.matches(mem.appIdentity) } }
 
       if (missingMemberships.isNotEmpty()) {
         val occupiedPerPage = mutableMapOf<Int, MutableSet<Int>>()
@@ -314,15 +321,18 @@ class RoomPlacementRepository(
         itemToMoveRaw
       }
 
-      // CRITICAL: Prevent duplicate apps - purge any existing placements for the same package name
-      if (itemToMove.itemType == SpaceItemPlacement.ITEM_TYPE_APP && itemToMove.packageName != null) {
-        val duplicatePlacements = allHome.filter {
-          it.itemType == SpaceItemPlacement.ITEM_TYPE_APP && it.packageName == itemToMove.packageName
-        }
-        if (duplicatePlacements.isNotEmpty()) {
-          allHome.removeAll(duplicatePlacements)
-          for (dup in duplicatePlacements) {
-            layoutDao.deletePlacementById(dup.id)
+      // CRITICAL: Prevent duplicate apps - purge any existing placements for the exact same app identity
+      if (itemToMove.itemType == SpaceItemPlacement.ITEM_TYPE_APP) {
+        val targetIdentity = itemToMove.appIdentity
+        if (targetIdentity != null) {
+          val duplicatePlacements = allHome.filter {
+            it.itemType == SpaceItemPlacement.ITEM_TYPE_APP && it.appIdentity?.matches(targetIdentity) == true
+          }
+          if (duplicatePlacements.isNotEmpty()) {
+            allHome.removeAll(duplicatePlacements)
+            for (dup in duplicatePlacements) {
+              layoutDao.deletePlacementById(dup.id)
+            }
           }
         }
       }
@@ -342,7 +352,8 @@ class RoomPlacementRepository(
           a.id == b.id || (
             a.itemType == SpaceItemPlacement.ITEM_TYPE_APP &&
             b.itemType == SpaceItemPlacement.ITEM_TYPE_APP &&
-            a.packageName != null && a.packageName == b.packageName
+            a.appIdentity != null && b.appIdentity != null &&
+            a.appIdentity!!.matches(b.appIdentity!!)
           )
         },
         getSpanX = { if (it.itemType == SpaceItemPlacement.ITEM_TYPE_WIDGET) it.spanX else 1 },
@@ -353,23 +364,22 @@ class RoomPlacementRepository(
         cols = cols
       )
 
-      // Deduplicate toInsert before persistence
+      // Deduplicate toInsert before persistence using AppIdentity
       val deduplicatedToInsert = mutableListOf<SpaceItemPlacementEntity>()
-      val seenPkgs = mutableSetOf<String>()
+      val seenIdentities = mutableSetOf<AppIdentity>()
       val seenIds = mutableSetOf<String>()
 
       val finalItem = toInsert.firstOrNull { it.id == itemToMove.id } ?: itemToMove
       deduplicatedToInsert.add(finalItem)
       seenIds.add(finalItem.id)
-      if (finalItem.itemType == SpaceItemPlacement.ITEM_TYPE_APP && finalItem.packageName != null) {
-        seenPkgs.add(finalItem.packageName!!)
-      }
+      finalItem.appIdentity?.let { seenIdentities.add(it) }
 
       for (item in toInsert) {
         if (seenIds.contains(item.id)) continue
-        if (item.itemType == SpaceItemPlacement.ITEM_TYPE_APP && item.packageName != null) {
-          if (seenPkgs.contains(item.packageName)) continue
-          seenPkgs.add(item.packageName!!)
+        val itemIdentity = item.appIdentity
+        if (item.itemType == SpaceItemPlacement.ITEM_TYPE_APP && itemIdentity != null) {
+          if (seenIdentities.contains(itemIdentity)) continue
+          seenIdentities.add(itemIdentity)
         }
         seenIds.add(item.id)
         deduplicatedToInsert.add(item)

@@ -205,10 +205,10 @@ class RoomSpaceRepository(
     candidateApps: List<DiscoveredApp>
   ) {
     val appsToUse = if (candidateApps.isNotEmpty()) {
-      candidateApps.distinctBy { it.packageName }
+      candidateApps.distinctBy { it.appIdentity }
     } else if (context != null) {
       try {
-        AppDiscoveryManager(context).loadInstalledApps().distinctBy { it.packageName }
+        AppDiscoveryManager(context).loadInstalledApps().distinctBy { it.appIdentity }
       } catch (e: Exception) {
         AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to load apps for new Space defaults: ${e.message}")
         emptyList()
@@ -285,7 +285,7 @@ class RoomSpaceRepository(
     val existingDockApps = existingDockEntities.map { entity ->
       val targetIdentity = entity.appIdentity
       installedApps.firstOrNull { targetIdentity.matches(it.appIdentity) }
-        ?: installedApps.firstOrNull { it.packageName == entity.packageName }
+        ?: installedApps.firstOrNull { it.packageName == entity.packageName && it.userHandleId == entity.userHandleId }
         ?: DiscoveredApp(
           id = "${entity.packageName}/${entity.componentName}#${entity.userHandleId}",
           packageName = entity.packageName,
@@ -670,7 +670,7 @@ class RoomSpaceRepository(
       )
       spaceDao.updateSpace(updated)
 
-      val uniqueUpdatedApps = updatedApps.distinctBy { it.packageName }
+      val uniqueUpdatedApps = updatedApps.distinctBy { it.appIdentity }
       if (uniqueUpdatedApps.isNotEmpty()) {
         membershipDao.deleteMembershipsForSpace(spaceId)
         val memberships = uniqueUpdatedApps.mapIndexed { idx, app ->
@@ -733,19 +733,22 @@ class RoomSpaceRepository(
         } else {
           // PRESERVE ALL USER CUSTOM PLACEMENTS!
           // Only synchronize additions and removals without disturbing existing positions
-          val updatedPkgSet = uniqueUpdatedApps.map { it.packageName }.toSet()
-          val placedPkgSet = existingPlacements.mapNotNull { it.packageName }.toSet()
+          val updatedIdentitySet = uniqueUpdatedApps.map { it.appIdentity }.toSet()
+          val placedIdentitySet = existingPlacements.mapNotNull { it.appIdentity }.toSet()
 
           // 1. Remove placements for apps explicitly deselected from the space
           val placementsToRemove = existingPlacements.filter { p ->
-            p.itemType == SpaceItemPlacement.ITEM_TYPE_APP && p.packageName != null && !updatedPkgSet.contains(p.packageName)
+            p.itemType == SpaceItemPlacement.ITEM_TYPE_APP && p.appIdentity != null &&
+              updatedIdentitySet.none { it.matches(p.appIdentity!!) }
           }
           for (p in placementsToRemove) {
             layoutDao.deletePlacementById(p.id)
           }
 
           // 2. Add placements for newly added apps into empty slots on trailing pages (Page 1+)
-          val newlyAddedApps = uniqueUpdatedApps.filter { !placedPkgSet.contains(it.packageName) }
+          val newlyAddedApps = uniqueUpdatedApps.filter { app ->
+            placedIdentitySet.none { it.matches(app.appIdentity) }
+          }
           if (newlyAddedApps.isNotEmpty()) {
             val remainingPlacements = existingPlacements.filter { !placementsToRemove.any { r -> r.id == it.id } }
             val pageSize = (gridColumns * 5).coerceAtLeast(1)
@@ -1264,7 +1267,7 @@ class RoomSpaceRepository(
     allInstalledApps: List<DiscoveredApp>
   ): Result<ImportReport> {
     return try {
-      val uniqueApps = allInstalledApps.distinctBy { it.packageName }
+      val uniqueApps = allInstalledApps.distinctBy { it.appIdentity }
       val successes = mutableListOf<String>()
       val partiallyImported = mutableListOf<String>()
       val restricted = mutableListOf<String>()

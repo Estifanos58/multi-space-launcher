@@ -75,7 +75,11 @@ data class AppIdentity(
       AppIdentity(info.componentName.packageName, info.componentName.className, userHandleId)
 
     fun fromLauncherActivityInfo(info: LauncherActivityInfo, userHandle: UserHandle): AppIdentity =
-      AppIdentity(info.componentName.packageName, info.componentName.className, userHandle.hashCode().toLong())
+      AppIdentity(
+        info.componentName.packageName,
+        info.componentName.className,
+        com.multispace.platform.UserHandleHelper.getUserHandleId(null as android.content.Context?, userHandle)
+      )
   }
 }
 
@@ -108,17 +112,19 @@ val SpaceFolderItemEntity.appIdentity: AppIdentity
 
 /**
  * Extension on collection of DiscoveredApp to find a match for a given [AppIdentity].
+ * Guarantees cross-profile identity safety: never returns an app from a different user profile.
  */
 fun Collection<DiscoveredApp>.findMatching(identity: AppIdentity?): DiscoveredApp? {
   if (identity == null) return null
+  // 1. Strict exact match
   for (app in this) {
     if (identity.matches(app.appIdentity)) return app
   }
+  // 2. Fallback strictly within the SAME user handle / profile
   for (app in this) {
-    if (identity.matchesPackage(app.packageName) && identity.userHandleId == app.userHandleId) return app
-  }
-  for (app in this) {
-    if (identity.matchesPackage(app.packageName)) return app
+    if (identity.matchesPackage(app.packageName) && identity.userHandleId == app.userHandleId) {
+      return app
+    }
   }
   return null
 }
@@ -137,29 +143,59 @@ fun Collection<DiscoveredApp>.findMatching(membership: SpaceMembership): Discove
 
 /**
  * Fast lookup helper that resolves [DiscoveredApp] instances by their canonical [AppIdentity].
- * Supports exact activity matching as well as fallback to package matching.
+ *
+ * Strict identity: (packageName, componentName, userHandleId) identifies a specific app instance.
+ * Cross-profile lookups are strictly prohibited.
  */
 class AppIdentityLookup(val apps: Collection<DiscoveredApp>) {
+  // 1. Strict exact identity map: AppIdentity -> DiscoveredApp
   private val byStrict: Map<AppIdentity, DiscoveredApp> = apps.associateBy { it.appIdentity }
-  private val byComponent: Map<String, DiscoveredApp> = apps.associateBy { "${it.packageName}/${it.activityName}" }
-  private val byPackageAndUser: Map<Pair<String, Long>, DiscoveredApp> = apps.associateBy { it.packageName to it.userHandleId }
-  private val byPackage: Map<String, DiscoveredApp> = apps.associateBy { it.packageName }
-  private val allList = apps.toList()
 
+  // 2. Candidates grouped by (packageName, userHandleId):
+  private val byPackageAndUser: Map<Pair<String, Long>, List<DiscoveredApp>> =
+    apps.groupBy { it.packageName to it.userHandleId }
+
+  // 3. Candidates grouped by package only (for explicit package-level operations):
+  private val byPackage: Map<String, List<DiscoveredApp>> =
+    apps.groupBy { it.packageName }
+
+  /**
+   * Resolves a [DiscoveredApp] by strict [AppIdentity].
+   * - 1. Exact match on (packageName, componentName, userHandleId).
+   * - 2. If componentName is empty or component changed, resolves within the SAME (packageName, userHandleId) profile.
+   * - NEVER falls back across user handles or profile boundaries.
+   */
   operator fun get(identity: AppIdentity?): DiscoveredApp? {
     if (identity == null) return null
     byStrict[identity]?.let { return it }
-    if (identity.componentName.isNotEmpty()) {
-      byComponent["${identity.packageName}/${identity.componentName}"]?.let { return it }
+
+    val profileCandidates = byPackageAndUser[identity.packageName to identity.userHandleId]
+    if (!profileCandidates.isNullOrEmpty()) {
+      if (identity.componentName.isNotEmpty()) {
+        val matchingComponent = profileCandidates.firstOrNull { it.activityName == identity.componentName }
+        if (matchingComponent != null) return matchingComponent
+      }
+      return profileCandidates.first()
     }
-    byPackageAndUser[identity.packageName to identity.userHandleId]?.let { return it }
-    byPackage[identity.packageName]?.let { return it }
-    return allList.findMatching(identity)
+    return null
+  }
+
+  /**
+   * Explicit package-level fallback when domain logic specifically requests any matching app from this package.
+   * If [preferredUserHandleId] is provided, prefers candidate from that profile.
+   * Never called silently by [get].
+   */
+  fun findAnyInPackage(packageName: String, preferredUserHandleId: Long? = null): DiscoveredApp? {
+    val candidates = byPackage[packageName] ?: return null
+    if (preferredUserHandleId != null) {
+      val inProfile = candidates.firstOrNull { it.userHandleId == preferredUserHandleId }
+      if (inProfile != null) return inProfile
+    }
+    return candidates.firstOrNull()
   }
 
   operator fun get(placement: SpaceItemPlacement?): DiscoveredApp? = get(placement?.appIdentity)
   operator fun get(dockItem: SpaceDockItem?): DiscoveredApp? = get(dockItem?.appIdentity)
   operator fun get(folderItem: SpaceFolderItem?): DiscoveredApp? = get(folderItem?.appIdentity)
   operator fun get(membership: SpaceMembership?): DiscoveredApp? = get(membership?.appIdentity)
-  operator fun get(key: String): DiscoveredApp? = byComponent[key] ?: byPackage[key]
 }

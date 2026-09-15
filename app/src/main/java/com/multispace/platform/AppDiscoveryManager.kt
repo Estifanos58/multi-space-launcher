@@ -220,7 +220,7 @@ class AppDiscoveryManager(private val context: Context) {
               // Ignore package info read error
             }
 
-            val userHandleId = profile.hashCode().toLong()
+            val userHandleId = UserHandleHelper.getUserHandleId(userManager, profile)
             val id = "$pkgName/$clsName#$userHandleId"
 
             apps.add(
@@ -453,9 +453,7 @@ class AppDiscoveryManager(private val context: Context) {
 
       // Fast Path 1: LauncherApps direct activity info icon (avoids intent filter resolution)
       if (launcherApps != null && userManager != null) {
-        val userProfiles = userManager.userProfiles
-        val profile = userProfiles.firstOrNull { it.hashCode().toLong() == app.userHandleId }
-          ?: Process.myUserHandle()
+        val profile = UserHandleHelper.resolveUserHandle(userManager, app.userHandleId)
         val activityList = launcherApps.getActivityList(app.packageName, profile)
         val matchedActivity = activityList.firstOrNull {
           it.componentName.className == app.activityName
