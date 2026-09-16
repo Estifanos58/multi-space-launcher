@@ -76,8 +76,8 @@ class MainActivity : FragmentActivity() {
             LauncherHomeScreen(
               discoveryViewModel = discoveryViewModel,
               spaceViewModel = spaceViewModel,
-              onLaunchApp = { app ->
-                discoveryViewModel.launchApp(app)
+              onLaunchAppInSpace = { app, spaceId ->
+                discoveryViewModel.launchApp(app, spaceId)
               },
               onOpenConfiguration = {
                 openConfigurationActivity()

@@ -77,11 +77,11 @@ fun LauncherHomeScreen(
   modifier: Modifier = Modifier,
   discoveryViewModel: AppDiscoveryViewModel,
   spaceViewModel: SpaceViewModel,
-  onLaunchApp: (DiscoveredApp) -> Unit,
+  onLaunchApp: (DiscoveredApp) -> Unit = {},
+  onLaunchAppInSpace: ((DiscoveredApp, String) -> Unit)? = null,
   onOpenConfiguration: () -> Unit
 ) {
   val discoveryUiState by discoveryViewModel.uiState.collectAsStateWithLifecycle()
-  val recentApps by discoveryViewModel.recentApps.collectAsStateWithLifecycle()
   val activeSpace by spaceViewModel.activeSpace.collectAsStateWithLifecycle()
   val activeMemberships by spaceViewModel.activeMemberships.collectAsStateWithLifecycle()
   val allSpaces by spaceViewModel.allSpaces.collectAsStateWithLifecycle()
@@ -91,6 +91,15 @@ fun LauncherHomeScreen(
   val activePlacements by spaceViewModel.activePlacements.collectAsStateWithLifecycle()
   val activeFolders by spaceViewModel.activeFolders.collectAsStateWithLifecycle()
   val activeDockItems by spaceViewModel.activeDockItems.collectAsStateWithLifecycle()
+
+  val handleAppLaunch: (DiscoveredApp) -> Unit = { app ->
+    val spaceId = activeSpace?.id ?: Space.DEFAULT_SPACE_ID
+    if (onLaunchAppInSpace != null) {
+      onLaunchAppInSpace(app, spaceId)
+    } else {
+      discoveryViewModel.launchApp(app, spaceId)
+    }
+  }
 
   var showSpaceSwitcherMenu by remember { mutableStateOf(false) }
   var spaceToUnlockForSwitch by remember { mutableStateOf<Space?>(null) }
@@ -613,6 +622,7 @@ fun LauncherHomeScreen(
         else -> {
           // Main 2-Layer Workspace with continuous finger-following transition
           val currentSpace = activeSpace ?: Space.createDefault()
+
           val shouldComposeLayer1 by remember {
             derivedStateOf { isGestureActive || layerTransitionProgress < 1f || activeLayerIndex == 1 }
           }
@@ -623,12 +633,36 @@ fun LauncherHomeScreen(
             derivedStateOf { layerTransitionProgress < 1f && useLayer2 }
           }
 
+          // Space-specific usage tracking flows
+          val spaceRecentApps by remember(currentSpace.id) {
+            discoveryViewModel.getRecentAppsFlow(currentSpace.id)
+          }.collectAsStateWithLifecycle(initialValue = emptyList())
+
+          val spaceMostUsedApps by remember(currentSpace.id) {
+            discoveryViewModel.getMostUsedAppsFlow(currentSpace.id)
+          }.collectAsStateWithLifecycle(initialValue = emptyList())
+
           // Resolve recent apps for current space: most recently launched first, scoped to this space
-          val spaceScopedRecentApps = remember(recentApps, spaceScopedApps, currentSpace.gridColumns) {
+          val spaceScopedRecentApps = remember(spaceRecentApps, spaceScopedApps, currentSpace.gridColumns) {
             val spaceLookup = com.multispace.domain.model.AppIdentityLookup(spaceScopedApps)
             val seen = mutableSetOf<com.multispace.domain.model.AppIdentity>()
             val resolved = mutableListOf<DiscoveredApp>()
-            for (app in recentApps) {
+            for (app in spaceRecentApps) {
+              val inSpace = spaceLookup[app.appIdentity]
+              if (inSpace != null && seen.add(inSpace.appIdentity)) {
+                resolved.add(inSpace)
+                if (resolved.size >= currentSpace.gridColumns) break
+              }
+            }
+            resolved
+          }
+
+          // Resolve most used apps for current space: highest launch frequency, scoped to this space
+          val spaceScopedMostUsedApps = remember(spaceMostUsedApps, spaceScopedApps, currentSpace.gridColumns) {
+            val spaceLookup = com.multispace.domain.model.AppIdentityLookup(spaceScopedApps)
+            val seen = mutableSetOf<com.multispace.domain.model.AppIdentity>()
+            val resolved = mutableListOf<DiscoveredApp>()
+            for (app in spaceMostUsedApps) {
               val inSpace = spaceLookup[app.appIdentity]
               if (inSpace != null && seen.add(inSpace.appIdentity)) {
                 resolved.add(inSpace)
@@ -693,7 +727,7 @@ fun LauncherHomeScreen(
                         capacity = activeSpace?.dockCapacity ?: 5,
                         accessMode = activeSpace?.layer2AccessMode ?: Space.ACCESS_MODE_DOCK_BUTTON,
                         getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
-                        onLaunchApp = onLaunchApp,
+                        onLaunchApp = handleAppLaunch,
                         onOpenLayer2 = { animateToLayer(2) },
                         onRemoveFromDock = { item ->
                           activeSpace?.let { spaceViewModel.removeAppFromDock(it.id, item.id) }
@@ -762,7 +796,7 @@ fun LauncherHomeScreen(
                       folders = activeFolders,
                       allApps = spaceScopedApps,
                       getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
-                      onLaunchApp = onLaunchApp,
+                      onLaunchApp = handleAppLaunch,
                       onOpenFolder = { folder -> activeFolderInDialog = folder },
                       onRemovePlacement = { placementId ->
                         spaceViewModel.removePlacement(placementId)
@@ -863,7 +897,7 @@ fun LauncherHomeScreen(
                   space = currentSpace,
                   spaceApps = spaceScopedApps,
                   getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
-                  onLaunchApp = onLaunchApp,
+                  onLaunchApp = handleAppLaunch,
                   onAddToHome = { app ->
                     spaceViewModel.addAppToHome(currentSpace.id, app)
                   },
@@ -881,7 +915,8 @@ fun LauncherHomeScreen(
                   },
                   onCloseLayer2 = { animateToLayer(1) },
                   recentApps = spaceScopedRecentApps,
-                  mostUsedApps = spaceScopedRecentApps,
+                  mostUsedApps = spaceScopedMostUsedApps,
+                  discoveryViewModel = discoveryViewModel,
                   cachedCatalog = layer2CachedCatalog,
                   gridState = layer2GridState,
                   sectionListState = layer2SectionListState,
@@ -976,7 +1011,7 @@ fun LauncherHomeScreen(
       folder = folder,
       allApps = discoveryUiState.allApps,
       getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
-      onLaunchApp = onLaunchApp,
+      onLaunchApp = handleAppLaunch,
       onRenameFolder = { newName ->
         spaceViewModel.renameFolder(folder.id, newName)
         activeFolderInDialog = folder.copy(name = newName)

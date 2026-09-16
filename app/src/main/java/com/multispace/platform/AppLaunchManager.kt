@@ -14,6 +14,7 @@ import com.multispace.data.repository.RoomLaunchHistoryRepository
 import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.AppIdentity
 import com.multispace.domain.model.DiscoveredApp
+import com.multispace.domain.model.Space
 import com.multispace.domain.model.appIdentity
 import com.multispace.domain.repository.LaunchHistoryRepository
 import kotlinx.coroutines.CoroutineDispatcher
@@ -67,12 +68,12 @@ class AppLaunchManager(
 
   private val launchScope = CoroutineScope(SupervisorJob() + ioDispatcher)
 
-  private fun recordSuccessfulLaunch(app: DiscoveredApp) {
+  private fun recordSuccessfulLaunch(app: DiscoveredApp, spaceId: String) {
     launchScope.launch {
       try {
-        historyRepository.recordLaunch(app.appIdentity)
+        historyRepository.recordLaunch(spaceId, app.appIdentity)
       } catch (e: Exception) {
-        AppLogger.w(AppLogger.Category.LAUNCH, "Failed to record launch history for ${app.label}", e)
+        AppLogger.w(AppLogger.Category.LAUNCH, "Failed to record launch history for ${app.label} in space $spaceId", e)
       }
     }
   }
@@ -85,7 +86,7 @@ class AppLaunchManager(
   }
 
   /**
-   * Attempts to launch an application using its discovered launcher identity.
+   * Attempts to launch an application using its discovered launcher identity within [spaceId].
    *
    * Flow:
    * 1. Resolve UserHandle.
@@ -94,14 +95,18 @@ class AppLaunchManager(
    * 4. If component is stale but package is present, attempt controlled recovery via PackageManager fallback.
    * 5. If application is uninstalled/disabled or launch fails, handle gracefully without crashing.
    */
-  fun launchApp(app: DiscoveredApp, sourceBounds: Rect? = null): LaunchResult {
+  fun launchApp(
+    app: DiscoveredApp,
+    spaceId: String = Space.DEFAULT_SPACE_ID,
+    sourceBounds: Rect? = null
+  ): LaunchResult {
     val identity = app.appIdentity
     val targetComponent = identity.toComponentName()
     val userHandle = resolveUserHandle(identity.userHandleId)
 
     AppLogger.i(
       AppLogger.Category.LAUNCH,
-      "LAUNCH_REQUESTED: ${app.label} [$identity] (profile: $userHandle)"
+      "LAUNCH_REQUESTED: ${app.label} [$identity] in space '$spaceId' (profile: $userHandle)"
     )
 
     AppLogger.d(
@@ -141,7 +146,7 @@ class AppLaunchManager(
             AppLogger.Category.LAUNCH,
             "LAUNCH_SUCCESS: ${app.label} launched successfully via LauncherApps"
           )
-          recordSuccessfulLaunch(app)
+          recordSuccessfulLaunch(app, spaceId)
           return LaunchResult.Success(
             packageName = app.packageName,
             activityName = matchingActivity.componentName.className,
@@ -173,7 +178,7 @@ class AppLaunchManager(
             AppLogger.Category.LAUNCH,
             "LAUNCH_SUCCESS: ${app.label} launched via fallback activity ${fallbackActivity.componentName.flattenToShortString()}"
           )
-          recordSuccessfulLaunch(launchedFallbackApp)
+          recordSuccessfulLaunch(launchedFallbackApp, spaceId)
           return LaunchResult.Success(
             packageName = app.packageName,
             activityName = fallbackActivity.componentName.className,
@@ -216,7 +221,7 @@ class AppLaunchManager(
           AppLogger.Category.LAUNCH,
           "LAUNCH_SUCCESS: ${app.label} launched successfully via PackageManager fallback"
         )
-        recordSuccessfulLaunch(launchedPkgApp)
+        recordSuccessfulLaunch(launchedPkgApp, spaceId)
         return LaunchResult.Success(
           packageName = app.packageName,
           activityName = launchIntent.component?.className ?: app.activityName,

@@ -8,16 +8,20 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.multispace.data.repository.RoomLaunchHistoryRepository
 import com.multispace.diagnostics.AppLogger
+import com.multispace.domain.model.AppIdentity
+import com.multispace.domain.model.AppUsageStats
 import com.multispace.domain.model.DiscoveredApp
+import com.multispace.domain.model.Space
+import com.multispace.domain.model.SpaceUsageStats
 import com.multispace.domain.repository.LaunchHistoryRepository
 import com.multispace.platform.AppDiscoveryManager
 import com.multispace.platform.AppLaunchManager
-import com.multispace.platform.AppUsageTracker
 import com.multispace.platform.LaunchResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -76,12 +80,33 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
   val uiState: StateFlow<AppDiscoveryUiState> = _uiState.asStateFlow()
 
   val recentApps: StateFlow<List<DiscoveredApp>> = launchHistoryRepository
-    .getRecentAppsFlow(_uiState.map { it.allApps })
+    .getRecentAppsFlow(Space.DEFAULT_SPACE_ID, _uiState.map { it.allApps })
     .stateIn(
       scope = viewModelScope,
       started = SharingStarted.WhileSubscribed(5000),
       initialValue = emptyList()
     )
+
+  fun getRecentAppsFlow(spaceId: String, limit: Int = 20): Flow<List<DiscoveredApp>> {
+    return launchHistoryRepository.getRecentAppsFlow(spaceId, _uiState.map { it.allApps }, limit)
+  }
+
+  fun getMostUsedAppsFlow(spaceId: String, limit: Int = 20): Flow<List<DiscoveredApp>> {
+    return launchHistoryRepository.getMostUsedAppsFlow(spaceId, _uiState.map { it.allApps }, limit)
+  }
+
+  suspend fun getSpaceUsageStats(spaceId: String, now: Long = System.currentTimeMillis()): SpaceUsageStats {
+    return launchHistoryRepository.getSpaceUsageStats(spaceId, _uiState.value.allApps, now)
+  }
+
+  suspend fun getAppUsageStats(
+    spaceId: String,
+    identity: AppIdentity,
+    app: DiscoveredApp? = null,
+    now: Long = System.currentTimeMillis()
+  ): AppUsageStats {
+    return launchHistoryRepository.getAppUsageStats(spaceId, identity, app, now)
+  }
 
   private val _userFeedback = MutableSharedFlow<String>(extraBufferCapacity = 8)
   val userFeedback: SharedFlow<String> = _userFeedback.asSharedFlow()
@@ -239,16 +264,19 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
    * Dispatches application launch using launcher-aware platform APIs,
    * handles failure gracefully, and records launch telemetry.
    */
-  fun launchApp(app: DiscoveredApp, sourceBounds: Rect? = null) {
-    val result = launchManager.launchApp(app, sourceBounds)
+  fun launchApp(
+    app: DiscoveredApp,
+    spaceId: String = Space.DEFAULT_SPACE_ID,
+    sourceBounds: Rect? = null
+  ) {
+    val result = launchManager.launchApp(app, spaceId, sourceBounds)
 
     val logEntry: String
     val feedbackMessage: String?
 
     when (result) {
       is LaunchResult.Success -> {
-        AppUsageTracker.getInstance(getApplication()).recordLaunch(app)
-        logEntry = "SUCCESS: Launched ${app.label} (${result.packageName}) via ${result.method}"
+        logEntry = "SUCCESS: Launched ${app.label} (${result.packageName}) in space '$spaceId' via ${result.method}"
         feedbackMessage = null // Normal launch transition
       }
       is LaunchResult.Unavailable -> {
@@ -274,8 +302,12 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
     }
   }
 
-  fun getMostUsedApps(apps: List<DiscoveredApp>, limit: Int = 8): List<DiscoveredApp> {
-    return AppUsageTracker.getInstance(getApplication()).getMostUsedApps(apps, limit)
+  suspend fun getMostUsedApps(
+    spaceId: String = Space.DEFAULT_SPACE_ID,
+    apps: List<DiscoveredApp>,
+    limit: Int = 8
+  ): List<DiscoveredApp> {
+    return launchHistoryRepository.resolveMostUsedApps(spaceId, apps, limit)
   }
 
   fun openAppInfo(app: DiscoveredApp) {
