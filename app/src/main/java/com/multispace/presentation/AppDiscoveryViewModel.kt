@@ -6,8 +6,10 @@ import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.multispace.data.repository.RoomLaunchHistoryRepository
 import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.DiscoveredApp
+import com.multispace.domain.repository.LaunchHistoryRepository
 import com.multispace.platform.AppDiscoveryManager
 import com.multispace.platform.AppLaunchManager
 import com.multispace.platform.AppUsageTracker
@@ -19,10 +21,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -65,9 +70,18 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
 
   private val discoveryManager = AppDiscoveryManager(application.applicationContext)
   private val launchManager = AppLaunchManager(application.applicationContext)
+  val launchHistoryRepository: LaunchHistoryRepository = launchManager.historyRepository
 
   private val _uiState = MutableStateFlow(AppDiscoveryUiState())
   val uiState: StateFlow<AppDiscoveryUiState> = _uiState.asStateFlow()
+
+  val recentApps: StateFlow<List<DiscoveredApp>> = launchHistoryRepository
+    .getRecentAppsFlow(_uiState.map { it.allApps })
+    .stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(5000),
+      initialValue = emptyList()
+    )
 
   private val _userFeedback = MutableSharedFlow<String>(extraBufferCapacity = 8)
   val userFeedback: SharedFlow<String> = _userFeedback.asSharedFlow()

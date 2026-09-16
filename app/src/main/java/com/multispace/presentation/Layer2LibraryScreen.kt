@@ -85,6 +85,7 @@ fun Layer2LibraryScreen(
   onUninstallApp: (DiscoveredApp) -> Unit = {},
   onForceStopApp: (DiscoveredApp) -> Unit = {},
   onCloseLayer2: () -> Unit,
+  recentApps: List<DiscoveredApp>? = null,
   mostUsedApps: List<DiscoveredApp>? = null,
   cachedCatalog: Layer2CachedCatalog? = null,
   gridState: LazyGridState = rememberLazyGridState(),
@@ -96,34 +97,21 @@ fun Layer2LibraryScreen(
 ) {
   var searchQuery by remember { mutableStateOf("") }
   var selectedAppForMenu by remember { mutableStateOf<DiscoveredApp?>(null) }
-
   val context = LocalContext.current
-  val usageTracker = remember(context) { AppUsageTracker.getInstance(context) }
 
-  // 1. Most Used Apps Section (bounded strictly to the number of columns in Layer 2)
-  val maxMostUsedApps = space.gridColumns.coerceIn(2, 8)
-  val resolvedMostUsedApps = remember(spaceApps, searchQuery, mostUsedApps, maxMostUsedApps) {
-    val baseList = if (mostUsedApps != null) {
-      if (searchQuery.isBlank()) {
-        mostUsedApps
-      } else {
-        val q = searchQuery.trim().lowercase()
-        mostUsedApps.filter {
-          it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
-        }
-      }
+  // 1. Recent Opened Apps Section (bounded strictly to the number of columns in Layer 2)
+  val maxRecentApps = space.gridColumns.coerceIn(2, 8)
+  val resolvedRecentApps = remember(spaceApps, searchQuery, recentApps, mostUsedApps, maxRecentApps) {
+    val sourceList = recentApps ?: mostUsedApps ?: emptyList()
+    val baseList = if (searchQuery.isBlank()) {
+      sourceList
     } else {
-      val pool = if (searchQuery.isBlank()) {
-        spaceApps
-      } else {
-        val q = searchQuery.trim().lowercase()
-        spaceApps.filter {
-          it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
-        }
+      val q = searchQuery.trim().lowercase()
+      sourceList.filter {
+        it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
       }
-      usageTracker.getMostUsedApps(pool, limit = maxMostUsedApps)
     }
-    baseList.take(maxMostUsedApps)
+    baseList.take(maxRecentApps)
   }
 
   // 2. Alphabetical Apps Section (maintains normal alphabetical ordering by app name)
@@ -274,15 +262,16 @@ fun Layer2LibraryScreen(
 
       Spacer(modifier = Modifier.height(AppDimens.Spacing8))
 
-      // 1. Most Used Apps Row (at the very top, ordered by usage/frequency)
-      if (resolvedMostUsedApps.isNotEmpty()) {
+      // 1. Recent Opened Apps Row (at the very top, ordered by most recently launched)
+      if (resolvedRecentApps.isNotEmpty()) {
         Column(
           modifier = Modifier
             .fillMaxWidth()
+            .testTag("layer2_recent_apps_section")
             .testTag("layer2_most_used_section")
         ) {
           Text(
-            text = "Most Used",
+            text = "Recent opened apps",
             style = MaterialTheme.typography.labelMedium.copy(
               fontWeight = FontWeight.SemiBold,
               letterSpacing = 0.5.sp
@@ -300,10 +289,11 @@ fun Layer2LibraryScreen(
                 top = AppDimens.Spacing4,
                 bottom = AppDimens.Spacing4
               )
+              .testTag("layer2_recent_apps_row")
               .testTag("layer2_most_used_row"),
             horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
           ) {
-            resolvedMostUsedApps.forEach { app ->
+            resolvedRecentApps.forEach { app ->
               Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
@@ -313,38 +303,40 @@ fun Layer2LibraryScreen(
                     onClick = { onLaunchApp(app) },
                     onLongClick = { selectedAppForMenu = app }
                   )
-                .padding(vertical = AppDimens.Spacing4)
-                .testTag("layer2_most_used_app_${app.packageName}")
-            ) {
-              val bitmap = remember(app.id) { getBitmap(app) }
-              ThemedAppIcon(
-                app = app,
-                bitmap = bitmap,
-                appTheme = space.appTheme,
-                modifier = iconSizeModifier,
-                fallbackText = app.label.take(1).uppercase()
-              )
-
-              if (space.labelVisibility) {
-                Spacer(modifier = Modifier.height(AppDimens.Spacing4))
-                Text(
-                  text = app.label,
-                  style = MaterialTheme.typography.bodySmall,
-                  fontSize = 11.sp,
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
-                  textAlign = TextAlign.Center,
-                  color = MaterialTheme.colorScheme.onSurface
+                  .padding(vertical = AppDimens.Spacing4)
+                  .testTag("layer2_recent_app_${app.packageName}")
+                  .testTag("layer2_most_used_app_${app.packageName}")
+              ) {
+                val bitmap = remember(app.id) { getBitmap(app) }
+                ThemedAppIcon(
+                  app = app,
+                  bitmap = bitmap,
+                  appTheme = space.appTheme,
+                  modifier = iconSizeModifier,
+                  fallbackText = app.label.take(1).uppercase()
                 )
+
+                if (space.labelVisibility) {
+                  Spacer(modifier = Modifier.height(AppDimens.Spacing4))
+                  Text(
+                    text = app.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurface
+                  )
+                }
               }
             }
-          }
 
-          // Pad empty slots if available apps are fewer than gridColumns to maintain consistent column width
-          val emptySlots = space.gridColumns - resolvedMostUsedApps.size
-          if (emptySlots > 0) {
-            repeat(emptySlots) {
-              Spacer(modifier = Modifier.weight(1f))
+            // Pad empty slots if available apps are fewer than gridColumns to maintain consistent column width
+            val emptySlots = space.gridColumns - resolvedRecentApps.size
+            if (emptySlots > 0) {
+              repeat(emptySlots) {
+                Spacer(modifier = Modifier.weight(1f))
+              }
             }
           }
         }
@@ -362,7 +354,6 @@ fun Layer2LibraryScreen(
         Spacer(modifier = Modifier.height(AppDimens.Spacing10))
       }
     }
-  }
 
     Box(
       modifier = Modifier

@@ -10,10 +10,17 @@ import android.graphics.Rect
 import android.os.Process
 import android.os.UserHandle
 import android.os.UserManager
+import com.multispace.data.repository.RoomLaunchHistoryRepository
 import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.AppIdentity
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.appIdentity
+import com.multispace.domain.repository.LaunchHistoryRepository
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Result of an application launch attempt.
@@ -44,7 +51,11 @@ sealed class LaunchResult {
  * Platform integration manager responsible for launcher-aware application launching,
  * launch-time component verification, profile resolution, and graceful failure handling.
  */
-class AppLaunchManager(private val context: Context) {
+class AppLaunchManager(
+  private val context: Context,
+  val historyRepository: LaunchHistoryRepository = RoomLaunchHistoryRepository.getInstance(context),
+  private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+) {
 
   private val launcherApps: LauncherApps? =
     context.getSystemService(LauncherApps::class.java)
@@ -53,6 +64,18 @@ class AppLaunchManager(private val context: Context) {
     context.getSystemService(UserManager::class.java)
 
   private val packageManager: PackageManager = context.packageManager
+
+  private val launchScope = CoroutineScope(SupervisorJob() + ioDispatcher)
+
+  private fun recordSuccessfulLaunch(app: DiscoveredApp) {
+    launchScope.launch {
+      try {
+        historyRepository.recordLaunch(app.appIdentity)
+      } catch (e: Exception) {
+        AppLogger.w(AppLogger.Category.LAUNCH, "Failed to record launch history for ${app.label}", e)
+      }
+    }
+  }
 
   /**
    * Resolves the UserHandle corresponding to the discovered app's user profile.
@@ -118,6 +141,7 @@ class AppLaunchManager(private val context: Context) {
             AppLogger.Category.LAUNCH,
             "LAUNCH_SUCCESS: ${app.label} launched successfully via LauncherApps"
           )
+          recordSuccessfulLaunch(app)
           return LaunchResult.Success(
             packageName = app.packageName,
             activityName = matchingActivity.componentName.className,
@@ -142,10 +166,14 @@ class AppLaunchManager(private val context: Context) {
             null
           )
 
+          val launchedFallbackApp = app.copy(
+            activityName = fallbackActivity.componentName.className
+          )
           AppLogger.i(
             AppLogger.Category.LAUNCH,
             "LAUNCH_SUCCESS: ${app.label} launched via fallback activity ${fallbackActivity.componentName.flattenToShortString()}"
           )
+          recordSuccessfulLaunch(launchedFallbackApp)
           return LaunchResult.Success(
             packageName = app.packageName,
             activityName = fallbackActivity.componentName.className,
@@ -181,10 +209,14 @@ class AppLaunchManager(private val context: Context) {
           "LAUNCH_FALLBACK_USED: Launching via PackageManager.getLaunchIntentForPackage for ${app.packageName}"
         )
         context.startActivity(launchIntent)
+        val launchedPkgApp = app.copy(
+          activityName = launchIntent.component?.className ?: app.activityName
+        )
         AppLogger.i(
           AppLogger.Category.LAUNCH,
           "LAUNCH_SUCCESS: ${app.label} launched successfully via PackageManager fallback"
         )
+        recordSuccessfulLaunch(launchedPkgApp)
         return LaunchResult.Success(
           packageName = app.packageName,
           activityName = launchIntent.component?.className ?: app.activityName,

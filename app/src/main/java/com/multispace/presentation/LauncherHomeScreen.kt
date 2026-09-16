@@ -81,6 +81,7 @@ fun LauncherHomeScreen(
   onOpenConfiguration: () -> Unit
 ) {
   val discoveryUiState by discoveryViewModel.uiState.collectAsStateWithLifecycle()
+  val recentApps by discoveryViewModel.recentApps.collectAsStateWithLifecycle()
   val activeSpace by spaceViewModel.activeSpace.collectAsStateWithLifecycle()
   val activeMemberships by spaceViewModel.activeMemberships.collectAsStateWithLifecycle()
   val allSpaces by spaceViewModel.allSpaces.collectAsStateWithLifecycle()
@@ -622,9 +623,19 @@ fun LauncherHomeScreen(
             derivedStateOf { layerTransitionProgress < 1f && useLayer2 }
           }
 
-          // Cache most used apps: avoid recomputing on every layerTransitionProgress frame
-          val cachedMostUsedApps = remember(spaceScopedApps, currentSpace.gridColumns) {
-            discoveryViewModel.getMostUsedApps(spaceScopedApps, limit = currentSpace.gridColumns)
+          // Resolve recent apps for current space: most recently launched first, scoped to this space
+          val spaceScopedRecentApps = remember(recentApps, spaceScopedApps, currentSpace.gridColumns) {
+            val spaceLookup = com.multispace.domain.model.AppIdentityLookup(spaceScopedApps)
+            val seen = mutableSetOf<com.multispace.domain.model.AppIdentity>()
+            val resolved = mutableListOf<DiscoveredApp>()
+            for (app in recentApps) {
+              val inSpace = spaceLookup[app.appIdentity]
+              if (inSpace != null && seen.add(inSpace.appIdentity)) {
+                resolved.add(inSpace)
+                if (resolved.size >= currentSpace.gridColumns) break
+              }
+            }
+            resolved
           }
 
           // Cache Layer 2 catalog derived data so swiping between layers does not rebuild collections
@@ -869,7 +880,8 @@ fun LauncherHomeScreen(
                     discoveryViewModel.forceStopApp(app)
                   },
                   onCloseLayer2 = { animateToLayer(1) },
-                  mostUsedApps = cachedMostUsedApps,
+                  recentApps = spaceScopedRecentApps,
+                  mostUsedApps = spaceScopedRecentApps,
                   cachedCatalog = layer2CachedCatalog,
                   gridState = layer2GridState,
                   sectionListState = layer2SectionListState,
