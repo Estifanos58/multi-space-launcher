@@ -284,7 +284,7 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
     spaceId: String = Space.DEFAULT_SPACE_ID,
     sourceBounds: Rect? = null
   ) {
-    val result = launchManager.launchApp(app, spaceId, sourceBounds)
+    val result = launchManager.launchApp(app, spaceId, sourceBounds, callerScope = viewModelScope)
 
     val logEntry: String
     val feedbackMessage: String?

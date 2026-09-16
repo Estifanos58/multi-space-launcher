@@ -45,7 +45,8 @@ class LayerTransitionController(
   val onSetLayer: (Int) -> Unit,
   val layer2GridState: LazyGridState,
   val layer2SectionListState: LazyListState,
-  initialProgress: Float = 0f
+  initialProgress: Float = 0f,
+  val eventTracer: com.multispace.presentation.events.LauncherEventTracer = com.multispace.presentation.events.DefaultLauncherEventTracer.Global
 ) {
   var layerTransitionProgress by mutableFloatStateOf(initialProgress)
   var isGestureActive by mutableStateOf(false)
@@ -70,6 +71,8 @@ class LayerTransitionController(
 
   fun animateToLayer(targetLayer: Int) {
     settleJob?.cancel()
+    val fromLayer = if (layerTransitionProgress >= 0.5f) 2 else 1
+    eventTracer.record(com.multispace.presentation.events.LauncherEvent.LayerTransitionStarted(fromLayer))
     settleJob = coroutineScope.launch {
       isGestureActive = false
       val targetValue = if (targetLayer == 2) 1.0f else 0.0f
@@ -81,11 +84,14 @@ class LayerTransitionController(
         layerTransitionProgress = value
       }
       onSetLayer(targetLayer)
+      eventTracer.record(com.multispace.presentation.events.LauncherEvent.LayerTransitionSettled(targetLayer, targetValue))
     }
   }
 
   fun settleTransition(currentProgress: Float, velocityY: Float, screenHeightPx: Float) {
     settleJob?.cancel()
+    val fromLayer = if (currentProgress >= 0.5f) 2 else 1
+    eventTracer.record(com.multispace.presentation.events.LauncherEvent.LayerTransitionStarted(fromLayer))
     settleJob = coroutineScope.launch {
       isGestureActive = false
       val targetValue = LayerTransitionGestureHelper.calculateSettleTarget(currentProgress, velocityY)
@@ -105,6 +111,7 @@ class LayerTransitionController(
 
       val targetLayer = if (targetValue == 1.0f) 2 else 1
       onSetLayer(targetLayer)
+      eventTracer.record(com.multispace.presentation.events.LauncherEvent.LayerTransitionSettled(targetLayer, targetValue))
     }
   }
 

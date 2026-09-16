@@ -2,12 +2,9 @@ package com.multispace.platform
 
 import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
 import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
-import android.content.pm.PackageManager
 import android.graphics.Rect
-import android.os.Process
 import android.os.UserHandle
 import android.os.UserManager
 import com.multispace.data.repository.RoomLaunchHistoryRepository
@@ -65,26 +62,11 @@ class AppLaunchManager(
   private val userManager: UserManager? =
     context.getSystemService(UserManager::class.java)
 
-  private val packageManager: PackageManager = context.packageManager
-
   suspend fun recordSuccessfulLaunch(app: DiscoveredApp, spaceId: String) {
     try {
       historyRepository.recordLaunch(spaceId, app.appIdentity)
     } catch (e: Exception) {
       AppLogger.w(AppLogger.Category.LAUNCH, "Failed to record launch history for ${app.label} in space $spaceId", e)
-    }
-  }
-
-  private fun dispatchRecordLaunch(app: DiscoveredApp, spaceId: String, callerScope: CoroutineScope?) {
-    val targetScope = callerScope ?: coroutineScope
-    if (targetScope != null) {
-      targetScope.launch(ioDispatcher) {
-        recordSuccessfulLaunch(app, spaceId)
-      }
-    } else {
-      CoroutineScope(Dispatchers.IO).launch {
-        recordSuccessfulLaunch(app, spaceId)
-      }
     }
   }
 
@@ -96,14 +78,140 @@ class AppLaunchManager(
   }
 
   /**
+   * Executes the launch operation via LauncherApps strictly for the profile associated
+   * with [app]'s AppIdentity. Never falls back to cross-profile or package-only resolution.
+   */
+  private fun performLaunch(
+    app: DiscoveredApp,
+    sourceBounds: Rect?
+  ): Pair<LaunchResult, DiscoveredApp?> {
+    val identity = app.appIdentity
+    val targetComponent = identity.toComponentName()
+    val userHandle = resolveUserHandle(identity.userHandleId)
+
+    AppLogger.i(
+      AppLogger.Category.LAUNCH,
+      "LAUNCH_REQUESTED: ${app.label} [$identity] (profile: $userHandle)"
+    )
+
+    if (launcherApps == null) {
+      AppLogger.w(AppLogger.Category.LAUNCH, "LAUNCH_UNAVAILABLE: LauncherApps service is unavailable")
+      return Pair(
+        LaunchResult.Unavailable(
+          packageName = app.packageName,
+          reason = "LauncherApps service is unavailable."
+        ),
+        null
+      )
+    }
+
+    try {
+      val activities: List<LauncherActivityInfo>? =
+        launcherApps.getActivityList(app.packageName, userHandle)
+
+      val matchingActivity = activities?.firstOrNull {
+        it.componentName == targetComponent || it.componentName.className == identity.componentName
+      }
+
+      if (matchingActivity != null) {
+        AppLogger.i(
+          AppLogger.Category.LAUNCH,
+          "LAUNCH_RESOLUTION_SUCCESS: Component verified: ${matchingActivity.componentName.flattenToShortString()}"
+        )
+        launcherApps.startMainActivity(
+          matchingActivity.componentName,
+          userHandle,
+          sourceBounds,
+          null
+        )
+        AppLogger.i(
+          AppLogger.Category.LAUNCH,
+          "LAUNCH_SUCCESS: ${app.label} launched successfully via LauncherApps"
+        )
+        return Pair(
+          LaunchResult.Success(
+            packageName = app.packageName,
+            activityName = matchingActivity.componentName.className,
+            method = "LauncherApps.startMainActivity"
+          ),
+          app
+        )
+      } else if (!activities.isNullOrEmpty()) {
+        // Stale component name, but alternative launcher activity exists in package for THIS EXACT user profile
+        val fallbackActivity = activities.first()
+        AppLogger.w(
+          AppLogger.Category.LAUNCH,
+          "LAUNCH_FALLBACK_USED: Stale activity '${app.activityName}', resolving to '${fallbackActivity.componentName.className}' for profile ${identity.userHandleId}"
+        )
+        launcherApps.startMainActivity(
+          fallbackActivity.componentName,
+          userHandle,
+          sourceBounds,
+          null
+        )
+        val launchedFallbackApp = app.copy(
+          activityName = fallbackActivity.componentName.className
+        )
+        AppLogger.i(
+          AppLogger.Category.LAUNCH,
+          "LAUNCH_SUCCESS: ${app.label} launched via profile fallback activity ${fallbackActivity.componentName.flattenToShortString()}"
+        )
+        return Pair(
+          LaunchResult.Success(
+            packageName = app.packageName,
+            activityName = fallbackActivity.componentName.className,
+            method = "LauncherApps.startMainActivity (Resolved Profile Fallback)"
+          ),
+          launchedFallbackApp
+        )
+      }
+    } catch (e: SecurityException) {
+      AppLogger.e(AppLogger.Category.LAUNCH, "LAUNCH_FAILED: SecurityException launching ${app.packageName} for user ${identity.userHandleId}", e)
+      return Pair(
+        LaunchResult.Failed(
+          packageName = app.packageName,
+          errorMessage = "Permission denied while launching application.",
+          exception = e
+        ),
+        null
+      )
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCH, "LAUNCH_FAILED: Error launching ${app.packageName} for user ${identity.userHandleId}", e)
+      return Pair(
+        LaunchResult.Failed(
+          packageName = app.packageName,
+          errorMessage = "Failed to launch application: ${e.localizedMessage ?: "Unknown error"}",
+          exception = e
+        ),
+        null
+      )
+    }
+
+    // No activity found for the requested package and userHandleId
+    AppLogger.w(
+      AppLogger.Category.LAUNCH,
+      "LAUNCH_UNAVAILABLE: Application ${app.packageName} is unavailable or disabled for profile ${identity.userHandleId}"
+    )
+    return Pair(
+      LaunchResult.Unavailable(
+        packageName = app.packageName,
+        reason = "Application is uninstalled, disabled, or not available for profile ${identity.userHandleId}."
+      ),
+      null
+    )
+  }
+
+  /**
    * Attempts to launch an application using its discovered launcher identity within [spaceId].
    *
    * Flow:
-   * 1. Resolve UserHandle.
-   * 2. Verify current component availability via LauncherApps at launch time.
+   * 1. Resolve exact UserHandle.
+   * 2. Verify current component availability via LauncherApps for that exact UserHandle.
    * 3. Launch via LauncherApps.startMainActivity if available.
-   * 4. If component is stale but package is present, attempt controlled recovery via PackageManager fallback.
-   * 5. If application is uninstalled/disabled or launch fails, handle gracefully without crashing.
+   * 4. If component is stale within the SAME profile, recover using alternative launcher activity for that profile.
+   * 5. If application is unavailable or launch fails, return LaunchResult.Unavailable or LaunchResult.Failed without crashing.
+   * 6. If caller or manager provides a CoroutineScope, asynchronously records successful launch to history.
+   *    No unmanaged CoroutineScope is ever created.
    */
   fun launchApp(
     app: DiscoveredApp,
@@ -111,167 +219,36 @@ class AppLaunchManager(
     sourceBounds: Rect? = null,
     callerScope: CoroutineScope? = null
   ): LaunchResult {
-    val identity = app.appIdentity
-    val targetComponent = identity.toComponentName()
-    val userHandle = resolveUserHandle(identity.userHandleId)
-
-    AppLogger.i(
-      AppLogger.Category.LAUNCH,
-      "LAUNCH_REQUESTED: ${app.label} [$identity] in space '$spaceId' (profile: $userHandle)"
-    )
-
-    AppLogger.d(
-      AppLogger.Category.LAUNCH,
-      "LAUNCH_RESOLUTION_STARTED: Verifying current availability for ${app.packageName}"
-    )
-
-    // Step 1: Launch-time resolution against current Android LauncherApps state
-    if (launcherApps != null) {
-      try {
-        val activities: List<LauncherActivityInfo>? =
-          launcherApps.getActivityList(app.packageName, userHandle)
-
-        val matchingActivity = activities?.firstOrNull {
-          it.componentName == targetComponent || it.componentName.className == identity.componentName
+    val (result, launchedApp) = performLaunch(app, sourceBounds)
+    if (result is LaunchResult.Success) {
+      val targetScope = callerScope ?: coroutineScope
+      if (targetScope != null) {
+        targetScope.launch(ioDispatcher) {
+          recordSuccessfulLaunch(launchedApp ?: app, spaceId)
         }
-
-        if (matchingActivity != null) {
-          // Direct component verified
-          AppLogger.i(
-            AppLogger.Category.LAUNCH,
-            "LAUNCH_RESOLUTION_SUCCESS: Component verified: ${matchingActivity.componentName.flattenToShortString()}"
-          )
-          AppLogger.d(
-            AppLogger.Category.LAUNCH,
-            "LAUNCH_ATTEMPTED: Invoking LauncherApps.startMainActivity"
-          )
-
-          launcherApps.startMainActivity(
-            matchingActivity.componentName,
-            userHandle,
-            sourceBounds,
-            null
-          )
-
-          AppLogger.i(
-            AppLogger.Category.LAUNCH,
-            "LAUNCH_SUCCESS: ${app.label} launched successfully via LauncherApps"
-          )
-          dispatchRecordLaunch(app, spaceId, callerScope)
-          return LaunchResult.Success(
-            packageName = app.packageName,
-            activityName = matchingActivity.componentName.className,
-            method = "LauncherApps.startMainActivity"
-          )
-        } else if (!activities.isNullOrEmpty()) {
-          // Stale component name, but alternative launcher activity exists in package
-          val fallbackActivity = activities.first()
-          AppLogger.w(
-            AppLogger.Category.LAUNCH,
-            "LAUNCH_FALLBACK_USED: Stale activity '${app.activityName}', resolving to '${fallbackActivity.componentName.className}'"
-          )
-          AppLogger.d(
-            AppLogger.Category.LAUNCH,
-            "LAUNCH_ATTEMPTED: Invoking LauncherApps.startMainActivity for fallback activity"
-          )
-
-          launcherApps.startMainActivity(
-            fallbackActivity.componentName,
-            userHandle,
-            sourceBounds,
-            null
-          )
-
-          val launchedFallbackApp = app.copy(
-            activityName = fallbackActivity.componentName.className
-          )
-          AppLogger.i(
-            AppLogger.Category.LAUNCH,
-            "LAUNCH_SUCCESS: ${app.label} launched via fallback activity ${fallbackActivity.componentName.flattenToShortString()}"
-          )
-          dispatchRecordLaunch(launchedFallbackApp, spaceId, callerScope)
-          return LaunchResult.Success(
-            packageName = app.packageName,
-            activityName = fallbackActivity.componentName.className,
-            method = "LauncherApps.startMainActivity (Resolved Fallback)"
-          )
-        }
-      } catch (e: SecurityException) {
-        AppLogger.e(AppLogger.Category.LAUNCH, "LAUNCH_FAILED: SecurityException launching ${app.packageName}", e)
-        return LaunchResult.Failed(
-          packageName = app.packageName,
-          errorMessage = "Permission denied while launching application.",
-          exception = e
-        )
-      } catch (e: Exception) {
-        AppLogger.w(
+      } else {
+        AppLogger.d(
           AppLogger.Category.LAUNCH,
-          "LAUNCH_FAILED: LauncherApps invocation failed, attempting PackageManager fallback",
-          e
+          "No coroutine scope provided to record launch history for ${app.label}. Use launchAppSuspending or supply a callerScope."
         )
       }
     }
-
-    // Step 2: Fallback to PackageManager launch intent if LauncherApps failed or component was not found
-    try {
-      val launchIntent = packageManager.getLaunchIntentForPackage(app.packageName)
-      if (launchIntent != null) {
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (sourceBounds != null) {
-          launchIntent.sourceBounds = sourceBounds
-        }
-        AppLogger.w(
-          AppLogger.Category.LAUNCH,
-          "LAUNCH_FALLBACK_USED: Launching via PackageManager.getLaunchIntentForPackage for ${app.packageName}"
-        )
-        context.startActivity(launchIntent)
-        val launchedPkgApp = app.copy(
-          activityName = launchIntent.component?.className ?: app.activityName
-        )
-        AppLogger.i(
-          AppLogger.Category.LAUNCH,
-          "LAUNCH_SUCCESS: ${app.label} launched successfully via PackageManager fallback"
-        )
-        dispatchRecordLaunch(launchedPkgApp, spaceId, callerScope)
-        return LaunchResult.Success(
-          packageName = app.packageName,
-          activityName = launchIntent.component?.className ?: app.activityName,
-          method = "PackageManager.getLaunchIntentForPackage"
-        )
-      }
-    } catch (e: Exception) {
-      AppLogger.e(
-        AppLogger.Category.LAUNCH,
-        "LAUNCH_FAILED: PackageManager fallback launch failed for ${app.packageName}",
-        e
-      )
-      return LaunchResult.Failed(
-        packageName = app.packageName,
-        errorMessage = "Failed to launch application: ${e.localizedMessage ?: "Unknown error"}",
-        exception = e
-      )
-    }
-
-    // Step 3: Application is uninstalled, disabled, or no launchable activity was found
-    AppLogger.w(
-      AppLogger.Category.LAUNCH,
-      "LAUNCH_UNAVAILABLE: Application ${app.packageName} is unavailable or disabled"
-    )
-    return LaunchResult.Unavailable(
-      packageName = app.packageName,
-      reason = "Application is uninstalled, disabled, or no launchable activity was found."
-    )
+    return result
   }
 
+  /**
+   * Suspending variant of [launchApp] where history recording is performed within
+   * the calling coroutine context via [ioDispatcher], ensuring caller lifecycle ownership.
+   */
   suspend fun launchAppSuspending(
     app: DiscoveredApp,
     spaceId: String = Space.DEFAULT_SPACE_ID,
     sourceBounds: Rect? = null
   ): LaunchResult {
-    val result = launchApp(app, spaceId, sourceBounds, callerScope = null)
+    val (result, launchedApp) = performLaunch(app, sourceBounds)
     if (result is LaunchResult.Success) {
       withContext(ioDispatcher) {
-        recordSuccessfulLaunch(app, spaceId)
+        recordSuccessfulLaunch(launchedApp ?: app, spaceId)
       }
     }
     return result

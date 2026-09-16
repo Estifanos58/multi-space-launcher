@@ -45,7 +45,9 @@ enum class DragLifecycleState {
  * Bridges Layer 1 curated desktop and bottom SpaceDockBar into a unified coordinate system
  * and formal interaction lifecycle.
  */
-class UnifiedDragState {
+class UnifiedDragState(
+  val eventTracer: com.multispace.presentation.events.LauncherEventTracer = com.multispace.presentation.events.DefaultLauncherEventTracer.Global
+) {
   var lifecycleState by mutableStateOf(DragLifecycleState.IDLE)
   var isDragging by mutableStateOf(false)
   var dragSource by mutableStateOf(DragSource.LAYER1_DESKTOP)
@@ -144,6 +146,9 @@ class UnifiedDragState {
   var binBoundsInRoot by mutableStateOf<Rect?>(null)
 
   fun reset() {
+    if (lifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
+      eventTracer.record(com.multispace.presentation.events.LauncherEvent.ActionMenuDismissed())
+    }
     lifecycleState = DragLifecycleState.IDLE
     isDragging = false
     dragSource = DragSource.LAYER1_DESKTOP
@@ -168,12 +173,26 @@ class UnifiedDragState {
   fun showContextMenu(identity: AppIdentity, pos: Offset, itemId: String? = null) {
     lifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
     rootPointerPos = pos
+    eventTracer.record(
+      com.multispace.presentation.events.LauncherEvent.ActionMenuOpened(
+        identity = identity,
+        position = pos,
+        itemId = itemId
+      )
+    )
   }
 
   fun startItemLongPress(placement: SpaceItemPlacement, touchOffset: Offset = Offset.Zero) {
     lifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
     draggedPlacement = placement
     touchOffsetInItem = touchOffset
+    eventTracer.record(
+      com.multispace.presentation.events.LauncherEvent.ActionMenuOpened(
+        identity = placement.toAppIdentity(),
+        position = rootPointerPos,
+        itemId = placement.id
+      )
+    )
   }
 
   fun startDesktopDrag(
@@ -190,6 +209,15 @@ class UnifiedDragState {
     rootPointerPos = pointerPos
     touchOffsetInItem = touchOffset
     currentTargetZone = DragTargetZone.DESKTOP
+    eventTracer.record(
+      com.multispace.presentation.events.LauncherEvent.DragStarted(
+        identity = currentAppIdentity,
+        origin = currentDragOrigin,
+        initialPosition = pointerPos,
+        itemId = placement.id,
+        packageName = placement.packageName
+      )
+    )
   }
 
   fun startDockDrag(
@@ -206,20 +234,40 @@ class UnifiedDragState {
     rootPointerPos = pointerPos
     touchOffsetInItem = touchOffset
     currentTargetZone = DragTargetZone.DOCK_BAR
+    eventTracer.record(
+      com.multispace.presentation.events.LauncherEvent.DragStarted(
+        identity = currentAppIdentity,
+        origin = currentDragOrigin,
+        initialPosition = pointerPos,
+        itemId = dockItem.id,
+        packageName = dockItem.packageName
+      )
+    )
   }
 
   fun updatePointerPosition(pos: Offset) {
     rootPointerPos = pos
     isOverDock = isPointerOverDock(pos)
     isOverBin = isPointerOverBin(pos)
+    val prevZone = currentTargetZone
     currentTargetZone = when {
       isOverDock -> DragTargetZone.DOCK_BAR
       isPointerOverDesktop(pos) -> DragTargetZone.DESKTOP
       else -> DragTargetZone.NONE
     }
+    if (prevZone != currentTargetZone) {
+      eventTracer.record(
+        com.multispace.presentation.events.LauncherEvent.DragTargetZoneChanged(
+          previousZone = prevZone,
+          newZone = currentTargetZone
+        )
+      )
+    }
   }
 
   fun cancelDrag() {
+    val identity = currentAppIdentity
+    val origin = currentDragOrigin
     isDragging = false
     dragSource = DragSource.LAYER1_DESKTOP
     draggedPlacement = null
@@ -235,10 +283,17 @@ class UnifiedDragState {
     targetDesktopPosition = -1
     isOverBin = false
     lifecycleState = DragLifecycleState.CANCEL
+    eventTracer.record(
+      com.multispace.presentation.events.LauncherEvent.DragCancelled(
+        identity = identity,
+        origin = origin
+      )
+    )
   }
 
   fun finishDrop(): DropTarget {
     val target = resolveDropTarget(rootPointerPos)
+    val identity = currentAppIdentity
     isDragging = false
     dragSource = DragSource.LAYER1_DESKTOP
     draggedPlacement = null
@@ -254,6 +309,12 @@ class UnifiedDragState {
     targetDesktopPosition = -1
     isOverBin = false
     lifecycleState = DragLifecycleState.DROP
+    eventTracer.record(
+      com.multispace.presentation.events.LauncherEvent.DragDropped(
+        identity = identity,
+        target = target
+      )
+    )
     return target
   }
 

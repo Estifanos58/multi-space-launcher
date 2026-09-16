@@ -125,10 +125,17 @@ sealed class LauncherInteractionState {
  * mutual exclusivity between concurrent gesture systems.
  */
 class LauncherInteractionCoordinator(
-  initialState: LauncherInteractionState = LauncherInteractionState.Idle
+  initialState: LauncherInteractionState = LauncherInteractionState.Idle,
+  val eventTracer: com.multispace.presentation.events.LauncherEventTracer = com.multispace.presentation.events.DefaultLauncherEventTracer.Global
 ) {
   var currentState: LauncherInteractionState = initialState
-    private set
+    private set(value) {
+      val prev = field
+      if (prev != value) {
+        field = value
+        eventTracer.record(com.multispace.presentation.events.LauncherEvent.StateChanged(prev, value))
+      }
+    }
 
   /**
    * Returns whether a layer transition can be initiated from the current state.

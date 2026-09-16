@@ -10,6 +10,9 @@ class LauncherGestureCoordinator(
   val transitionController: LayerTransitionController,
   val interactionCoordinator: LauncherInteractionCoordinator = LauncherInteractionCoordinator()
 ) {
+  val eventTracer: com.multispace.presentation.events.LauncherEventTracer
+    get() = interactionCoordinator.eventTracer
+
   val isAnyDragActive: Boolean
     get() = unifiedDragState.isDragging || unifiedDragState.lifecycleState != DragLifecycleState.IDLE
 
