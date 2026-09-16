@@ -25,7 +25,11 @@ object PresetLayoutHelper {
     val cols = gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS)
     val actualDockCap = dockCapacity.coerceIn(Space.MIN_DOCK_CAPACITY, Space.MAX_DOCK_CAPACITY)
 
-    val distinctApps = availableApps.distinctBy { it.packageName }
+    if (availableApps.isEmpty()) {
+      return PresetLayoutResult(emptyList(), emptyList())
+    }
+
+    val distinctApps = availableApps.distinctBy { it.appIdentity }
 
     // 1. Curate Dock Apps
     val dockApps = distinctApps.take(actualDockCap)
@@ -36,12 +40,12 @@ object PresetLayoutHelper {
         orderIndex = idx,
         packageName = app.packageName,
         componentName = app.activityName ?: "${app.packageName}.MainActivity",
-        userHandleId = 0L
+        userHandleId = app.userHandleId
       )
     }
 
-    val dockPkgSet = dockApps.map { it.packageName }.toSet()
-    val desktopPool = distinctApps.filter { it.packageName !in dockPkgSet }
+    val dockIdentities = dockApps.map { it.appIdentity }.toSet()
+    val desktopPool = distinctApps.filter { it.appIdentity !in dockIdentities }
 
     val placements = mutableListOf<SpaceItemPlacementEntity>()
 
@@ -88,7 +92,7 @@ object PresetLayoutHelper {
           itemType = SpaceItemPlacement.ITEM_TYPE_APP,
           packageName = app.packageName,
           componentName = app.activityName ?: "${app.packageName}.MainActivity",
-          userHandleId = 0L,
+          userHandleId = app.userHandleId,
           spanX = 1,
           spanY = 1
         )

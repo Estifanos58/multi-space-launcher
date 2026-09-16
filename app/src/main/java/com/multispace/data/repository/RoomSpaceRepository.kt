@@ -15,6 +15,7 @@ import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.ActiveSpaceState
 import com.multispace.domain.model.AppIdentity
 import com.multispace.domain.model.appIdentity
+import com.multispace.domain.model.findMatching
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.ImportReport
 import com.multispace.domain.model.LayoutPreset
@@ -217,6 +218,10 @@ class RoomSpaceRepository(
       emptyList()
     }
 
+    if (appsToUse.isEmpty()) {
+      return
+    }
+
     val presetObj = LayoutPreset.getById(layoutPreset)
     val layoutResult = PresetLayoutHelper.buildInitialLayout(
       spaceId = spaceId,
@@ -258,7 +263,8 @@ class RoomSpaceRepository(
    * preserving original dock apps and filling newly available positions with sensible everyday apps:
    * Contacts -> Gallery/Photos -> Files -> Clock -> Calculator -> Calendar -> Maps.
    */
-  private suspend fun expandDockItemsIfNeeded(
+  @androidx.annotation.VisibleForTesting(otherwise = androidx.annotation.VisibleForTesting.PRIVATE)
+  internal suspend fun expandDockItemsIfNeeded(
     spaceId: String,
     newCapacity: Int,
     appsToSearch: List<DiscoveredApp> = emptyList()
@@ -284,8 +290,7 @@ class RoomSpaceRepository(
 
     val existingDockApps = existingDockEntities.map { entity ->
       val targetIdentity = entity.appIdentity
-      installedApps.firstOrNull { targetIdentity.matches(it.appIdentity) }
-        ?: installedApps.firstOrNull { it.packageName == entity.packageName && it.userHandleId == entity.userHandleId }
+      installedApps.findMatching(targetIdentity)
         ?: DiscoveredApp(
           id = "${entity.packageName}/${entity.componentName}#${entity.userHandleId}",
           packageName = entity.packageName,
@@ -302,8 +307,10 @@ class RoomSpaceRepository(
       existingDockApps = existingDockApps
     )
 
-    val existingPkgs = existingDockEntities.map { it.packageName }.toSet()
-    val newDockApps = resolvedDock.filterNot { existingPkgs.contains(it.packageName) }
+    val existingDockIdentities = existingDockEntities.map { it.appIdentity }
+    val newDockApps = resolvedDock.filterNot { dockApp ->
+      existingDockIdentities.any { it.matches(dockApp.appIdentity) }
+    }
     if (newDockApps.isEmpty()) return
 
     var currentMaxIndex = existingDockEntities.maxOfOrNull { it.orderIndex } ?: -1
@@ -321,9 +328,10 @@ class RoomSpaceRepository(
     layoutDao.insertDockItems(newEntities)
     AppLogger.i(AppLogger.Category.LAUNCHER, "Expanded DockBar for Space ($spaceId) from ${existingDockEntities.size} to ${existingDockEntities.size + newEntities.size} apps: ${newDockApps.map { it.label }}")
 
-    val existingMemberships = membershipDao.getMembershipsForSpace(spaceId).map { it.packageName }.toSet()
+    val existingMemberships = membershipDao.getMembershipsForSpace(spaceId)
+    val existingMembershipIdentities = existingMemberships.map { it.appIdentity }
     val newMemberships = newDockApps
-      .filterNot { existingMemberships.contains(it.packageName) }
+      .filterNot { dockApp -> existingMembershipIdentities.any { it.matches(dockApp.appIdentity) } }
       .mapIndexed { idx, app ->
         SpaceMembershipEntity(
           spaceId = spaceId,
@@ -1302,9 +1310,9 @@ class RoomSpaceRepository(
       // Ensure all imported apps are registered as memberships in this Space
       if (uniqueApps.isNotEmpty()) {
         val existingMemberships = membershipDao.getMembershipsForSpace(spaceId)
-        val existingPkgs = existingMemberships.map { it.packageName }.toSet()
+        val existingMembershipIdentities = existingMemberships.map { it.appIdentity }
         val newMemberships = uniqueApps
-          .filterNot { existingPkgs.contains(it.packageName) }
+          .filterNot { app -> existingMembershipIdentities.any { it.matches(app.appIdentity) } }
           .mapIndexed { idx, app ->
             SpaceMembershipEntity(
               spaceId = spaceId,

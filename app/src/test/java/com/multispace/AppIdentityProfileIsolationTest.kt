@@ -229,6 +229,44 @@ class AppIdentityProfileIsolationTest {
   }
 
   @Test
+  fun testDockExpansion_PreservesAndAllowsBothPersonalAndWorkProfiles() = runBlocking {
+    val spaceRes = repository.createSpace("Dock Expansion Space", "GRID_4")
+    val spaceId = spaceRes.getOrThrow().id
+
+    // 1. Initial space has personal com.microsoft.teams in memberships and dock
+    val addRes = repository.addAppToSpace(spaceId, personalTeams)
+    assertTrue(addRes.isSuccess)
+    val dockRes = repository.addAppToDock(spaceId, personalTeams, 0)
+    assertTrue(dockRes.isSuccess)
+
+    val initialDock = repository.getDockItemsForSpace(spaceId)
+    assertEquals(1, initialDock.size)
+    assertEquals(0L, initialDock[0].userHandleId)
+    assertEquals("com.microsoft.teams", initialDock[0].packageName)
+
+    // 2. Candidate apps available during expansion include both personal and work teams
+    val expansionCandidates = listOf(personalTeams, workTeams)
+
+    // Expand dock capacity from 1 to 2
+    repository.expandDockItemsIfNeeded(
+      spaceId = spaceId,
+      newCapacity = 2,
+      appsToSearch = expansionCandidates
+    )
+
+    // 3. Verify that the work profile was added and the personal profile was NOT suppressed/removed
+    val expandedDock = repository.getDockItemsForSpace(spaceId)
+    assertEquals(2, expandedDock.size)
+    assertTrue("Personal profile copy must exist in dock", expandedDock.any { it.userHandleId == 0L && it.packageName == "com.microsoft.teams" })
+    assertTrue("Work profile copy must exist in dock", expandedDock.any { it.userHandleId == 10L && it.packageName == "com.microsoft.teams" })
+
+    // 4. Verify memberships also contain both profiles without suppression
+    val memberships = repository.getMembershipsForSpace(spaceId)
+    assertTrue("Personal profile copy must exist in memberships", memberships.any { it.userHandleId == 0L && it.packageName == "com.microsoft.teams" })
+    assertTrue("Work profile copy must exist in memberships", memberships.any { it.userHandleId == 10L && it.packageName == "com.microsoft.teams" })
+  }
+
+  @Test
   fun testMultipleActivitiesWithinSamePackage_AreDistinct() = runBlocking {
     val spaceRes = repository.createSpace("Multi Activity Space", "GRID_4")
     val spaceId = spaceRes.getOrThrow().id

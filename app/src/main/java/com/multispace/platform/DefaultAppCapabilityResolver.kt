@@ -9,7 +9,9 @@ import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
 import com.multispace.diagnostics.AppLogger
+import com.multispace.domain.model.AppIdentity
 import com.multispace.domain.model.DiscoveredApp
+import com.multispace.domain.model.appIdentity
 
 /**
  * Resolves default application assignments for newly created Spaces and dynamic DockBar expansions.
@@ -264,9 +266,13 @@ object DefaultAppCapabilityResolver {
     capability: AppCapabilityType,
     installedApps: List<DiscoveredApp>,
     context: Context? = null,
-    excludedPackageNames: Set<String> = emptySet()
+    excludedPackageNames: Set<String> = emptySet(),
+    excludedIdentities: Collection<AppIdentity> = emptyList()
   ): DiscoveredApp? {
-    val availableApps = installedApps.filterNot { excludedPackageNames.contains(it.packageName) }
+    val availableApps = installedApps.filterNot { app ->
+      excludedPackageNames.contains(app.packageName) ||
+        excludedIdentities.any { it.matches(app.appIdentity) }
+    }
     if (availableApps.isEmpty()) return null
 
     // 1. Android Intent Query Resolution (if Context is available)
@@ -362,13 +368,11 @@ object DefaultAppCapabilityResolver {
   ): List<DiscoveredApp> {
     val targetCapacity = dockCapacity.coerceIn(1, 10)
     val result = mutableListOf<DiscoveredApp>()
-    val usedPackages = mutableSetOf<String>()
 
-    // If existing dock apps are supplied (e.g. capacity expansion), preserve them first
+    // If existing dock apps are supplied (e.g. capacity expansion), preserve them first using AppIdentity matching
     for (app in existingDockApps) {
-      if (result.size < targetCapacity && !usedPackages.contains(app.packageName)) {
+      if (result.size < targetCapacity && result.none { it.appIdentity.matches(app.appIdentity) }) {
         result.add(app)
-        usedPackages.add(app.packageName)
       }
     }
 
@@ -376,10 +380,14 @@ object DefaultAppCapabilityResolver {
     if (existingDockApps.isEmpty()) {
       for (capability in CORE_DOCK_CAPABILITIES) {
         if (result.size >= targetCapacity) break
-        val app = resolveAppForCapability(capability, installedApps, context, usedPackages)
+        val app = resolveAppForCapability(
+          capability = capability,
+          installedApps = installedApps,
+          context = context,
+          excludedIdentities = result.map { it.appIdentity }
+        )
         if (app != null) {
           result.add(app)
-          usedPackages.add(app.packageName)
         }
       }
     }
@@ -388,10 +396,14 @@ object DefaultAppCapabilityResolver {
     if (result.size < targetCapacity) {
       for (capability in EXPANDED_DOCK_CAPABILITIES) {
         if (result.size >= targetCapacity) break
-        val app = resolveAppForCapability(capability, installedApps, context, usedPackages)
+        val app = resolveAppForCapability(
+          capability = capability,
+          installedApps = installedApps,
+          context = context,
+          excludedIdentities = result.map { it.appIdentity }
+        )
         if (app != null) {
           result.add(app)
-          usedPackages.add(app.packageName)
         }
       }
     }
@@ -400,9 +412,8 @@ object DefaultAppCapabilityResolver {
     if (result.size < targetCapacity) {
       for (app in installedApps) {
         if (result.size >= targetCapacity) break
-        if (!usedPackages.contains(app.packageName)) {
+        if (result.none { it.appIdentity.matches(app.appIdentity) }) {
           result.add(app)
-          usedPackages.add(app.packageName)
         }
       }
     }

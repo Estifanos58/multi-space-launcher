@@ -56,14 +56,25 @@ class RoomSpaceMembershipRepository(
 
   override suspend fun removeAppFromSpace(spaceId: String, app: DiscoveredApp): Result<Unit> {
     return try {
-      val deletedCount = membershipDao.deleteMembership(
-        spaceId = spaceId,
-        packageName = app.packageName,
-        componentName = app.activityName,
-        userHandleId = app.userHandleId
-      )
-      if (deletedCount == 0) {
-        membershipDao.deleteMembershipByPackage(spaceId = spaceId, packageName = app.packageName)
+      val memberships = membershipDao.getMembershipsForSpace(spaceId)
+      val targetIdentity = app.appIdentity
+      val matching = memberships.filter { it.toDomain().appIdentity.matches(targetIdentity) }
+      if (matching.isNotEmpty()) {
+        for (m in matching) {
+          membershipDao.deleteMembership(
+            spaceId = spaceId,
+            packageName = m.packageName,
+            componentName = m.componentName,
+            userHandleId = m.userHandleId
+          )
+        }
+      } else {
+        membershipDao.deleteMembership(
+          spaceId = spaceId,
+          packageName = app.packageName,
+          componentName = app.activityName,
+          userHandleId = app.userHandleId
+        )
       }
       AppLogger.i(AppLogger.Category.LAUNCHER, "Removed app '${app.label}' from Space ($spaceId)")
       Result.success(Unit)
