@@ -100,6 +100,80 @@ class UnifiedDragState {
     isOverBin = false
   }
 
+  fun startItemLongPress(placement: SpaceItemPlacement, touchOffset: Offset = Offset.Zero) {
+    lifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
+    draggedPlacement = placement
+    touchOffsetInItem = touchOffset
+  }
+
+  fun startDesktopDrag(
+    placement: SpaceItemPlacement,
+    app: DiscoveredApp? = null,
+    pointerPos: Offset = Offset.Zero,
+    touchOffset: Offset = Offset.Zero
+  ) {
+    lifecycleState = DragLifecycleState.DRAGGING
+    isDragging = true
+    dragSource = DragSource.LAYER1_DESKTOP
+    draggedPlacement = placement
+    draggedApp = app
+    rootPointerPos = pointerPos
+    touchOffsetInItem = touchOffset
+    currentTargetZone = DragTargetZone.DESKTOP
+  }
+
+  fun startDockDrag(
+    dockItem: SpaceDockItem,
+    app: DiscoveredApp? = null,
+    pointerPos: Offset = Offset.Zero,
+    touchOffset: Offset = Offset.Zero
+  ) {
+    lifecycleState = DragLifecycleState.DRAGGING
+    isDragging = true
+    dragSource = DragSource.DOCK_BAR
+    draggedDockItem = dockItem
+    draggedApp = app
+    rootPointerPos = pointerPos
+    touchOffsetInItem = touchOffset
+    currentTargetZone = DragTargetZone.DOCK_BAR
+  }
+
+  fun cancelDrag() {
+    isDragging = false
+    dragSource = DragSource.LAYER1_DESKTOP
+    draggedPlacement = null
+    draggedDockItem = null
+    draggedApp = null
+    rootPointerPos = Offset.Zero
+    touchOffsetInItem = Offset.Zero
+    currentTargetZone = DragTargetZone.NONE
+    targetDockIndex = -1
+    isOverDock = false
+    isDockFull = false
+    targetDesktopPage = 0
+    targetDesktopPosition = -1
+    isOverBin = false
+    lifecycleState = DragLifecycleState.CANCEL
+  }
+
+  fun finishDrop() {
+    isDragging = false
+    dragSource = DragSource.LAYER1_DESKTOP
+    draggedPlacement = null
+    draggedDockItem = null
+    draggedApp = null
+    rootPointerPos = Offset.Zero
+    touchOffsetInItem = Offset.Zero
+    currentTargetZone = DragTargetZone.NONE
+    targetDockIndex = -1
+    isOverDock = false
+    isDockFull = false
+    targetDesktopPage = 0
+    targetDesktopPosition = -1
+    isOverBin = false
+    lifecycleState = DragLifecycleState.DROP
+  }
+
   fun isPointerOverDock(rootPos: Offset): Boolean {
     val dockCoords = dockCoordinates ?: return false
     if (!dockCoords.isAttached) return false
