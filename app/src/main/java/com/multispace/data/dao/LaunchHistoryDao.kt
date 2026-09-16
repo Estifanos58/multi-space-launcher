@@ -86,6 +86,22 @@ interface LaunchHistoryDao {
   suspend fun getLaunchCountSince(spaceId: String, sinceTimestamp: Long): Int
 
   @Query("""
+    SELECT timestamp
+    FROM launch_events
+    WHERE space_id = :spaceId AND timestamp >= :sinceTimestamp
+    ORDER BY timestamp ASC
+  """)
+  fun getLaunchTimestampsSinceFlow(spaceId: String, sinceTimestamp: Long): Flow<List<Long>>
+
+  @Query("""
+    SELECT timestamp
+    FROM launch_events
+    WHERE space_id = :spaceId AND timestamp >= :sinceTimestamp
+    ORDER BY timestamp ASC
+  """)
+  suspend fun getLaunchTimestampsSinceSync(spaceId: String, sinceTimestamp: Long): List<Long>
+
+  @Query("""
     SELECT COUNT(DISTINCT package_name || '/' || component_name || '#' || user_handle_id)
     FROM launch_events
     WHERE space_id = :spaceId

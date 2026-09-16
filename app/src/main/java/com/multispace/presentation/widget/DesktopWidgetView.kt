@@ -99,6 +99,8 @@ fun DesktopWidgetView(
   maxSpanX: Int = 4,
   maxSpanY: Int = 5,
   usageStats: com.multispace.domain.model.SpaceUsageStats? = null,
+  getBitmap: ((com.multispace.domain.model.DiscoveredApp) -> android.graphics.Bitmap?)? = null,
+  onLaunchApp: ((com.multispace.domain.model.DiscoveredApp) -> Unit)? = null,
   modifier: Modifier = Modifier
 ) {
   val context = LocalContext.current
@@ -182,6 +184,8 @@ fun DesktopWidgetView(
               space = space,
               spanX = placement.spanX,
               spanY = placement.spanY,
+              getBitmap = getBitmap,
+              onLaunchApp = onLaunchApp,
               modifier = Modifier.fillMaxSize()
             )
           }

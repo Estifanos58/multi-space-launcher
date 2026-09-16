@@ -469,6 +469,7 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       val result = spaceRepository.setActiveSpaceId(spaceId)
       spaceRepository.cleanupDuplicateDockItems(spaceId)
+      spaceRepository.ensureMostUsedFolderExists(spaceId)
       result.fold(
         onSuccess = {
           _userFeedback.tryEmit("Switched active Space.")
@@ -478,6 +479,12 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
           _userFeedback.tryEmit("Error: $msg")
         }
       )
+    }
+  }
+
+  fun ensureMostUsedFolder(spaceId: String) {
+    viewModelScope.launch {
+      spaceRepository.ensureMostUsedFolderExists(spaceId)
     }
   }
 

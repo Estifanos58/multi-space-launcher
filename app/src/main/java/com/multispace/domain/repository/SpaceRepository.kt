@@ -177,4 +177,10 @@ interface SpaceRepository : SpaceMembershipRepository, PlacementRepository, Fold
     wallpaperColor: Long?,
     wallpaperImageUri: String?
   ): Result<Unit>
+
+  /**
+   * Ensures that the Space has exactly one Most Used Apps folder and a valid Page 0 placement.
+   * Repairs legacy Spaces automatically and eliminates duplicates.
+   */
+  suspend fun ensureMostUsedFolderExists(spaceId: String)
 }

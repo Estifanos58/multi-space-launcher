@@ -491,4 +491,38 @@ class SpaceRepositoryIntegrationTest {
     repository.cleanupDuplicateDockItems(space1Id)
     assertEquals(2, repository.getDockItemsForSpace(space1Id).size)
   }
+
+  @Test
+  fun ensureMostUsedFolderExists_createsFolderAndPlacementOnLayer1Page0() = runBlocking {
+    val createRes = repository.createSpace(name = "Folder Test Space", layoutType = "GRID_4")
+    assertTrue(createRes.isSuccess)
+    val targetSpace = createRes.getOrThrow()
+
+    // Run ensureMostUsedFolderExists
+    repository.ensureMostUsedFolderExists(targetSpace.id)
+
+    val folders = layoutDao.getFoldersForSpace(targetSpace.id)
+    val folder = folders.firstOrNull { it.name == com.multispace.domain.model.SpaceFolder.MOST_USED_FOLDER_NAME }
+    assertNotNull(folder)
+    assertEquals(com.multispace.domain.model.SpaceFolder.MOST_USED_FOLDER_NAME, folder?.name)
+    assertEquals(targetSpace.id, folder?.spaceId)
+
+    // Verify placement on Layer 1 Page 0
+    val placements = layoutDao.getPlacementsForSpaceLayer(targetSpace.id, layer = 1)
+    val folderPlacement = placements.firstOrNull { it.folderId == folder?.id }
+    assertNotNull(folderPlacement)
+    assertEquals(1, folderPlacement?.layer)
+    assertEquals(0, folderPlacement?.pageIndex)
+    assertEquals(SpaceItemPlacement.ITEM_TYPE_FOLDER, folderPlacement?.itemType)
+
+    // Call it again to verify idempotence
+    repository.ensureMostUsedFolderExists(targetSpace.id)
+    val folders2 = layoutDao.getFoldersForSpace(targetSpace.id)
+    val mostUsedFolders = folders2.filter { it.name == com.multispace.domain.model.SpaceFolder.MOST_USED_FOLDER_NAME }
+    assertEquals(1, mostUsedFolders.size)
+
+    val placements2 = layoutDao.getPlacementsForSpaceLayer(targetSpace.id, layer = 1)
+    val folderPlacements = placements2.filter { it.folderId == folder?.id }
+    assertEquals("Should not duplicate folder placement", 1, folderPlacements.size)
+  }
 }

@@ -398,4 +398,50 @@ class SpaceUsageSystemTest {
     assertEquals(app1, stats.mostUsedApp)
     assertEquals(app1, stats.mostRecentlyLaunchedApp)
   }
+
+  // --------------------------------------------------------------------------
+  // Scenario 16: Top Most Used Apps with Count returns accurate counts in descending order
+  // --------------------------------------------------------------------------
+  @Test
+  fun scenario16_topMostUsedAppsWithCount_accurateCounts() = runBlocking {
+    // Launch app1 4 times, app2 7 times, app3 2 times
+    repeat(4) { i -> repository.recordLaunch(spaceA, app1.appIdentity, timestamp = 1000L + i) }
+    repeat(7) { i -> repository.recordLaunch(spaceA, app2.appIdentity, timestamp = 2000L + i) }
+    repeat(2) { i -> repository.recordLaunch(spaceA, app3.appIdentity, timestamp = 3000L + i) }
+
+    val topAppsWithCount = repository.getTopMostUsedAppsWithCount(spaceA, allApps, limit = 5)
+    assertEquals(3, topAppsWithCount.size)
+    assertEquals(app2, topAppsWithCount[0].app)
+    assertEquals(7, topAppsWithCount[0].launchCount)
+    assertEquals(app1, topAppsWithCount[1].app)
+    assertEquals(4, topAppsWithCount[1].launchCount)
+    assertEquals(app3, topAppsWithCount[2].app)
+    assertEquals(2, topAppsWithCount[2].launchCount)
+  }
+
+  // --------------------------------------------------------------------------
+  // Scenario 17: Daily Launch Counts for Last 7 Days aggregates accurately with 7 calendar days
+  // --------------------------------------------------------------------------
+  @Test
+  fun scenario17_dailyLaunchCountsLast7Days_aggregatesCorrectly() = runBlocking {
+    val now = System.currentTimeMillis()
+    val oneDayMs = 24 * 60 * 60 * 1000L
+
+    // Record launches today
+    repository.recordLaunch(spaceA, app1.appIdentity, timestamp = now)
+    repository.recordLaunch(spaceA, app2.appIdentity, timestamp = now)
+
+    // Record 3 launches yesterday
+    val yesterday = now - oneDayMs
+    repeat(3) { i -> repository.recordLaunch(spaceA, app1.appIdentity, timestamp = yesterday + i * 100) }
+
+    val weeklyData = repository.getDailyLaunchCountsLast7DaysFlow(spaceA).first()
+    assertEquals(7, weeklyData.size)
+    // The last item is today
+    val todayItem = weeklyData.last()
+    assertEquals(2, todayItem.count)
+    // The second to last item is yesterday
+    val yesterdayItem = weeklyData[weeklyData.size - 2]
+    assertEquals(3, yesterdayItem.count)
+  }
 }

@@ -99,6 +99,40 @@ interface LaunchHistoryRepository {
   ): List<DiscoveredApp>
 
   /**
+   * Returns a reactive flow of top most used apps with their launch counts for [spaceId].
+   */
+  fun getTopMostUsedAppsWithCountFlow(
+    spaceId: String,
+    installedAppsFlow: Flow<List<DiscoveredApp>>,
+    limit: Int = 3
+  ): Flow<List<com.multispace.domain.model.AppLaunchCount>>
+
+  /**
+   * Suspend helper to get top most used apps with their launch counts for [spaceId].
+   */
+  suspend fun getTopMostUsedAppsWithCount(
+    spaceId: String,
+    installedApps: List<DiscoveredApp>,
+    limit: Int = 3
+  ): List<com.multispace.domain.model.AppLaunchCount>
+
+  /**
+   * Returns a reactive flow of daily launch counts for the last 7 days ending today.
+   */
+  fun getDailyLaunchCountsLast7DaysFlow(
+    spaceId: String,
+    nowProvider: () -> Long = { System.currentTimeMillis() }
+  ): Flow<List<com.multispace.domain.model.DailyUsage>>
+
+  /**
+   * Suspend helper to get daily launch counts for the last 7 days ending today.
+   */
+  suspend fun getDailyLaunchCountsLast7Days(
+    spaceId: String,
+    now: Long = System.currentTimeMillis()
+  ): List<com.multispace.domain.model.DailyUsage>
+
+  /**
    * Computes overall usage statistics for [spaceId].
    */
   suspend fun getSpaceUsageStats(

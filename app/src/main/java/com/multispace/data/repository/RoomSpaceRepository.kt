@@ -158,6 +158,11 @@ class RoomSpaceRepository(
           AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to prune duplicate placements", e)
         }
 
+        // Ensure every existing Space has exactly one Most Used Apps folder on Page 0
+        for (s in spaces) {
+          ensureMostUsedFolderExists(s.id)
+        }
+
         // If the default space has no placements and no dock items yet, auto-initialize
         val defaultEntity = spaces.firstOrNull { it.id == Space.DEFAULT_SPACE_ID }
         if (defaultEntity != null) {
@@ -267,51 +272,141 @@ class RoomSpaceRepository(
 
   /**
    * Ensures the dynamic "Most Used Apps" folder exists on Page 0 for the specified Space.
-   * If not already present, it creates the folder and places it in an empty slot on Page 0.
+   * Repairs existing Spaces, ensures a valid Page 0 placement without widget collisions,
+   * and prunes duplicate folders/placements.
    */
-  suspend fun ensureMostUsedFolderExists(spaceId: String) {
+  override suspend fun ensureMostUsedFolderExists(spaceId: String) {
     try {
       val existingFolders = layoutDao.getFoldersForSpace(spaceId)
-      val hasMostUsedFolder = existingFolders.any {
+      val matchingFolders = existingFolders.filter {
         it.name == SpaceFolder.MOST_USED_FOLDER_NAME || it.id.startsWith(SpaceFolder.MOST_USED_FOLDER_PREFIX)
       }
-      if (!hasMostUsedFolder) {
-        val folderId = SpaceFolder.getMostUsedFolderId(spaceId)
+
+      val primaryFolder: SpaceFolderEntity = if (matchingFolders.isEmpty()) {
+        val newFolderId = SpaceFolder.getMostUsedFolderId(spaceId)
         val folderEntity = SpaceFolderEntity(
-          id = folderId,
+          id = newFolderId,
           spaceId = spaceId,
           name = SpaceFolder.MOST_USED_FOLDER_NAME,
           createdAt = System.currentTimeMillis(),
           updatedAt = System.currentTimeMillis()
         )
         layoutDao.insertFolder(folderEntity)
+        folderEntity
+      } else {
+        val preferred = matchingFolders.firstOrNull { it.id == SpaceFolder.getMostUsedFolderId(spaceId) } ?: matchingFolders.first()
+        if (preferred.name != SpaceFolder.MOST_USED_FOLDER_NAME) {
+          layoutDao.updateFolder(preferred.copy(name = SpaceFolder.MOST_USED_FOLDER_NAME, updatedAt = System.currentTimeMillis()))
+        }
+        val duplicates = matchingFolders.filter { it.id != preferred.id }
+        for (dup in duplicates) {
+          layoutDao.deleteFolderById(dup.id)
+          layoutDao.deletePlacementByFolderId(dup.id)
+          layoutDao.deleteFolderItemsForFolder(dup.id)
+        }
+        preferred
+      }
 
-        val currentPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
-        val space = spaceDao.getSpaceById(spaceId)
-        val gridCols = space?.gridColumns ?: 4
-        val maxRows = 6
-        val slotResult = PlacementCascadeHelper.findEmptySlotForWidget(
-          existingPlacements = currentPlacements.map { it.toDomain() },
-          preferredPage = 0,
-          spanX = 1,
-          spanY = 1,
-          cols = gridCols,
-          pageSize = gridCols * maxRows
-        )
+      val targetFolderId = primaryFolder.id
 
-        val placementEntity = SpaceItemPlacementEntity(
-          id = SpaceFolder.getMostUsedPlacementId(spaceId),
-          spaceId = spaceId,
-          layer = SpaceItemPlacement.LAYER_HOME,
-          pageIndex = slotResult.pageIndex,
-          positionIndex = slotResult.positionIndex,
-          itemType = SpaceItemPlacement.ITEM_TYPE_FOLDER,
-          folderId = folderId,
-          spanX = 1,
-          spanY = 1
-        )
-        layoutDao.insertPlacement(placementEntity)
-        AppLogger.i(AppLogger.Category.LAUNCHER, "Created Most Used Apps folder on Page ${slotResult.pageIndex} at pos ${slotResult.positionIndex} for Space $spaceId")
+      // Placements check on Layer 1 (Home)
+      val currentPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+      val matchingPlacements = currentPlacements.filter {
+        it.itemType == SpaceItemPlacement.ITEM_TYPE_FOLDER &&
+          (it.folderId == targetFolderId || (it.folderId != null && it.folderId.startsWith(SpaceFolder.MOST_USED_FOLDER_PREFIX)))
+      }
+
+      val primaryPlacement = matchingPlacements.firstOrNull()
+      if (matchingPlacements.size > 1) {
+        matchingPlacements.drop(1).forEach {
+          layoutDao.deletePlacementById(it.id)
+        }
+      }
+
+      val space = spaceDao.getSpaceById(spaceId)
+      val gridCols = space?.gridColumns ?: 4
+      val maxRows = 6
+      val pageSize = gridCols * maxRows
+
+      // Calculate widget occupied slots on Page 0
+      val page0Placements = currentPlacements.filter { it.pageIndex == 0 && it.id != primaryPlacement?.id }
+      val widgetOccupiedSlots = mutableSetOf<Int>()
+      for (p in page0Placements) {
+        if (p.itemType == SpaceItemPlacement.ITEM_TYPE_WIDGET) {
+          val r = (p.positionIndex / gridCols).coerceIn(0, maxRows - 1)
+          val c = (p.positionIndex % gridCols).coerceIn(0, gridCols - 1)
+          val sX = p.spanX.coerceIn(1, gridCols - c)
+          val sY = p.spanY.coerceIn(1, maxRows - r)
+          for (dr in 0 until sY) {
+            for (dc in 0 until sX) {
+              widgetOccupiedSlots.add((r + dr) * gridCols + (c + dc))
+            }
+          }
+        }
+      }
+
+      val isAlreadyOnPage0Valid = primaryPlacement != null &&
+        primaryPlacement.pageIndex == 0 &&
+        !widgetOccupiedSlots.contains(primaryPlacement.positionIndex)
+
+      if (!isAlreadyOnPage0Valid) {
+        val allOccupiedOnPage0 = widgetOccupiedSlots.toMutableSet()
+        for (p in page0Placements) {
+          allOccupiedOnPage0.add(p.positionIndex)
+        }
+
+        // Check preferred preset slot: Row 3, Col 0
+        val preferredPos = 3 * gridCols
+        val targetPos = if (preferredPos < pageSize && !allOccupiedOnPage0.contains(preferredPos)) {
+          preferredPos
+        } else {
+          // First unoccupied slot on Page 0
+          (0 until pageSize).firstOrNull { !allOccupiedOnPage0.contains(it) } ?: run {
+            // Page 0 is full: find first normal APP to displace to Page 1
+            val appToDisplace = page0Placements.firstOrNull { it.itemType == SpaceItemPlacement.ITEM_TYPE_APP }
+            if (appToDisplace != null) {
+              val page1Placements = currentPlacements.filter { it.pageIndex == 1 }
+              val page1Occupied = page1Placements.map { it.positionIndex }.toSet()
+              val page1Slot = (0 until pageSize).firstOrNull { !page1Occupied.contains(it) } ?: 0
+              layoutDao.updatePlacement(
+                appToDisplace.copy(
+                  pageIndex = 1,
+                  positionIndex = page1Slot
+                )
+              )
+              appToDisplace.positionIndex
+            } else {
+              0
+            }
+          }
+        }
+
+        if (primaryPlacement != null) {
+          layoutDao.updatePlacement(
+            primaryPlacement.copy(
+              pageIndex = 0,
+              positionIndex = targetPos,
+              itemType = SpaceItemPlacement.ITEM_TYPE_FOLDER,
+              folderId = targetFolderId,
+              spanX = 1,
+              spanY = 1
+            )
+          )
+        } else {
+          val newPlacement = SpaceItemPlacementEntity(
+            id = SpaceFolder.getMostUsedPlacementId(spaceId),
+            spaceId = spaceId,
+            layer = SpaceItemPlacement.LAYER_HOME,
+            pageIndex = 0,
+            positionIndex = targetPos,
+            itemType = SpaceItemPlacement.ITEM_TYPE_FOLDER,
+            folderId = targetFolderId,
+            spanX = 1,
+            spanY = 1
+          )
+          layoutDao.insertPlacement(newPlacement)
+        }
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Ensured/Repaired Most Used Apps folder on Page 0 at pos $targetPos for Space $spaceId")
       }
     } catch (e: Exception) {
       AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to ensure Most Used Apps folder for Space $spaceId", e)
@@ -423,6 +518,7 @@ class RoomSpaceRepository(
         Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
       } else {
         preferences.setActiveSpaceId(spaceId)
+        ensureMostUsedFolderExists(spaceId)
         AppLogger.i(AppLogger.Category.LAUNCHER, "Active Space updated to '${space.name}' ($spaceId)")
         Result.success(Unit)
       }

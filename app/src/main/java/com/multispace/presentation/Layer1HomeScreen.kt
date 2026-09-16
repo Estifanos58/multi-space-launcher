@@ -1683,6 +1683,8 @@ fun Layer1HomeScreen(
               placement = dragged,
               space = space,
               usageStats = usageStats,
+              getBitmap = getBitmap,
+              onLaunchApp = onLaunchApp,
               onRemove = null,
               appWidgetHost = appWidgetHost,
               isResizeMode = false
@@ -2099,6 +2101,8 @@ private fun Layer1ItemCell(
         placement = placement,
         space = space,
         usageStats = usageStats,
+        getBitmap = getBitmap,
+        onLaunchApp = onLaunchApp,
         onRemove = { onRemovePlacement(placement.id) },
         appWidgetHost = appWidgetHost,
         isResizeMode = isResizeMode,

@@ -95,6 +95,14 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
     return launchHistoryRepository.getMostUsedAppsFlow(spaceId, _uiState.map { it.allApps }, limit)
   }
 
+  fun getTopAppsWithCountFlow(spaceId: String, limit: Int = 3): Flow<List<com.multispace.domain.model.AppLaunchCount>> {
+    return launchHistoryRepository.getTopMostUsedAppsWithCountFlow(spaceId, _uiState.map { it.allApps }, limit)
+  }
+
+  fun getWeeklyUsageFlow(spaceId: String): Flow<List<com.multispace.domain.model.DailyUsage>> {
+    return launchHistoryRepository.getDailyLaunchCountsLast7DaysFlow(spaceId)
+  }
+
   suspend fun getSpaceUsageStats(spaceId: String, now: Long = System.currentTimeMillis()): SpaceUsageStats {
     return launchHistoryRepository.getSpaceUsageStats(spaceId, _uiState.value.allApps, now)
   }
