@@ -233,6 +233,49 @@ fun LauncherHomeScreen(
     }
   }
 
+  val currentSpaceId = activeSpace?.id ?: Space.DEFAULT_SPACE_ID
+
+  val spaceMostUsedApps by remember(currentSpaceId) {
+    discoveryViewModel.getMostUsedAppsFlow(currentSpaceId)
+  }.collectAsStateWithLifecycle(initialValue = emptyList())
+
+  val spaceUsageStats by remember(currentSpaceId) {
+    discoveryViewModel.getSpaceUsageStatsFlow(currentSpaceId)
+  }.collectAsStateWithLifecycle(initialValue = null)
+
+  val spaceScopedMostUsedAppsFull = remember(spaceMostUsedApps, spaceScopedApps) {
+    val spaceLookup = com.multispace.domain.model.AppIdentityLookup(spaceScopedApps)
+    val seen = mutableSetOf<com.multispace.domain.model.AppIdentity>()
+    val resolved = mutableListOf<DiscoveredApp>()
+    for (app in spaceMostUsedApps) {
+      val inSpace = spaceLookup[app.appIdentity]
+      if (inSpace != null && seen.add(inSpace.appIdentity)) {
+        resolved.add(inSpace)
+      }
+    }
+    resolved
+  }
+
+  val resolvedActiveFolders = remember(activeFolders, spaceScopedMostUsedAppsFull, currentSpaceId) {
+    activeFolders.map { folder ->
+      if (folder.isMostUsedFolder) {
+        val dynamicItems = spaceScopedMostUsedAppsFull.mapIndexed { index, app ->
+          com.multispace.domain.model.SpaceFolderItem(
+            id = "most_used_${currentSpaceId}_${app.packageName}_${app.userHandleId}",
+            folderId = folder.id,
+            packageName = app.packageName,
+            componentName = app.activityName ?: "${app.packageName}.MainActivity",
+            userHandleId = app.userHandleId,
+            orderIndex = index
+          )
+        }
+        folder.copy(name = com.multispace.domain.model.SpaceFolder.MOST_USED_FOLDER_NAME, items = dynamicItems)
+      } else {
+        folder
+      }
+    }
+  }
+
   // Unified drag state orchestrating Layer 1 Desktop and DockBar cross-component drag-and-drop
   val unifiedDragState = remember { UnifiedDragState() }
 
@@ -658,18 +701,8 @@ fun LauncherHomeScreen(
           }
 
           // Resolve most used apps for current space: highest launch frequency, scoped to this space
-          val spaceScopedMostUsedApps = remember(spaceMostUsedApps, spaceScopedApps, currentSpace.gridColumns) {
-            val spaceLookup = com.multispace.domain.model.AppIdentityLookup(spaceScopedApps)
-            val seen = mutableSetOf<com.multispace.domain.model.AppIdentity>()
-            val resolved = mutableListOf<DiscoveredApp>()
-            for (app in spaceMostUsedApps) {
-              val inSpace = spaceLookup[app.appIdentity]
-              if (inSpace != null && seen.add(inSpace.appIdentity)) {
-                resolved.add(inSpace)
-                if (resolved.size >= currentSpace.gridColumns) break
-              }
-            }
-            resolved
+          val spaceScopedMostUsedApps = remember(spaceScopedMostUsedAppsFull, currentSpace.gridColumns) {
+            spaceScopedMostUsedAppsFull.take(currentSpace.gridColumns)
           }
 
           // Cache Layer 2 catalog derived data so swiping between layers does not rebuild collections
@@ -793,11 +826,13 @@ fun LauncherHomeScreen(
                     Layer1HomeScreen(
                       space = currentSpace,
                       placements = activePlacements,
-                      folders = activeFolders,
+                      folders = resolvedActiveFolders,
                       allApps = spaceScopedApps,
                       getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
                       onLaunchApp = handleAppLaunch,
-                      onOpenFolder = { folder -> activeFolderInDialog = folder },
+                      onOpenFolder = { folder ->
+                        activeFolderInDialog = resolvedActiveFolders.firstOrNull { it.id == folder.id } ?: folder
+                      },
                       onRemovePlacement = { placementId ->
                         spaceViewModel.removePlacement(placementId)
                       },
@@ -874,7 +909,8 @@ fun LauncherHomeScreen(
                       onEmptySpaceSwipeCancel = {
                         isGestureActive = false
                         settleTransition(layerTransitionProgress, 0f)
-                      }
+                      },
+                      usageStats = spaceUsageStats
                     )
                   }
                 }
@@ -1006,22 +1042,33 @@ fun LauncherHomeScreen(
 
   // Folder Dialog
   if (activeFolderInDialog != null) {
-    val folder = activeFolderInDialog!!
+    val folderId = activeFolderInDialog!!.id
+    val folder = if (activeFolderInDialog!!.isMostUsedFolder) {
+      resolvedActiveFolders.firstOrNull { it.id == folderId } ?: activeFolderInDialog!!
+    } else {
+      activeFolderInDialog!!
+    }
     FolderDialog(
       folder = folder,
-      allApps = discoveryUiState.allApps,
+      allApps = spaceScopedApps,
       getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
       onLaunchApp = handleAppLaunch,
       onRenameFolder = { newName ->
-        spaceViewModel.renameFolder(folder.id, newName)
-        activeFolderInDialog = folder.copy(name = newName)
+        if (!folder.isMostUsedFolder) {
+          spaceViewModel.renameFolder(folder.id, newName)
+          activeFolderInDialog = folder.copy(name = newName)
+        }
       },
       onRemoveItem = { item ->
-        spaceViewModel.removeAppFromFolder(folder.id, item.id)
-        activeFolderInDialog = folder.copy(items = folder.items.filter { it.id != item.id })
+        if (!folder.isMostUsedFolder) {
+          spaceViewModel.removeAppFromFolder(folder.id, item.id)
+          activeFolderInDialog = folder.copy(items = folder.items.filter { it.id != item.id })
+        }
       },
       onDeleteFolder = {
-        spaceViewModel.deleteFolder(folder.id)
+        if (!folder.isMostUsedFolder) {
+          spaceViewModel.deleteFolder(folder.id)
+        }
         activeFolderInDialog = null
       },
       onDismiss = { activeFolderInDialog = null }

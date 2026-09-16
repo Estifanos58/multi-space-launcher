@@ -190,16 +190,63 @@ class RoomLaunchHistoryRepository(
     val mostRecent = resolveRecentApps(spaceId, installedApps, 1).firstOrNull()
     val mostUsed = resolveMostUsedApps(spaceId, installedApps, 1).firstOrNull()
 
+    val installedIdentities = installedApps.map { it.appIdentity }.toSet()
+    val effectiveUniqueApps = if (installedApps.isNotEmpty()) {
+      val summaries = launchHistoryDao.getMostUsedLaunchesSync(spaceId, 1000)
+      summaries.count { it.appIdentity in installedIdentities }
+    } else {
+      uniqueAppsCount
+    }
+
     return SpaceUsageStats(
       spaceId = spaceId,
       totalLaunches = totalLaunches,
-      uniqueAppsCount = uniqueAppsCount,
+      uniqueAppsCount = effectiveUniqueApps,
       mostRecentlyLaunchedApp = mostRecent,
       mostUsedApp = mostUsed,
       launchesToday = launchesToday,
       launchesLast7Days = launchesLast7Days,
       launchesLast30Days = launchesLast30Days
     )
+  }
+
+  override fun getSpaceUsageStatsFlow(
+    spaceId: String,
+    installedAppsFlow: Flow<List<DiscoveredApp>>,
+    nowProvider: () -> Long
+  ): Flow<SpaceUsageStats> {
+    return combine(
+      launchHistoryDao.getTotalLaunchCountFlow(spaceId),
+      launchHistoryDao.getMostUsedLaunchesFlow(spaceId, 100),
+      installedAppsFlow
+    ) { totalLaunches, summaries, installed ->
+      val now = nowProvider()
+      val todayStart = calculateDayStart(now)
+      val sevenDaysAgo = now - (7L * 24 * 60 * 60 * 1000L)
+      val thirtyDaysAgo = now - (30L * 24 * 60 * 60 * 1000L)
+
+      val installedIdentities = installed.map { it.appIdentity }.toSet()
+      val activeInstalledSummaries = summaries.filter { it.appIdentity in installedIdentities }
+      val effectiveUnique = if (installed.isNotEmpty()) activeInstalledSummaries.size else launchHistoryDao.getUniqueAppsCount(spaceId)
+
+      val launchesToday = launchHistoryDao.getLaunchCountSince(spaceId, todayStart)
+      val launchesLast7Days = launchHistoryDao.getLaunchCountSince(spaceId, sevenDaysAgo)
+      val launchesLast30Days = launchHistoryDao.getLaunchCountSince(spaceId, thirtyDaysAgo)
+
+      val mostRecent = resolveRecentApps(spaceId, installed, 1).firstOrNull()
+      val mostUsed = resolveMostUsedApps(spaceId, installed, 1).firstOrNull()
+
+      SpaceUsageStats(
+        spaceId = spaceId,
+        totalLaunches = totalLaunches,
+        uniqueAppsCount = effectiveUnique,
+        mostRecentlyLaunchedApp = mostRecent,
+        mostUsedApp = mostUsed,
+        launchesToday = launchesToday,
+        launchesLast7Days = launchesLast7Days,
+        launchesLast30Days = launchesLast30Days
+      )
+    }.distinctUntilChanged()
   }
 
   override suspend fun getAppUsageStats(

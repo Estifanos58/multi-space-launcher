@@ -79,6 +79,9 @@ interface LaunchHistoryDao {
   @Query("SELECT COUNT(*) FROM launch_events WHERE space_id = :spaceId")
   suspend fun getTotalLaunchCount(spaceId: String): Int
 
+  @Query("SELECT COUNT(*) FROM launch_events WHERE space_id = :spaceId")
+  fun getTotalLaunchCountFlow(spaceId: String): Flow<Int>
+
   @Query("SELECT COUNT(*) FROM launch_events WHERE space_id = :spaceId AND timestamp >= :sinceTimestamp")
   suspend fun getLaunchCountSince(spaceId: String, sinceTimestamp: Long): Int
 

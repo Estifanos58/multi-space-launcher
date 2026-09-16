@@ -108,6 +108,15 @@ interface LaunchHistoryRepository {
   ): SpaceUsageStats
 
   /**
+   * Returns a reactive flow of overall usage statistics for [spaceId].
+   */
+  fun getSpaceUsageStatsFlow(
+    spaceId: String,
+    installedAppsFlow: Flow<List<DiscoveredApp>>,
+    nowProvider: () -> Long = { System.currentTimeMillis() }
+  ): Flow<SpaceUsageStats>
+
+  /**
    * Computes detailed usage statistics for an individual [identity] within [spaceId].
    */
   suspend fun getAppUsageStats(

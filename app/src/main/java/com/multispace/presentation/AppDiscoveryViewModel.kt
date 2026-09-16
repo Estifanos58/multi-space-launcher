@@ -99,6 +99,10 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
     return launchHistoryRepository.getSpaceUsageStats(spaceId, _uiState.value.allApps, now)
   }
 
+  fun getSpaceUsageStatsFlow(spaceId: String): Flow<SpaceUsageStats> {
+    return launchHistoryRepository.getSpaceUsageStatsFlow(spaceId, _uiState.map { it.allApps })
+  }
+
   suspend fun getAppUsageStats(
     spaceId: String,
     identity: AppIdentity,

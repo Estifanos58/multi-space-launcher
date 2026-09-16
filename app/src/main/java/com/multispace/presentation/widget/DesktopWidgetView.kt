@@ -98,6 +98,7 @@ fun DesktopWidgetView(
   onFinishResize: (() -> Unit)? = null,
   maxSpanX: Int = 4,
   maxSpanY: Int = 5,
+  usageStats: com.multispace.domain.model.SpaceUsageStats? = null,
   modifier: Modifier = Modifier
 ) {
   val context = LocalContext.current
@@ -174,6 +175,15 @@ fun DesktopWidgetView(
           }
           placement.customWidgetType == SpaceItemPlacement.WIDGET_QUICK_NOTES -> {
             QuickNotesWidget()
+          }
+          placement.customWidgetType == SpaceItemPlacement.WIDGET_USAGE_STATS -> {
+            UsageStatisticsWidget(
+              stats = usageStats,
+              space = space,
+              spanX = placement.spanX,
+              spanY = placement.spanY,
+              modifier = Modifier.fillMaxSize()
+            )
           }
           else -> {
             // Default Clock & Date widget

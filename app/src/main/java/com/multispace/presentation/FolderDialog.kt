@@ -140,47 +140,51 @@ fun FolderDialog(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
               )
-              IconButton(onClick = { isRenaming = true }, modifier = Modifier.size(32.dp)) {
-                Icon(
-                  imageVector = Icons.Default.Edit,
-                  contentDescription = "Rename folder",
-                  tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                  modifier = Modifier.size(16.dp)
-                )
+              if (!folder.isMostUsedFolder) {
+                IconButton(onClick = { isRenaming = true }, modifier = Modifier.size(32.dp)) {
+                  Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Rename folder",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
+                  )
+                }
               }
             }
           }
 
           Row(verticalAlignment = Alignment.CenterVertically) {
-            Box {
-              IconButton(onClick = { showOptionsMenu = true }, modifier = Modifier.size(36.dp)) {
-                Icon(
-                  imageVector = Icons.Default.MoreVert,
-                  contentDescription = "Folder options",
-                  tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-              }
-              DropdownMenu(
-                expanded = showOptionsMenu,
-                onDismissRequest = { showOptionsMenu = false }
-              ) {
-                DropdownMenuItem(
-                  text = { Text("Rename Folder") },
-                  leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                  onClick = {
-                    showOptionsMenu = false
-                    isRenaming = true
-                  }
-                )
-                DropdownMenuItem(
-                  text = { Text("Delete Folder", color = CrimsonNova) },
-                  leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = CrimsonNova) },
-                  onClick = {
-                    showOptionsMenu = false
-                    onDeleteFolder()
-                    onDismiss()
-                  }
-                )
+            if (!folder.isMostUsedFolder) {
+              Box {
+                IconButton(onClick = { showOptionsMenu = true }, modifier = Modifier.size(36.dp)) {
+                  Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Folder options",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                  )
+                }
+                DropdownMenu(
+                  expanded = showOptionsMenu,
+                  onDismissRequest = { showOptionsMenu = false }
+                ) {
+                  DropdownMenuItem(
+                    text = { Text("Rename Folder") },
+                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                    onClick = {
+                      showOptionsMenu = false
+                      isRenaming = true
+                    }
+                  )
+                  DropdownMenuItem(
+                    text = { Text("Delete Folder", color = CrimsonNova) },
+                    leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = CrimsonNova) },
+                    onClick = {
+                      showOptionsMenu = false
+                      onDeleteFolder()
+                      onDismiss()
+                    }
+                  )
+                }
               }
             }
 
@@ -199,8 +203,12 @@ fun FolderDialog(
         if (folder.items.isEmpty()) {
           ModernEmptyState(
             icon = Icons.Default.Folder,
-            title = "Empty Folder",
-            description = "Drag and drop apps onto this folder on your Home screen to group them together."
+            title = if (folder.isMostUsedFolder) "No Usage History" else "Empty Folder",
+            description = if (folder.isMostUsedFolder) {
+              "Apps you launch in this Space will automatically appear here ordered by launch frequency."
+            } else {
+              "Drag and drop apps onto this folder on your Home screen to group them together."
+            }
           )
         } else {
           LazyVerticalGrid(

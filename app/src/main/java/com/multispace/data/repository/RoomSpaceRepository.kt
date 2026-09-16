@@ -241,6 +241,11 @@ class RoomSpaceRepository(
       AppLogger.i(AppLogger.Category.LAUNCHER, "Initialized ${layoutResult.placements.size} default Layer 1 placements for Space '$spaceName' ($spaceId)")
     }
 
+    if (layoutResult.folders.isNotEmpty()) {
+      layoutDao.insertFolders(layoutResult.folders)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Initialized ${layoutResult.folders.size} default folders for Space '$spaceName' ($spaceId)")
+    }
+
     // 3. Register Memberships for all available apps
     if (appsToUse.isNotEmpty()) {
       val memberships = appsToUse.mapIndexed { idx, app ->
@@ -255,6 +260,61 @@ class RoomSpaceRepository(
       }
       membershipDao.insertMemberships(memberships)
       AppLogger.d(AppLogger.Category.LAUNCHER, "Registered ${memberships.size} memberships for Space '$spaceName' ($spaceId)")
+    }
+
+    ensureMostUsedFolderExists(spaceId)
+  }
+
+  /**
+   * Ensures the dynamic "Most Used Apps" folder exists on Page 0 for the specified Space.
+   * If not already present, it creates the folder and places it in an empty slot on Page 0.
+   */
+  suspend fun ensureMostUsedFolderExists(spaceId: String) {
+    try {
+      val existingFolders = layoutDao.getFoldersForSpace(spaceId)
+      val hasMostUsedFolder = existingFolders.any {
+        it.name == SpaceFolder.MOST_USED_FOLDER_NAME || it.id.startsWith(SpaceFolder.MOST_USED_FOLDER_PREFIX)
+      }
+      if (!hasMostUsedFolder) {
+        val folderId = SpaceFolder.getMostUsedFolderId(spaceId)
+        val folderEntity = SpaceFolderEntity(
+          id = folderId,
+          spaceId = spaceId,
+          name = SpaceFolder.MOST_USED_FOLDER_NAME,
+          createdAt = System.currentTimeMillis(),
+          updatedAt = System.currentTimeMillis()
+        )
+        layoutDao.insertFolder(folderEntity)
+
+        val currentPlacements = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+        val space = spaceDao.getSpaceById(spaceId)
+        val gridCols = space?.gridColumns ?: 4
+        val maxRows = 6
+        val slotResult = PlacementCascadeHelper.findEmptySlotForWidget(
+          existingPlacements = currentPlacements.map { it.toDomain() },
+          preferredPage = 0,
+          spanX = 1,
+          spanY = 1,
+          cols = gridCols,
+          pageSize = gridCols * maxRows
+        )
+
+        val placementEntity = SpaceItemPlacementEntity(
+          id = SpaceFolder.getMostUsedPlacementId(spaceId),
+          spaceId = spaceId,
+          layer = SpaceItemPlacement.LAYER_HOME,
+          pageIndex = slotResult.pageIndex,
+          positionIndex = slotResult.positionIndex,
+          itemType = SpaceItemPlacement.ITEM_TYPE_FOLDER,
+          folderId = folderId,
+          spanX = 1,
+          spanY = 1
+        )
+        layoutDao.insertPlacement(placementEntity)
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Created Most Used Apps folder on Page ${slotResult.pageIndex} at pos ${slotResult.positionIndex} for Space $spaceId")
+      }
+    } catch (e: Exception) {
+      AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to ensure Most Used Apps folder for Space $spaceId", e)
     }
   }
 

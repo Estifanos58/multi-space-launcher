@@ -216,8 +216,8 @@ class RoomPersistenceRecreationTest {
 
     // Verify folder and folder items survived
     val reloadedFolders = spaceRepo2.getFoldersForSpace(spaceId)
-    assertEquals(1, reloadedFolders.size)
-    val reloadedFolder = reloadedFolders.first()
+    assertEquals(expectedFolders.size, reloadedFolders.size)
+    val reloadedFolder = reloadedFolders.first { it.id == createdFolder.id }
     assertEquals(createdFolder.id, reloadedFolder.id)
     assertEquals("Utilities", reloadedFolder.name)
     assertEquals(2, reloadedFolder.items.size)

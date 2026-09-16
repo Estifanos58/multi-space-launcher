@@ -53,5 +53,6 @@ data class SpaceItemPlacement(
     const val WIDGET_CALENDAR = "CALENDAR"
     const val WIDGET_BATTERY_STATUS = "BATTERY_STATUS"
     const val WIDGET_QUICK_NOTES = "QUICK_NOTES"
+    const val WIDGET_USAGE_STATS = "USAGE_STATS"
   }
 }

@@ -117,19 +117,6 @@ fun Layer2LibraryScreen(
     baseList.take(maxUsageApps)
   }
 
-  val resolvedMostUsedApps = remember(searchQuery, mostUsedApps, maxUsageApps) {
-    val sourceList = mostUsedApps ?: emptyList()
-    val baseList = if (searchQuery.isBlank()) {
-      sourceList
-    } else {
-      val q = searchQuery.trim().lowercase()
-      sourceList.filter {
-        it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
-      }
-    }
-    baseList.take(maxUsageApps)
-  }
-
   // 2. Alphabetical Apps Section (maintains normal alphabetical ordering by app name)
   val isSearchBlank = searchQuery.isBlank()
   val alphabeticalApps = remember(spaceApps, searchQuery, cachedCatalog) {
@@ -387,87 +374,8 @@ fun Layer2LibraryScreen(
         Spacer(modifier = Modifier.height(AppDimens.Spacing8))
       }
 
-      // 2. Most Used Apps Row (ordered by launch count descending)
-      if (resolvedMostUsedApps.isNotEmpty()) {
-        Column(
-          modifier = Modifier
-            .fillMaxWidth()
-            .testTag("layer2_most_used_section")
-        ) {
-          Text(
-            text = "Most used apps",
-            style = MaterialTheme.typography.labelMedium.copy(
-              fontWeight = FontWeight.SemiBold,
-              letterSpacing = 0.5.sp
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-            modifier = Modifier.padding(horizontal = AppDimens.Spacing20, vertical = AppDimens.Spacing2)
-          )
-
-          Row(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(
-                start = AppDimens.Spacing16,
-                end = if (showAlphabetIndex) 28.dp else AppDimens.Spacing16,
-                top = AppDimens.Spacing4,
-                bottom = AppDimens.Spacing4
-              )
-              .testTag("layer2_most_used_row"),
-            horizontalArrangement = Arrangement.spacedBy(AppDimens.Spacing8)
-          ) {
-            resolvedMostUsedApps.forEach { app ->
-              Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                  .weight(1f)
-                  .clip(ShapeRoundMd)
-                  .combinedClickable(
-                    onClick = { onLaunchApp(app) },
-                    onLongClick = { selectedAppForMenu = app }
-                  )
-                  .padding(vertical = AppDimens.Spacing4)
-                  .testTag("layer2_most_used_app_${app.packageName}")
-              ) {
-                val bitmap = remember(app.id) { getBitmap(app) }
-                ThemedAppIcon(
-                  app = app,
-                  bitmap = bitmap,
-                  appTheme = space.appTheme,
-                  modifier = iconSizeModifier,
-                  fallbackText = app.label.take(1).uppercase()
-                )
-
-                if (space.labelVisibility) {
-                  Spacer(modifier = Modifier.height(AppDimens.Spacing4))
-                  Text(
-                    text = app.label,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurface
-                  )
-                }
-              }
-            }
-
-            // Pad empty slots if available apps are fewer than gridColumns to maintain consistent column width
-            val emptySlots = space.gridColumns - resolvedMostUsedApps.size
-            if (emptySlots > 0) {
-              repeat(emptySlots) {
-                Spacer(modifier = Modifier.weight(1f))
-              }
-            }
-          }
-        }
-
-        Spacer(modifier = Modifier.height(AppDimens.Spacing8))
-      }
-
       // Clear vertical padding and subtle horizontal divider line separating usage rows from alphabetical list
-      if (resolvedRecentApps.isNotEmpty() || resolvedMostUsedApps.isNotEmpty()) {
+      if (resolvedRecentApps.isNotEmpty()) {
         HorizontalDivider(
           modifier = Modifier
             .fillMaxWidth()

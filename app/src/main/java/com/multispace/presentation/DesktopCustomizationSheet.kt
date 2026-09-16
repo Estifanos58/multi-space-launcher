@@ -1362,6 +1362,11 @@ private fun WidgetsSubscreen(
       SpaceItemPlacement.WIDGET_QUICK_NOTES,
       "Quick Notes",
       "Compact notepad for desktop reminders"
+    ) to (4 to 2),
+    Triple(
+      SpaceItemPlacement.WIDGET_USAGE_STATS,
+      "Usage Statistics",
+      "Live launch metrics and top app for active Space"
     ) to (4 to 2)
   )
 
@@ -1458,6 +1463,7 @@ private fun WidgetsSubscreen(
                     SpaceItemPlacement.WIDGET_QUICK_SEARCH -> Icons.Default.Search
                     SpaceItemPlacement.WIDGET_CALENDAR -> Icons.Default.CalendarToday
                     SpaceItemPlacement.WIDGET_BATTERY_STATUS -> Icons.Default.AutoAwesome
+                    SpaceItemPlacement.WIDGET_USAGE_STATS -> Icons.Default.Insights
                     else -> Icons.Default.Notes
                   },
                   contentDescription = null,

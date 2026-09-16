@@ -6,7 +6,8 @@ import java.util.UUID
 
 data class PresetLayoutResult(
   val placements: List<SpaceItemPlacementEntity>,
-  val dockItems: List<SpaceDockItemEntity>
+  val dockItems: List<SpaceDockItemEntity>,
+  val folders: List<com.multispace.data.entity.SpaceFolderEntity> = emptyList()
 )
 
 /**
@@ -48,6 +49,39 @@ object PresetLayoutHelper {
     val desktopPool = distinctApps.filter { it.appIdentity !in dockIdentities }
 
     val placements = mutableListOf<SpaceItemPlacementEntity>()
+    val folders = mutableListOf<com.multispace.data.entity.SpaceFolderEntity>()
+    val mostUsedFolderId = SpaceFolder.getMostUsedFolderId(spaceId)
+    folders.add(
+      com.multispace.data.entity.SpaceFolderEntity(
+        id = mostUsedFolderId,
+        spaceId = spaceId,
+        name = SpaceFolder.MOST_USED_FOLDER_NAME,
+        createdAt = System.currentTimeMillis(),
+        updatedAt = System.currentTimeMillis()
+      )
+    )
+
+    fun addFolder(
+      page: Int,
+      row: Int,
+      col: Int,
+      folderId: String
+    ) {
+      val pos = row * cols + col
+      placements.add(
+        SpaceItemPlacementEntity(
+          id = "f_${spaceId}_p${page}_r${row}_c${col}_${UUID.randomUUID().toString().take(6)}",
+          spaceId = spaceId,
+          layer = SpaceItemPlacement.LAYER_HOME,
+          pageIndex = page,
+          positionIndex = pos,
+          itemType = SpaceItemPlacement.ITEM_TYPE_FOLDER,
+          folderId = folderId,
+          spanX = 1,
+          spanY = 1
+        )
+      )
+    }
 
     fun addWidget(
       page: Int,
@@ -122,6 +156,8 @@ object PresetLayoutHelper {
           spanY = 1,
           customWidgetType = SpaceItemPlacement.WIDGET_QUICK_SEARCH
         )
+        // Row 3: Most Used Apps Dynamic Folder
+        addFolder(page = 0, row = 3, col = 0, folderId = mostUsedFolderId)
         // Row 4: Curated apps at the bottom (strictly cols count)
         for (c in 0 until cols) {
           if (appCursor < desktopPool.size) {
@@ -150,6 +186,8 @@ object PresetLayoutHelper {
           spanY = 1,
           customWidgetType = SpaceItemPlacement.WIDGET_QUICK_SEARCH
         )
+        // Row 3: Most Used Apps Dynamic Folder
+        addFolder(page = 0, row = 3, col = 0, folderId = mostUsedFolderId)
         // Row 4: Apps placed strictly on the last row
         for (c in 0 until cols) {
           if (appCursor < desktopPool.size) {
@@ -169,6 +207,8 @@ object PresetLayoutHelper {
           spanY = 1,
           customWidgetType = SpaceItemPlacement.WIDGET_CLOCK_DATE
         )
+        // Row 3: Most Used Apps Dynamic Folder
+        addFolder(page = 0, row = 3, col = 0, folderId = mostUsedFolderId)
         // Row 4: Apps placed strictly on the last row
         for (c in 0 until cols) {
           if (appCursor < desktopPool.size) {
@@ -188,7 +228,9 @@ object PresetLayoutHelper {
           spanY = 1,
           customWidgetType = SpaceItemPlacement.WIDGET_CLOCK_DATE
         )
-        // Rows 1, 2, 3: empty breathing room
+        // Rows 1, 2: empty breathing room
+        // Row 3: Most Used Apps Dynamic Folder
+        addFolder(page = 0, row = 3, col = 0, folderId = mostUsedFolderId)
         // Row 4: Apps placed strictly on the last row (cols count)
         for (c in 0 until cols) {
           if (appCursor < desktopPool.size) {
@@ -227,6 +269,16 @@ object PresetLayoutHelper {
             spanY = 1,
             customWidgetType = SpaceItemPlacement.WIDGET_QUICK_NOTES
           )
+          // Row 3: Most Used Folder + Usage Stats Widget
+          addFolder(page = 0, row = 3, col = 0, folderId = mostUsedFolderId)
+          addWidget(
+            page = 0,
+            row = 3,
+            col = 1,
+            spanX = cols - 1,
+            spanY = 1,
+            customWidgetType = SpaceItemPlacement.WIDGET_USAGE_STATS
+          )
           // Row 4: Curated task apps at the bottom
           for (c in 0 until cols) {
             if (appCursor < desktopPool.size) {
@@ -259,6 +311,7 @@ object PresetLayoutHelper {
             spanY = 1,
             customWidgetType = SpaceItemPlacement.WIDGET_QUICK_NOTES
           )
+          addFolder(page = 0, row = 3, col = 0, folderId = mostUsedFolderId)
           // Row 4: Curated task apps at the bottom
           for (c in 0 until cols) {
             if (appCursor < desktopPool.size) {
@@ -279,6 +332,8 @@ object PresetLayoutHelper {
           spanY = 1,
           customWidgetType = SpaceItemPlacement.WIDGET_QUICK_SEARCH
         )
+        // Row 3: Most Used Apps Dynamic Folder
+        addFolder(page = 0, row = 3, col = 0, folderId = mostUsedFolderId)
         // Row 4: Apps placed strictly on the last row
         for (c in 0 until cols) {
           if (appCursor < desktopPool.size) {
@@ -315,7 +370,8 @@ object PresetLayoutHelper {
 
     return PresetLayoutResult(
       placements = placements,
-      dockItems = dockEntities
+      dockItems = dockEntities,
+      folders = folders
     )
   }
 }

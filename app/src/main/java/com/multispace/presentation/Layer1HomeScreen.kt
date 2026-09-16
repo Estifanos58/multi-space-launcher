@@ -127,6 +127,7 @@ fun Layer1HomeScreen(
   onEmptySpaceSwipeMove: (dragAmount: Float, change: PointerInputChange) -> Unit = { _, _ -> },
   onEmptySpaceSwipeEnd: () -> Unit = {},
   onEmptySpaceSwipeCancel: () -> Unit = {},
+  usageStats: SpaceUsageStats? = null,
   modifier: Modifier = Modifier
 ) {
   BoxWithConstraints(
@@ -1299,6 +1300,7 @@ fun Layer1HomeScreen(
             Layer1ItemCell(
               placement = placement,
               space = space,
+              usageStats = usageStats,
               appLookup = appLookup,
               folderLookup = folderLookup,
               allApps = allApps,
@@ -1464,6 +1466,7 @@ fun Layer1HomeScreen(
                   Layer1ItemCell(
                     placement = item,
                     space = space,
+                    usageStats = usageStats,
                     appLookup = appLookup,
                     folderLookup = folderLookup,
                     allApps = allApps,
@@ -1679,6 +1682,7 @@ fun Layer1HomeScreen(
             DesktopWidgetView(
               placement = dragged,
               space = space,
+              usageStats = usageStats,
               onRemove = null,
               appWidgetHost = appWidgetHost,
               isResizeMode = false
@@ -2030,6 +2034,7 @@ private fun EmptyGridCell(
 private fun Layer1ItemCell(
   placement: SpaceItemPlacement,
   space: Space,
+  usageStats: SpaceUsageStats? = null,
   appLookup: AppIdentityLookup,
   folderLookup: Map<String, SpaceFolder>,
   allApps: List<DiscoveredApp>,
@@ -2093,6 +2098,7 @@ private fun Layer1ItemCell(
       DesktopWidgetView(
         placement = placement,
         space = space,
+        usageStats = usageStats,
         onRemove = { onRemovePlacement(placement.id) },
         appWidgetHost = appWidgetHost,
         isResizeMode = isResizeMode,

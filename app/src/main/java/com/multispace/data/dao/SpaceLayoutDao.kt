@@ -69,6 +69,9 @@ interface SpaceLayoutDao {
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertFolder(folder: SpaceFolderEntity)
 
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun insertFolders(folders: List<SpaceFolderEntity>)
+
   @Update
   suspend fun updateFolder(folder: SpaceFolderEntity)
 
