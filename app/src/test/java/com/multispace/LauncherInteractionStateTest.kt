@@ -230,4 +230,109 @@ class LauncherInteractionStateTest {
     )
     assertEquals(1.5f, velocity, 0.001f)
   }
+
+  @Test
+  fun testFormalInteractionStateLifecycleTransitions() {
+    val coordinator = LauncherInteractionCoordinator()
+    assertTrue("Starts in Idle", coordinator.currentState is LauncherInteractionState.Idle)
+
+    val identity = com.multispace.domain.model.AppIdentity("com.example.test", ".MainActivity", 0L)
+    val startPos = androidx.compose.ui.geometry.Offset(100f, 200f)
+
+    // 1. Idle -> Pressing
+    val pressed = coordinator.toPressing(identity, startPos, "item_1")
+    assertTrue("Should transition to Pressing", pressed)
+    assertTrue("Current state is Pressing", coordinator.currentState is LauncherInteractionState.Pressing)
+    val pressingState = coordinator.currentState as LauncherInteractionState.Pressing
+    assertEquals(identity, pressingState.identity)
+    assertEquals(startPos, pressingState.startPosition)
+    assertEquals("item_1", pressingState.itemId)
+
+    // 2. Pressing -> ContextMenu
+    val contextMenu = coordinator.toContextMenu(identity, startPos, "item_1")
+    assertTrue("Should transition to ContextMenu", contextMenu)
+    assertTrue("Current state is ContextMenu", coordinator.currentState is LauncherInteractionState.ContextMenu)
+    val menuState = coordinator.currentState as LauncherInteractionState.ContextMenu
+    assertEquals(identity, menuState.identity)
+    assertEquals(startPos, menuState.position)
+
+    // 3. ContextMenu -> Dragging
+    val dragOrigin = com.multispace.presentation.DragOrigin.Desktop(0, 3, "item_1")
+    val dragPos = androidx.compose.ui.geometry.Offset(150f, 300f)
+    val dragging = coordinator.toDragging(identity, dragOrigin, dragPos, "item_1", "com.example.test")
+    assertTrue("Should transition to Dragging", dragging)
+    assertTrue("Current state is Dragging", coordinator.currentState is LauncherInteractionState.Dragging)
+    val dragState = coordinator.currentState as LauncherInteractionState.Dragging
+    assertEquals(identity, dragState.identity)
+    assertEquals(dragOrigin, dragState.origin)
+    assertEquals(dragPos, dragState.currentPosition)
+
+    // 4. Dragging -> Dropping
+    val dropTarget = com.multispace.presentation.DropTarget.DockSlot(2)
+    val dropping = coordinator.toDropping(identity, dropTarget)
+    assertTrue("Should transition to Dropping", dropping)
+    assertTrue("Current state is Dropping", coordinator.currentState is LauncherInteractionState.Dropping)
+    val dropState = coordinator.currentState as LauncherInteractionState.Dropping
+    assertEquals(identity, dropState.identity)
+    assertEquals(dropTarget, dropState.target)
+
+    // 5. Dropping -> Idle
+    coordinator.toIdle()
+    assertTrue("Returns to Idle", coordinator.currentState is LauncherInteractionState.Idle)
+  }
+
+  @Test
+  fun testUnifiedDragStateFormalLifecycleAndTargetResolution() {
+    val dragState = com.multispace.presentation.UnifiedDragState()
+    assertEquals(LauncherInteractionState.Idle, dragState.formalInteractionState)
+
+    val placement = com.multispace.domain.model.SpaceItemPlacement(
+      id = "p1",
+      spaceId = "space1",
+      layer = 1,
+      pageIndex = 0,
+      positionIndex = 2,
+      itemType = com.multispace.domain.model.SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = "com.test.app",
+      componentName = ".Main",
+      userHandleId = 0L
+    )
+
+    // 1. Long press item -> ContextMenu
+    dragState.startItemLongPress(placement, androidx.compose.ui.geometry.Offset(10f, 10f))
+    assertTrue("Formal state is ContextMenu", dragState.formalInteractionState is LauncherInteractionState.ContextMenu)
+
+    // 2. Start drag -> Dragging
+    dragState.startDesktopDrag(placement, pointerPos = androidx.compose.ui.geometry.Offset(100f, 200f))
+    assertTrue("Formal state is Dragging", dragState.formalInteractionState is LauncherInteractionState.Dragging)
+    val dragging = dragState.formalInteractionState as LauncherInteractionState.Dragging
+    assertEquals("p1", dragging.itemId)
+    assertEquals("com.test.app", dragging.packageName)
+
+    // Target resolution: Desktop Cell
+    dragState.targetDesktopPage = 0
+    dragState.targetDesktopPosition = 4
+    val desktopTarget = dragState.resolveDropTarget(androidx.compose.ui.geometry.Offset(100f, 200f))
+    assertEquals(com.multispace.presentation.DropTarget.DesktopCell(0, 4), desktopTarget)
+
+    // Target resolution: Dock Slot
+    dragState.isOverDock = true
+    dragState.targetDockIndex = 1
+    val dockTarget = dragState.resolveDropTarget(androidx.compose.ui.geometry.Offset(100f, 200f))
+    assertEquals(com.multispace.presentation.DropTarget.DockSlot(1), dockTarget)
+
+    // Target resolution: Bin
+    dragState.isOverBin = true
+    val binTarget = dragState.resolveDropTarget(androidx.compose.ui.geometry.Offset(100f, 200f))
+    assertEquals(com.multispace.presentation.DropTarget.Bin, binTarget)
+
+    // 3. Drop
+    val finalTarget = dragState.finishDrop()
+    assertEquals(com.multispace.presentation.DropTarget.Bin, finalTarget)
+    assertTrue("Formal state is Dropping", dragState.formalInteractionState is LauncherInteractionState.Dropping)
+
+    // Reset to Idle
+    dragState.reset()
+    assertEquals(LauncherInteractionState.Idle, dragState.formalInteractionState)
+  }
 }

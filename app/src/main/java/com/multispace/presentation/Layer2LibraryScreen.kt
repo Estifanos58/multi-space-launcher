@@ -65,11 +65,11 @@ import kotlinx.coroutines.launch
  * and rebuilding alphabet indexes during continuous layer gestures.
  */
 data class Layer2CachedCatalog(
-  val sortedApps: List<DiscoveredApp>,
-  val groupedApps: Map<Char, List<DiscoveredApp>>,
-  val letterToSectionIndex: Map<Char, Int>,
-  val letterToFirstIndex: Map<Char, Int>,
-  val activeLetters: Set<Char>
+  val sortedApps: List<DiscoveredApp> = emptyList(),
+  val groupedApps: Map<Char, List<DiscoveredApp>> = emptyMap(),
+  val letterToSectionIndex: Map<Char, Int> = emptyMap(),
+  val letterToFirstIndex: Map<Char, Int> = emptyMap(),
+  val activeLetters: Set<Char> = emptySet()
 )
 
 @OptIn(ExperimentalFoundationApi::class)

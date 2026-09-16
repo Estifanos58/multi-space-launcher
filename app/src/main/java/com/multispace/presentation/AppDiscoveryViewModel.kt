@@ -73,7 +73,10 @@ data class AppDiscoveryUiState(
 class AppDiscoveryViewModel(application: Application) : AndroidViewModel(application) {
 
   private val discoveryManager = AppDiscoveryManager(application.applicationContext)
-  private val launchManager = AppLaunchManager(application.applicationContext)
+  private val launchManager = AppLaunchManager(
+    context = application.applicationContext,
+    coroutineScope = viewModelScope
+  )
   val launchHistoryRepository: LaunchHistoryRepository = launchManager.historyRepository
 
   private val _uiState = MutableStateFlow(AppDiscoveryUiState())

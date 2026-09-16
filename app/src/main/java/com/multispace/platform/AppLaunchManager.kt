@@ -20,8 +20,8 @@ import com.multispace.domain.repository.LaunchHistoryRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Result of an application launch attempt.
@@ -55,7 +55,8 @@ sealed class LaunchResult {
 class AppLaunchManager(
   private val context: Context,
   val historyRepository: LaunchHistoryRepository = RoomLaunchHistoryRepository.getInstance(context),
-  private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+  private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+  private val coroutineScope: CoroutineScope? = null
 ) {
 
   private val launcherApps: LauncherApps? =
@@ -66,14 +67,23 @@ class AppLaunchManager(
 
   private val packageManager: PackageManager = context.packageManager
 
-  private val launchScope = CoroutineScope(SupervisorJob() + ioDispatcher)
+  suspend fun recordSuccessfulLaunch(app: DiscoveredApp, spaceId: String) {
+    try {
+      historyRepository.recordLaunch(spaceId, app.appIdentity)
+    } catch (e: Exception) {
+      AppLogger.w(AppLogger.Category.LAUNCH, "Failed to record launch history for ${app.label} in space $spaceId", e)
+    }
+  }
 
-  private fun recordSuccessfulLaunch(app: DiscoveredApp, spaceId: String) {
-    launchScope.launch {
-      try {
-        historyRepository.recordLaunch(spaceId, app.appIdentity)
-      } catch (e: Exception) {
-        AppLogger.w(AppLogger.Category.LAUNCH, "Failed to record launch history for ${app.label} in space $spaceId", e)
+  private fun dispatchRecordLaunch(app: DiscoveredApp, spaceId: String, callerScope: CoroutineScope?) {
+    val targetScope = callerScope ?: coroutineScope
+    if (targetScope != null) {
+      targetScope.launch(ioDispatcher) {
+        recordSuccessfulLaunch(app, spaceId)
+      }
+    } else {
+      CoroutineScope(Dispatchers.IO).launch {
+        recordSuccessfulLaunch(app, spaceId)
       }
     }
   }
@@ -98,7 +108,8 @@ class AppLaunchManager(
   fun launchApp(
     app: DiscoveredApp,
     spaceId: String = Space.DEFAULT_SPACE_ID,
-    sourceBounds: Rect? = null
+    sourceBounds: Rect? = null,
+    callerScope: CoroutineScope? = null
   ): LaunchResult {
     val identity = app.appIdentity
     val targetComponent = identity.toComponentName()
@@ -146,7 +157,7 @@ class AppLaunchManager(
             AppLogger.Category.LAUNCH,
             "LAUNCH_SUCCESS: ${app.label} launched successfully via LauncherApps"
           )
-          recordSuccessfulLaunch(app, spaceId)
+          dispatchRecordLaunch(app, spaceId, callerScope)
           return LaunchResult.Success(
             packageName = app.packageName,
             activityName = matchingActivity.componentName.className,
@@ -178,7 +189,7 @@ class AppLaunchManager(
             AppLogger.Category.LAUNCH,
             "LAUNCH_SUCCESS: ${app.label} launched via fallback activity ${fallbackActivity.componentName.flattenToShortString()}"
           )
-          recordSuccessfulLaunch(launchedFallbackApp, spaceId)
+          dispatchRecordLaunch(launchedFallbackApp, spaceId, callerScope)
           return LaunchResult.Success(
             packageName = app.packageName,
             activityName = fallbackActivity.componentName.className,
@@ -221,7 +232,7 @@ class AppLaunchManager(
           AppLogger.Category.LAUNCH,
           "LAUNCH_SUCCESS: ${app.label} launched successfully via PackageManager fallback"
         )
-        recordSuccessfulLaunch(launchedPkgApp, spaceId)
+        dispatchRecordLaunch(launchedPkgApp, spaceId, callerScope)
         return LaunchResult.Success(
           packageName = app.packageName,
           activityName = launchIntent.component?.className ?: app.activityName,
@@ -250,5 +261,19 @@ class AppLaunchManager(
       packageName = app.packageName,
       reason = "Application is uninstalled, disabled, or no launchable activity was found."
     )
+  }
+
+  suspend fun launchAppSuspending(
+    app: DiscoveredApp,
+    spaceId: String = Space.DEFAULT_SPACE_ID,
+    sourceBounds: Rect? = null
+  ): LaunchResult {
+    val result = launchApp(app, spaceId, sourceBounds, callerScope = null)
+    if (result is LaunchResult.Success) {
+      withContext(ioDispatcher) {
+        recordSuccessfulLaunch(app, spaceId)
+      }
+    }
+    return result
   }
 }

@@ -158,9 +158,11 @@ class RoomSpaceRepository(
           AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to prune duplicate placements", e)
         }
 
-        // Ensure every existing Space has exactly one Most Used Apps folder on Page 0
-        for (s in spaces) {
-          ensureMostUsedFolderExists(s.id)
+        if (context != null) {
+          // Ensure every existing Space has exactly one Most Used Apps folder on Page 0
+          for (s in spaces) {
+            ensureMostUsedFolderExists(s.id)
+          }
         }
 
         // If the default space has no placements and no dock items yet, auto-initialize
@@ -518,7 +520,9 @@ class RoomSpaceRepository(
         Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
       } else {
         preferences.setActiveSpaceId(spaceId)
-        ensureMostUsedFolderExists(spaceId)
+        if (context != null) {
+          ensureMostUsedFolderExists(spaceId)
+        }
         AppLogger.i(AppLogger.Category.LAUNCHER, "Active Space updated to '${space.name}' ($spaceId)")
         Result.success(Unit)
       }
