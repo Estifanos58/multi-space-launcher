@@ -82,8 +82,7 @@ class DesktopInteractionController(
   }
 
   fun addAppToExistingFolder(folderId: String, app: DiscoveredApp, sourcePlacementId: String) {
-    spaceViewModel.addAppToFolder(folderId, app)
-    spaceViewModel.removePlacement(sourcePlacementId)
+    spaceViewModel.addAppToFolder(folderId, app, sourcePlacementId)
   }
 
   fun addAppToHome(spaceId: String, app: DiscoveredApp, page: Int = 0) {

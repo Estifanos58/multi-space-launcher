@@ -11,7 +11,7 @@ interface FolderRepository {
   fun getFoldersForSpaceFlow(spaceId: String): Flow<List<SpaceFolder>>
   suspend fun getFoldersForSpace(spaceId: String): List<SpaceFolder>
   suspend fun renameFolder(folderId: String, newName: String): Result<Unit>
-  suspend fun addAppToFolder(folderId: String, app: DiscoveredApp): Result<Unit>
+  suspend fun addAppToFolder(folderId: String, app: DiscoveredApp, sourcePlacementId: String? = null): Result<Unit>
   suspend fun removeAppFromFolder(folderId: String, folderItemId: String): Result<Unit>
   suspend fun deleteFolder(folderId: String): Result<Unit>
   suspend fun createFolderFromApps(
@@ -21,7 +21,8 @@ interface FolderRepository {
     folderName: String,
     sourceApp: DiscoveredApp,
     targetApp: DiscoveredApp,
-    sourcePlacementId: String?,
-    targetPlacementId: String?
+    sourcePlacementId: String? = null,
+    targetPlacementId: String? = null,
+    sourceDockItemId: String? = null
   ): Result<SpaceFolder>
 }

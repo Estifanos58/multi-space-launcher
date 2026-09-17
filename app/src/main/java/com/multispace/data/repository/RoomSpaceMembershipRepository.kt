@@ -1,5 +1,7 @@
 package com.multispace.data.repository
 
+import androidx.room.RoomDatabase
+import androidx.room.withTransaction
 import com.multispace.data.dao.SpaceMembershipDao
 import com.multispace.data.entity.SpaceMembershipEntity
 import com.multispace.diagnostics.AppLogger
@@ -12,8 +14,17 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 class RoomSpaceMembershipRepository(
-  private val membershipDao: SpaceMembershipDao
+  private val membershipDao: SpaceMembershipDao,
+  private val database: RoomDatabase? = null
 ) : SpaceMembershipRepository {
+
+  private suspend fun <T> runInTransaction(block: suspend () -> T): T {
+    return if (database != null) {
+      database.withTransaction { block() }
+    } else {
+      block()
+    }
+  }
 
   override fun getMembershipsForSpaceFlow(spaceId: String): Flow<List<SpaceMembership>> {
     return membershipDao.getMembershipsForSpaceFlow(spaceId).map { entities ->
@@ -32,22 +43,24 @@ class RoomSpaceMembershipRepository(
 
   override suspend fun addAppToSpace(spaceId: String, app: DiscoveredApp): Result<Unit> {
     return try {
-      if (isAppInSpace(spaceId, app)) {
-        AppLogger.d(AppLogger.Category.LAUNCHER, "App '${app.label}' is already in Space ($spaceId), skipping duplicate insertion")
-        return Result.success(Unit)
+      runInTransaction {
+        if (isAppInSpace(spaceId, app)) {
+          AppLogger.d(AppLogger.Category.LAUNCHER, "App '${app.label}' is already in Space ($spaceId), skipping duplicate insertion")
+          return@runInTransaction Result.success(Unit)
+        }
+        val existingCount = membershipDao.getMembershipCountForSpace(spaceId)
+        val membership = SpaceMembership(
+          spaceId = spaceId,
+          packageName = app.packageName,
+          componentName = app.activityName,
+          userHandleId = app.userHandleId,
+          orderIndex = existingCount,
+          addedAt = System.currentTimeMillis()
+        )
+        membershipDao.insertMembership(SpaceMembershipEntity.fromDomain(membership))
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Added app '${app.label}' to Space ($spaceId)")
+        Result.success(Unit)
       }
-      val existingCount = membershipDao.getMembershipCountForSpace(spaceId)
-      val membership = SpaceMembership(
-        spaceId = spaceId,
-        packageName = app.packageName,
-        componentName = app.activityName,
-        userHandleId = app.userHandleId,
-        orderIndex = existingCount,
-        addedAt = System.currentTimeMillis()
-      )
-      membershipDao.insertMembership(SpaceMembershipEntity.fromDomain(membership))
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Added app '${app.label}' to Space ($spaceId)")
-      Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to add app '${app.label}' to Space ($spaceId)", e)
       Result.failure(e)
@@ -56,28 +69,30 @@ class RoomSpaceMembershipRepository(
 
   override suspend fun removeAppFromSpace(spaceId: String, app: DiscoveredApp): Result<Unit> {
     return try {
-      val memberships = membershipDao.getMembershipsForSpace(spaceId)
-      val targetIdentity = app.appIdentity
-      val matching = memberships.filter { it.toDomain().appIdentity.matches(targetIdentity) }
-      if (matching.isNotEmpty()) {
-        for (m in matching) {
+      runInTransaction {
+        val memberships = membershipDao.getMembershipsForSpace(spaceId)
+        val targetIdentity = app.appIdentity
+        val matching = memberships.filter { it.toDomain().appIdentity.matches(targetIdentity) }
+        if (matching.isNotEmpty()) {
+          for (m in matching) {
+            membershipDao.deleteMembership(
+              spaceId = spaceId,
+              packageName = m.packageName,
+              componentName = m.componentName,
+              userHandleId = m.userHandleId
+            )
+          }
+        } else {
           membershipDao.deleteMembership(
             spaceId = spaceId,
-            packageName = m.packageName,
-            componentName = m.componentName,
-            userHandleId = m.userHandleId
+            packageName = app.packageName,
+            componentName = app.activityName,
+            userHandleId = app.userHandleId
           )
         }
-      } else {
-        membershipDao.deleteMembership(
-          spaceId = spaceId,
-          packageName = app.packageName,
-          componentName = app.activityName,
-          userHandleId = app.userHandleId
-        )
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Removed app '${app.label}' from Space ($spaceId)")
+        Result.success(Unit)
       }
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Removed app '${app.label}' from Space ($spaceId)")
-      Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to remove app '${app.label}' from Space ($spaceId)", e)
       Result.failure(e)
@@ -100,35 +115,37 @@ class RoomSpaceMembershipRepository(
     direction: Int
   ): Result<Unit> {
     return try {
-      val memberships = membershipDao.getMembershipsForSpace(spaceId).toMutableList()
-      val targetIdentity = app.appIdentity
-      val index = memberships.indexOfFirst {
-        it.toDomain().appIdentity.matches(targetIdentity)
-      }
-      if (index == -1) {
-        return Result.failure(IllegalArgumentException("App not found in Space memberships"))
-      }
-      val targetIndex = index + direction
-      if (targetIndex < 0 || targetIndex >= memberships.size) {
-        return Result.success(Unit) // Already at boundary
-      }
+      runInTransaction {
+        val memberships = membershipDao.getMembershipsForSpace(spaceId).toMutableList()
+        val targetIdentity = app.appIdentity
+        val index = memberships.indexOfFirst {
+          it.toDomain().appIdentity.matches(targetIdentity)
+        }
+        if (index == -1) {
+          throw IllegalArgumentException("App not found in Space memberships")
+        }
+        val targetIndex = index + direction
+        if (targetIndex < 0 || targetIndex >= memberships.size) {
+          return@runInTransaction Result.success(Unit) // Already at boundary
+        }
 
-      // Swap
-      val item = memberships.removeAt(index)
-      memberships.add(targetIndex, item)
+        // Swap
+        val item = memberships.removeAt(index)
+        memberships.add(targetIndex, item)
 
-      // Update indices
-      memberships.forEachIndexed { i, m ->
-        membershipDao.updateMembershipOrder(
-          spaceId = spaceId,
-          packageName = m.packageName,
-          componentName = m.componentName,
-          userHandleId = m.userHandleId,
-          newOrderIndex = i
-        )
+        // Update indices
+        memberships.forEachIndexed { i, m ->
+          membershipDao.updateMembershipOrder(
+            spaceId = spaceId,
+            packageName = m.packageName,
+            componentName = m.componentName,
+            userHandleId = m.userHandleId,
+            newOrderIndex = i
+          )
+        }
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Reordered app '${app.label}' in Space ($spaceId) to index $targetIndex")
+        Result.success(Unit)
       }
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Reordered app '${app.label}' in Space ($spaceId) to index $targetIndex")
-      Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to reorder app in Space ($spaceId)", e)
       Result.failure(e)
@@ -140,25 +157,27 @@ class RoomSpaceMembershipRepository(
     orderedApps: List<DiscoveredApp>
   ): Result<Unit> {
     return try {
-      val memberships = membershipDao.getMembershipsForSpace(spaceId)
-      val membershipByIdentity = memberships.associateBy { it.appIdentity }
+      runInTransaction {
+        val memberships = membershipDao.getMembershipsForSpace(spaceId)
+        val membershipByIdentity = memberships.associateBy { it.appIdentity }
 
-      orderedApps.forEachIndexed { index, app ->
-        val membership = membershipByIdentity[app.appIdentity]
-          ?: memberships.firstOrNull { it.appIdentity.matches(app.appIdentity) }
-          ?: memberships.firstOrNull { it.packageName == app.packageName }
-        if (membership != null) {
-          membershipDao.updateMembershipOrder(
-            spaceId = spaceId,
-            packageName = membership.packageName,
-            componentName = membership.componentName,
-            userHandleId = membership.userHandleId,
-            newOrderIndex = index
-          )
+        orderedApps.forEachIndexed { index, app ->
+          val membership = membershipByIdentity[app.appIdentity]
+            ?: memberships.firstOrNull { it.appIdentity.matches(app.appIdentity) }
+            ?: memberships.firstOrNull { it.packageName == app.packageName }
+          if (membership != null) {
+            membershipDao.updateMembershipOrder(
+              spaceId = spaceId,
+              packageName = membership.packageName,
+              componentName = membership.componentName,
+              userHandleId = membership.userHandleId,
+              newOrderIndex = index
+            )
+          }
         }
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Reordered all ${orderedApps.size} apps in Space ($spaceId)")
+        Result.success(Unit)
       }
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Reordered all ${orderedApps.size} apps in Space ($spaceId)")
-      Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to reorder apps in Space ($spaceId)", e)
       Result.failure(e)

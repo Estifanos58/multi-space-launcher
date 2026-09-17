@@ -36,7 +36,8 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     membershipDao = database.spaceMembershipDao(),
     layoutDao = database.spaceLayoutDao(),
     preferences = preferences,
-    context = application.applicationContext
+    context = application.applicationContext,
+    database = database
   )
 
   private val _userFeedback = MutableSharedFlow<String>(extraBufferCapacity = 8)
@@ -810,9 +811,9 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
-  fun addAppToFolder(folderId: String, app: DiscoveredApp) {
+  fun addAppToFolder(folderId: String, app: DiscoveredApp, sourcePlacementId: String? = null) {
     viewModelScope.launch {
-      spaceRepository.addAppToFolder(folderId, app)
+      spaceRepository.addAppToFolder(folderId, app, sourcePlacementId)
       _userFeedback.tryEmit("Added '${app.label}' to folder.")
     }
   }

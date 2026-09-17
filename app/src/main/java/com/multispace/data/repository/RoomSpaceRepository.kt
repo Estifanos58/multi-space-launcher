@@ -1,6 +1,8 @@
 package com.multispace.data.repository
 
 import android.content.Context
+import androidx.room.RoomDatabase
+import androidx.room.withTransaction
 import com.multispace.data.dao.SpaceDao
 import com.multispace.data.dao.SpaceLayoutDao
 import com.multispace.data.dao.SpaceMembershipDao
@@ -52,15 +54,24 @@ class RoomSpaceRepository(
   private val layoutDao: SpaceLayoutDao,
   private val preferences: LauncherPreferences,
   private val context: Context? = null,
-  private val membershipRepository: SpaceMembershipRepository = RoomSpaceMembershipRepository(membershipDao),
-  private val placementRepository: PlacementRepository = RoomPlacementRepository(spaceDao, layoutDao, membershipDao, context),
-  private val folderRepository: FolderRepository = RoomFolderRepository(layoutDao),
-  private val dockRepository: DockRepository = RoomDockRepository(spaceDao, layoutDao, placementRepository)
+  private val database: RoomDatabase? = null,
+  private val membershipRepository: SpaceMembershipRepository = RoomSpaceMembershipRepository(membershipDao, database),
+  private val placementRepository: PlacementRepository = RoomPlacementRepository(spaceDao, layoutDao, membershipDao, context, database),
+  private val folderRepository: FolderRepository = RoomFolderRepository(layoutDao, database),
+  private val dockRepository: DockRepository = RoomDockRepository(spaceDao, layoutDao, placementRepository, database)
 ) : SpaceRepository,
     SpaceMembershipRepository by membershipRepository,
     PlacementRepository by placementRepository,
     FolderRepository by folderRepository,
     DockRepository by dockRepository {
+
+  private suspend fun <T> runInTransaction(block: suspend () -> T): T {
+    return if (database != null) {
+      database.withTransaction { block() }
+    } else {
+      block()
+    }
+  }
 
   override val allSpacesFlow: Flow<List<Space>> = spaceDao.getAllSpacesFlow().map { entities ->
     entities.map { it.toDomain() }
@@ -105,37 +116,40 @@ class RoomSpaceRepository(
       val count = spaceDao.getSpaceCount()
       if (count == 0) {
         AppLogger.i(AppLogger.Category.LAUNCHER, "No Spaces found in database. Initializing Default Space with default apps.")
-        val defaultSpace = Space(
-          id = Space.DEFAULT_SPACE_ID,
-          name = Space.DEFAULT_SPACE_NAME,
-          orderIndex = 0,
-          createdAt = System.currentTimeMillis(),
-          updatedAt = System.currentTimeMillis(),
-          backgroundType = Space.BACKGROUND_IMAGE,
-          backgroundImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
-          homeWallpaperType = Space.BACKGROUND_IMAGE,
-          homeWallpaperImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
-          phoneLockWallpaperType = Space.BACKGROUND_IMAGE,
-          phoneLockWallpaperImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
-          spaceLockWallpaperType = Space.BACKGROUND_IMAGE,
-          spaceLockWallpaperImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
-          gridColumns = 4,
-          dockCapacity = 5,
-          layoutPreset = Space.PRESET_DEFAULT,
-          layer1DisplayMode = Space.DISPLAY_MODE_PAGE,
-          layer2DisplayMode = Space.DISPLAY_MODE_SCROLL
-        )
-        spaceDao.insertSpace(SpaceEntity.fromDomain(defaultSpace))
-        preferences.setActiveSpaceId(Space.DEFAULT_SPACE_ID)
+        val defaultSpace = runInTransaction {
+          val space = Space(
+            id = Space.DEFAULT_SPACE_ID,
+            name = Space.DEFAULT_SPACE_NAME,
+            orderIndex = 0,
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis(),
+            backgroundType = Space.BACKGROUND_IMAGE,
+            backgroundImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
+            homeWallpaperType = Space.BACKGROUND_IMAGE,
+            homeWallpaperImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
+            phoneLockWallpaperType = Space.BACKGROUND_IMAGE,
+            phoneLockWallpaperImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
+            spaceLockWallpaperType = Space.BACKGROUND_IMAGE,
+            spaceLockWallpaperImageUri = WallpaperCatalog.DEFAULT_WALLPAPER_URI,
+            gridColumns = 4,
+            dockCapacity = 5,
+            layoutPreset = Space.PRESET_DEFAULT,
+            layer1DisplayMode = Space.DISPLAY_MODE_PAGE,
+            layer2DisplayMode = Space.DISPLAY_MODE_SCROLL
+          )
+          spaceDao.insertSpace(SpaceEntity.fromDomain(space))
+          preferences.setActiveSpaceId(Space.DEFAULT_SPACE_ID)
 
-        initializeNewSpaceDefaults(
-          spaceId = Space.DEFAULT_SPACE_ID,
-          spaceName = Space.DEFAULT_SPACE_NAME,
-          layoutPreset = Space.PRESET_DEFAULT,
-          dockCapacity = 5,
-          gridColumns = 4,
-          candidateApps = initialApps
-        )
+          initializeNewSpaceDefaults(
+            spaceId = Space.DEFAULT_SPACE_ID,
+            spaceName = Space.DEFAULT_SPACE_NAME,
+            layoutPreset = Space.PRESET_DEFAULT,
+            dockCapacity = 5,
+            gridColumns = 4,
+            candidateApps = initialApps
+          )
+          space
+        }
 
         Result.success(defaultSpace)
       } else {
@@ -542,30 +556,33 @@ class RoomSpaceRepository(
       return Result.failure(IllegalArgumentException("Space name cannot be empty"))
     }
     return try {
-      val newId = "space_" + UUID.randomUUID().toString().replace("-", "").take(12)
-      val orderIndex = spaceDao.getSpaceCount()
-      val space = Space(
-        id = newId,
-        name = trimmed,
-        orderIndex = orderIndex,
-        createdAt = System.currentTimeMillis(),
-        updatedAt = System.currentTimeMillis(),
-        layoutType = layoutType,
-        gridColumns = Space.DEFAULT_GRID_COLUMNS,
-        dockCapacity = Space.DEFAULT_DOCK_CAPACITY
-      )
-      spaceDao.insertSpace(SpaceEntity.fromDomain(space))
+      val space = runInTransaction {
+        val newId = "space_" + UUID.randomUUID().toString().replace("-", "").take(12)
+        val orderIndex = spaceDao.getSpaceCount()
+        val s = Space(
+          id = newId,
+          name = trimmed,
+          orderIndex = orderIndex,
+          createdAt = System.currentTimeMillis(),
+          updatedAt = System.currentTimeMillis(),
+          layoutType = layoutType,
+          gridColumns = Space.DEFAULT_GRID_COLUMNS,
+          dockCapacity = Space.DEFAULT_DOCK_CAPACITY
+        )
+        spaceDao.insertSpace(SpaceEntity.fromDomain(s))
 
-      initializeNewSpaceDefaults(
-        spaceId = newId,
-        spaceName = trimmed,
-        layoutPreset = Space.PRESET_DEFAULT,
-        dockCapacity = Space.DEFAULT_DOCK_CAPACITY,
-        gridColumns = Space.DEFAULT_GRID_COLUMNS,
-        candidateApps = initialApps
-      )
+        initializeNewSpaceDefaults(
+          spaceId = newId,
+          spaceName = trimmed,
+          layoutPreset = Space.PRESET_DEFAULT,
+          dockCapacity = Space.DEFAULT_DOCK_CAPACITY,
+          gridColumns = Space.DEFAULT_GRID_COLUMNS,
+          candidateApps = initialApps
+        )
+        s
+      }
 
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Created new Space: '$trimmed' ($newId) with default apps")
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Created new Space: '$trimmed' (${space.id}) with default apps")
       Result.success(space)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to create Space: '$name'", e)
@@ -627,73 +644,76 @@ class RoomSpaceRepository(
       return Result.failure(IllegalArgumentException("Space name cannot be empty"))
     }
     return try {
-      val newId = "space_" + UUID.randomUUID().toString().replace("-", "").take(12)
-      val orderIndex = spaceDao.getSpaceCount()
-      val space = Space(
-        id = newId,
-        name = trimmed,
-        orderIndex = orderIndex,
-        createdAt = System.currentTimeMillis(),
-        updatedAt = System.currentTimeMillis(),
-        authPolicy = authPolicy,
-        pinSalt = pinSalt,
-        pinHash = pinHash,
-        patternRows = patternRows,
-        patternCols = patternCols,
-        layoutType = "GRID_$gridColumns",
-        backgroundType = backgroundType,
-        backgroundColor = backgroundColor,
-        backgroundImageUri = backgroundImageUri,
-        homeWallpaperType = homeWallpaperType,
-        homeWallpaperColor = homeWallpaperColor,
-        homeWallpaperImageUri = homeWallpaperImageUri,
-        phoneLockWallpaperType = phoneLockWallpaperType,
-        phoneLockWallpaperColor = phoneLockWallpaperColor,
-        phoneLockWallpaperImageUri = phoneLockWallpaperImageUri,
-        spaceLockWallpaperType = spaceLockWallpaperType,
-        spaceLockWallpaperColor = spaceLockWallpaperColor,
-        spaceLockWallpaperImageUri = spaceLockWallpaperImageUri,
-        appTheme = appTheme,
-        gridColumns = gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS),
-        iconSize = iconSize,
-        labelVisibility = labelVisibility,
-        layer1DisplayMode = layer1DisplayMode,
-        layer2DisplayMode = layer2DisplayMode,
-        layer2AccessMode = layer2AccessMode,
-        dockCapacity = dockCapacity,
-        layoutPreset = layoutPreset,
-        useLayer2 = useLayer2,
-        homeWallpaperScaleMode = homeWallpaperScaleMode,
-        homeWallpaperZoomLevel = homeWallpaperZoomLevel,
-        homeWallpaperDimLevel = homeWallpaperDimLevel,
-        homeWallpaperOffsetX = homeWallpaperOffsetX,
-        homeWallpaperOffsetY = homeWallpaperOffsetY,
-        phoneLockWallpaperScaleMode = phoneLockWallpaperScaleMode,
-        phoneLockWallpaperZoomLevel = phoneLockWallpaperZoomLevel,
-        phoneLockWallpaperDimLevel = phoneLockWallpaperDimLevel,
-        phoneLockWallpaperOffsetX = phoneLockWallpaperOffsetX,
-        phoneLockWallpaperOffsetY = phoneLockWallpaperOffsetY,
-        spaceLockWallpaperScaleMode = spaceLockWallpaperScaleMode,
-        spaceLockWallpaperZoomLevel = spaceLockWallpaperZoomLevel,
-        spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
-        spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
-        spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY,
-        pageTurnEffect = pageTurnEffect,
-        pageTurnDurationMs = pageTurnDurationMs,
-        pageTurnIntensity = pageTurnIntensity
-      )
-      spaceDao.insertSpace(SpaceEntity.fromDomain(space))
+      val space = runInTransaction {
+        val newId = "space_" + UUID.randomUUID().toString().replace("-", "").take(12)
+        val orderIndex = spaceDao.getSpaceCount()
+        val s = Space(
+          id = newId,
+          name = trimmed,
+          orderIndex = orderIndex,
+          createdAt = System.currentTimeMillis(),
+          updatedAt = System.currentTimeMillis(),
+          authPolicy = authPolicy,
+          pinSalt = pinSalt,
+          pinHash = pinHash,
+          patternRows = patternRows,
+          patternCols = patternCols,
+          layoutType = "GRID_$gridColumns",
+          backgroundType = backgroundType,
+          backgroundColor = backgroundColor,
+          backgroundImageUri = backgroundImageUri,
+          homeWallpaperType = homeWallpaperType,
+          homeWallpaperColor = homeWallpaperColor,
+          homeWallpaperImageUri = homeWallpaperImageUri,
+          phoneLockWallpaperType = phoneLockWallpaperType,
+          phoneLockWallpaperColor = phoneLockWallpaperColor,
+          phoneLockWallpaperImageUri = phoneLockWallpaperImageUri,
+          spaceLockWallpaperType = spaceLockWallpaperType,
+          spaceLockWallpaperColor = spaceLockWallpaperColor,
+          spaceLockWallpaperImageUri = spaceLockWallpaperImageUri,
+          appTheme = appTheme,
+          gridColumns = gridColumns.coerceIn(Space.MIN_GRID_COLUMNS, Space.MAX_GRID_COLUMNS),
+          iconSize = iconSize,
+          labelVisibility = labelVisibility,
+          layer1DisplayMode = layer1DisplayMode,
+          layer2DisplayMode = layer2DisplayMode,
+          layer2AccessMode = layer2AccessMode,
+          dockCapacity = dockCapacity,
+          layoutPreset = layoutPreset,
+          useLayer2 = useLayer2,
+          homeWallpaperScaleMode = homeWallpaperScaleMode,
+          homeWallpaperZoomLevel = homeWallpaperZoomLevel,
+          homeWallpaperDimLevel = homeWallpaperDimLevel,
+          homeWallpaperOffsetX = homeWallpaperOffsetX,
+          homeWallpaperOffsetY = homeWallpaperOffsetY,
+          phoneLockWallpaperScaleMode = phoneLockWallpaperScaleMode,
+          phoneLockWallpaperZoomLevel = phoneLockWallpaperZoomLevel,
+          phoneLockWallpaperDimLevel = phoneLockWallpaperDimLevel,
+          phoneLockWallpaperOffsetX = phoneLockWallpaperOffsetX,
+          phoneLockWallpaperOffsetY = phoneLockWallpaperOffsetY,
+          spaceLockWallpaperScaleMode = spaceLockWallpaperScaleMode,
+          spaceLockWallpaperZoomLevel = spaceLockWallpaperZoomLevel,
+          spaceLockWallpaperDimLevel = spaceLockWallpaperDimLevel,
+          spaceLockWallpaperOffsetX = spaceLockWallpaperOffsetX,
+          spaceLockWallpaperOffsetY = spaceLockWallpaperOffsetY,
+          pageTurnEffect = pageTurnEffect,
+          pageTurnDurationMs = pageTurnDurationMs,
+          pageTurnIntensity = pageTurnIntensity
+        )
+        spaceDao.insertSpace(SpaceEntity.fromDomain(s))
 
-      initializeNewSpaceDefaults(
-        spaceId = newId,
-        spaceName = trimmed,
-        layoutPreset = layoutPreset,
-        dockCapacity = dockCapacity,
-        gridColumns = gridColumns,
-        candidateApps = initialApps
-      )
+        initializeNewSpaceDefaults(
+          spaceId = newId,
+          spaceName = trimmed,
+          layoutPreset = layoutPreset,
+          dockCapacity = dockCapacity,
+          gridColumns = gridColumns,
+          candidateApps = initialApps
+        )
+        s
+      }
 
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Created configured Space: '$trimmed' ($newId) with preset '$layoutPreset' and default apps")
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Created configured Space: '$trimmed' (${space.id}) with preset '$layoutPreset' and default apps")
       Result.success(space)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to create configured Space: '$name'", e)
@@ -836,7 +856,8 @@ class RoomSpaceRepository(
         pageTurnDurationMs = pageTurnDurationMs,
         pageTurnIntensity = pageTurnIntensity
       )
-      spaceDao.updateSpace(updated)
+      val updatedDomain = runInTransaction {
+        spaceDao.updateSpace(updated)
 
       val uniqueUpdatedApps = updatedApps.distinctBy { it.appIdentity }
       if (uniqueUpdatedApps.isNotEmpty()) {
@@ -1000,9 +1021,11 @@ class RoomSpaceRepository(
           expandDockItemsIfNeeded(spaceId, dockCapacity, uniqueUpdatedApps)
         }
       }
+      updated.toDomain()
+    }
 
       AppLogger.i(AppLogger.Category.LAUNCHER, "Updated configured Space: '$trimmed' ($spaceId) with ${updatedApps.size} apps")
-      Result.success(updated.toDomain())
+      Result.success(updatedDomain)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to update Space: '$name' ($spaceId)", e)
       Result.failure(e)
@@ -1042,15 +1065,17 @@ class RoomSpaceRepository(
       val target = allSpaces.firstOrNull { it.id == spaceId }
         ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
 
-      val currentActiveId = preferences.activeSpaceIdFlow.firstOrNull()
-      if (currentActiveId == spaceId) {
-        // Fall back active space to another valid space before deleting
-        val fallback = allSpaces.first { it.id != spaceId }
-        preferences.setActiveSpaceId(fallback.id)
-        AppLogger.i(AppLogger.Category.LAUNCHER, "Active Space fallback to '${fallback.name}' prior to deleting '$spaceId'")
-      }
+      runInTransaction {
+        val currentActiveId = preferences.activeSpaceIdFlow.firstOrNull()
+        if (currentActiveId == spaceId) {
+          // Fall back active space to another valid space before deleting
+          val fallback = allSpaces.first { it.id != spaceId }
+          preferences.setActiveSpaceId(fallback.id)
+          AppLogger.i(AppLogger.Category.LAUNCHER, "Active Space fallback to '${fallback.name}' prior to deleting '$spaceId'")
+        }
 
-      spaceDao.deleteSpaceById(spaceId)
+        spaceDao.deleteSpaceById(spaceId)
+      }
       AppLogger.i(AppLogger.Category.LAUNCHER, "Deleted Space '${target.name}' ($spaceId)")
       Result.success(Unit)
     } catch (e: Exception) {
@@ -1371,55 +1396,57 @@ class RoomSpaceRepository(
       val existing = spaceDao.getSpaceById(spaceId)
         ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
 
-      val updated = existing.copy(
-        layoutPreset = preset.id,
-        gridColumns = preset.gridColumns,
-        layer1DisplayMode = preset.layer1DisplayMode,
-        layer2DisplayMode = preset.layer2DisplayMode,
-        layer2AccessMode = preset.layer2AccessMode,
-        dockCapacity = preset.dockCapacity,
-        iconSize = preset.iconSize,
-        labelVisibility = preset.labelVisibility,
-        appTheme = preset.appTheme,
-        updatedAt = System.currentTimeMillis()
-      )
-      spaceDao.updateSpace(updated)
+      runInTransaction {
+        val updated = existing.copy(
+          layoutPreset = preset.id,
+          gridColumns = preset.gridColumns,
+          layer1DisplayMode = preset.layer1DisplayMode,
+          layer2DisplayMode = preset.layer2DisplayMode,
+          layer2AccessMode = preset.layer2AccessMode,
+          dockCapacity = preset.dockCapacity,
+          iconSize = preset.iconSize,
+          labelVisibility = preset.labelVisibility,
+          appTheme = preset.appTheme,
+          updatedAt = System.currentTimeMillis()
+        )
+        spaceDao.updateSpace(updated)
 
-      // Reorganize Layer 1 placements deterministically
-      val activeApps = if (apps.isNotEmpty()) {
-        apps
-      } else {
-        val memberships = membershipDao.getMembershipsForSpace(spaceId)
-        memberships.map {
-          DiscoveredApp(
-            id = "${it.packageName}/${it.componentName}/${it.userHandleId}",
-            packageName = it.packageName,
-            activityName = it.componentName,
-            label = it.packageName,
-            userHandleId = it.userHandleId
-          )
+        // Reorganize Layer 1 placements deterministically
+        val activeApps = if (apps.isNotEmpty()) {
+          apps
+        } else {
+          val memberships = membershipDao.getMembershipsForSpace(spaceId)
+          memberships.map {
+            DiscoveredApp(
+              id = "${it.packageName}/${it.componentName}/${it.userHandleId}",
+              packageName = it.packageName,
+              activityName = it.componentName,
+              label = it.packageName,
+              userHandleId = it.userHandleId
+            )
+          }
         }
-      }
 
-      val distinctActiveApps = activeApps.distinctBy { it.appIdentity }
-      layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
-      layoutDao.deleteAllDockItemsForSpace(spaceId)
+        val distinctActiveApps = activeApps.distinctBy { it.appIdentity }
+        layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+        layoutDao.deleteAllDockItemsForSpace(spaceId)
 
-      val presetObj = LayoutPreset.getById(preset.id)
-      val layoutResult = PresetLayoutHelper.buildInitialLayout(
-        spaceId = spaceId,
-        preset = presetObj,
-        gridColumns = preset.gridColumns,
-        availableApps = distinctActiveApps,
-        dockCapacity = preset.dockCapacity
-      )
+        val presetObj = LayoutPreset.getById(preset.id)
+        val layoutResult = PresetLayoutHelper.buildInitialLayout(
+          spaceId = spaceId,
+          preset = presetObj,
+          gridColumns = preset.gridColumns,
+          availableApps = distinctActiveApps,
+          dockCapacity = preset.dockCapacity
+        )
 
-      if (layoutResult.placements.isNotEmpty()) {
-        layoutDao.insertPlacements(layoutResult.placements)
-      }
+        if (layoutResult.placements.isNotEmpty()) {
+          layoutDao.insertPlacements(layoutResult.placements)
+        }
 
-      if (layoutResult.dockItems.isNotEmpty()) {
-        layoutDao.insertDockItems(layoutResult.dockItems)
+        if (layoutResult.dockItems.isNotEmpty()) {
+          layoutDao.insertDockItems(layoutResult.dockItems)
+        }
       }
 
       AppLogger.i(AppLogger.Category.LAUNCHER, "Applied layout preset '${preset.name}' to Space '${existing.name}' ($spaceId)")
@@ -1446,46 +1473,55 @@ class RoomSpaceRepository(
       val presetId = space?.layoutPreset ?: Space.PRESET_DEFAULT
       val presetObj = LayoutPreset.getById(presetId)
 
-      layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
-      layoutDao.deleteAllDockItemsForSpace(spaceId)
+      val (dockCount, placementCount) = runInTransaction {
+        layoutDao.deletePlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+        layoutDao.deleteAllDockItemsForSpace(spaceId)
 
-      val layoutResult = PresetLayoutHelper.buildInitialLayout(
-        spaceId = spaceId,
-        preset = presetObj,
-        gridColumns = cols,
-        availableApps = uniqueApps,
-        dockCapacity = dockCapacity
-      )
+        val layoutResult = PresetLayoutHelper.buildInitialLayout(
+          spaceId = spaceId,
+          preset = presetObj,
+          gridColumns = cols,
+          availableApps = uniqueApps,
+          dockCapacity = dockCapacity
+        )
 
-      if (layoutResult.dockItems.isNotEmpty()) {
-        layoutDao.insertDockItems(layoutResult.dockItems)
-        successes.add("Identified and populated essential bottom Dock apps (${layoutResult.dockItems.size} apps)")
-      }
-
-      if (layoutResult.placements.isNotEmpty()) {
-        layoutDao.insertPlacements(layoutResult.placements)
-        successes.add("Initialized ${layoutResult.placements.size} placements using preset '${presetObj.name}'")
-      }
-
-      // Ensure all imported apps are registered as memberships in this Space
-      if (uniqueApps.isNotEmpty()) {
-        val existingMemberships = membershipDao.getMembershipsForSpace(spaceId)
-        val existingMembershipIdentities = existingMemberships.map { it.appIdentity }
-        val newMemberships = uniqueApps
-          .filterNot { app -> existingMembershipIdentities.any { it.matches(app.appIdentity) } }
-          .mapIndexed { idx, app ->
-            SpaceMembershipEntity(
-              spaceId = spaceId,
-              packageName = app.packageName,
-              componentName = app.activityName,
-              userHandleId = app.userHandleId,
-              orderIndex = existingMemberships.size + idx,
-              addedAt = System.currentTimeMillis()
-            )
-          }
-        if (newMemberships.isNotEmpty()) {
-          membershipDao.insertMemberships(newMemberships)
+        if (layoutResult.dockItems.isNotEmpty()) {
+          layoutDao.insertDockItems(layoutResult.dockItems)
         }
+
+        if (layoutResult.placements.isNotEmpty()) {
+          layoutDao.insertPlacements(layoutResult.placements)
+        }
+
+        // Ensure all imported apps are registered as memberships in this Space
+        if (uniqueApps.isNotEmpty()) {
+          val existingMemberships = membershipDao.getMembershipsForSpace(spaceId)
+          val existingMembershipIdentities = existingMemberships.map { it.appIdentity }
+          val newMemberships = uniqueApps
+            .filterNot { app -> existingMembershipIdentities.any { it.matches(app.appIdentity) } }
+            .mapIndexed { idx, app ->
+              SpaceMembershipEntity(
+                spaceId = spaceId,
+                packageName = app.packageName,
+                componentName = app.activityName,
+                userHandleId = app.userHandleId,
+                orderIndex = existingMemberships.size + idx,
+                addedAt = System.currentTimeMillis()
+              )
+            }
+          if (newMemberships.isNotEmpty()) {
+            membershipDao.insertMemberships(newMemberships)
+          }
+        }
+
+        Pair(layoutResult.dockItems.size, layoutResult.placements.size)
+      }
+
+      if (dockCount > 0) {
+        successes.add("Identified and populated essential bottom Dock apps ($dockCount apps)")
+      }
+      if (placementCount > 0) {
+        successes.add("Initialized $placementCount placements using preset '${presetObj.name}'")
       }
 
       // Detect current default launcher package if available
@@ -1502,7 +1538,7 @@ class RoomSpaceRepository(
         successItems = successes,
         partiallyImportedItems = partiallyImported,
         restrictedItems = restricted,
-        summary = "Successfully imported ${allInstalledApps.size} apps and ${layoutResult.dockItems.size} dock shortcuts from standard Android configuration."
+        summary = "Successfully imported ${allInstalledApps.size} apps and $dockCount dock shortcuts from standard Android configuration."
       )
 
       AppLogger.i(AppLogger.Category.LAUNCHER, "Imported Android home layout: ${report.summary}")
@@ -1515,9 +1551,11 @@ class RoomSpaceRepository(
 
   override suspend fun cleanupUninstalledApp(packageName: String): Result<Unit> {
     return try {
-      layoutDao.deletePlacementsForPackage(packageName)
-      layoutDao.deleteFolderItemsForPackage(packageName)
-      layoutDao.deleteDockItemsForPackage(packageName)
+      runInTransaction {
+        layoutDao.deletePlacementsForPackage(packageName)
+        layoutDao.deleteFolderItemsForPackage(packageName)
+        layoutDao.deleteDockItemsForPackage(packageName)
+      }
       AppLogger.i(AppLogger.Category.LAUNCHER, "Cleaned up layout placements for uninstalled package: $packageName")
       Result.success(Unit)
     } catch (e: Exception) {
