@@ -62,8 +62,9 @@ class ConfigurationActivity : FragmentActivity() {
   }
 
   private fun navigateToHomeSurface() {
-    val homeIntent = Intent(this, MainActivity::class.java).apply {
-      flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+      addCategory(Intent.CATEGORY_HOME)
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK
     }
     startActivity(homeIntent)
     finish()

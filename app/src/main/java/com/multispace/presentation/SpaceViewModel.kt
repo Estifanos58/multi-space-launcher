@@ -14,6 +14,7 @@ import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceItemPlacement
 import com.multispace.domain.model.SpaceMembership
 import com.multispace.domain.repository.SpaceRepository
+import com.multispace.presentation.events.HomeTriggerSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -50,6 +51,27 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
   // Layer State (1 = Layer 1 Curated Home, 2 = Layer 2 Space App Library)
   private val _activeLayerIndex = MutableStateFlow(1)
   val activeLayerIndex: StateFlow<Int> = _activeLayerIndex.asStateFlow()
+
+  sealed interface LauncherCommand {
+    data class NavigateHome(val source: HomeTriggerSource) : LauncherCommand
+    object ResetTransientState : LauncherCommand
+  }
+
+  private val _launcherCommands = MutableSharedFlow<LauncherCommand>(extraBufferCapacity = 16)
+  val launcherCommands: SharedFlow<LauncherCommand> = _launcherCommands.asSharedFlow()
+
+  private val _homeResetCounter = MutableStateFlow(0L)
+  val homeResetCounter: StateFlow<Long> = _homeResetCounter.asStateFlow()
+
+  fun onHomeIntentReceived(source: HomeTriggerSource) {
+    setLayer(1)
+    _homeResetCounter.update { it + 1 }
+    _launcherCommands.tryEmit(LauncherCommand.NavigateHome(source))
+  }
+
+  fun resetTransientState() {
+    _launcherCommands.tryEmit(LauncherCommand.ResetTransientState)
+  }
 
   fun setLayer(layer: Int) {
     _activeLayerIndex.value = if (layer == 2) 2 else 1

@@ -35,6 +35,15 @@ class DesktopInteractionController(
     activeFolderInDialog = null
   }
 
+  fun dismissAllModals() {
+    showSpaceSwitcherMenu = false
+    spaceToUnlockForSwitch = null
+    showUnlockForActiveSpace = false
+    showDesktopCustomizationSheet = false
+    showImportDialog = false
+    activeFolderInDialog = null
+  }
+
   fun renameFolder(folder: SpaceFolder, newName: String) {
     if (!folder.isMostUsedFolder) {
       spaceViewModel.renameFolder(folder.id, newName)

@@ -128,6 +128,7 @@ fun Layer1HomeScreen(
   onEmptySpaceSwipeEnd: () -> Unit = {},
   onEmptySpaceSwipeCancel: () -> Unit = {},
   usageStats: SpaceUsageStats? = null,
+  homeResetTrigger: Long = 0L,
   modifier: Modifier = Modifier
 ) {
   BoxWithConstraints(
@@ -407,6 +408,15 @@ fun Layer1HomeScreen(
   LaunchedEffect(space.id) {
     dismissActions()
     resizingWidgetId = null
+  }
+
+  LaunchedEffect(homeResetTrigger) {
+    if (homeResetTrigger > 0L) {
+      dismissActions()
+      if (pagerState.currentPage > 0) {
+        pagerState.animateScrollToPage(0)
+      }
+    }
   }
 
   // Edge paging state machine (IDLE -> ARMED -> CONSUMED)

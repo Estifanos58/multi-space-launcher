@@ -79,6 +79,27 @@ fun LauncherHomeScreen(
     transitionController.animateToLayer(1)
   }
 
+  val homeResetCounter by spaceViewModel.homeResetCounter.collectAsState()
+
+  LaunchedEffect(spaceViewModel) {
+    spaceViewModel.launcherCommands.collect { command ->
+      when (command) {
+        is SpaceViewModel.LauncherCommand.NavigateHome -> {
+          if (transitionController.isLayer2OpenOrOpening) {
+            transitionController.animateToLayer(1)
+          } else {
+            spaceViewModel.setLayer(1)
+          }
+          desktopController.dismissAllModals()
+          unifiedDragState.reset()
+        }
+        is SpaceViewModel.LauncherCommand.ResetTransientState -> {
+          unifiedDragState.reset()
+        }
+      }
+    }
+  }
+
   BoxWithConstraints(
     modifier = modifier.fillMaxSize()
   ) {
@@ -233,7 +254,8 @@ fun LauncherHomeScreen(
                       onEmptySpaceSwipeMove = emptySwipeCallbacks.onMove,
                       onEmptySpaceSwipeEnd = emptySwipeCallbacks.onEnd,
                       onEmptySpaceSwipeCancel = emptySwipeCallbacks.onCancel,
-                      usageStats = uiState.spaceUsageStats
+                      usageStats = uiState.spaceUsageStats,
+                      homeResetTrigger = homeResetCounter
                     )
                   }
                 }

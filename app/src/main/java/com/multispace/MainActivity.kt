@@ -25,8 +25,11 @@ class MainActivity : FragmentActivity() {
       onScreenOff = {
         spaceViewModel.lockPhone()
       },
-      onHomeIntent = {
-        spaceViewModel.setLayer(1)
+      onHomeIntent = { source ->
+        spaceViewModel.onHomeIntentReceived(source)
+      },
+      onResetTransientState = {
+        spaceViewModel.resetTransientState()
       }
     )
   }
@@ -77,6 +80,7 @@ class MainActivity : FragmentActivity() {
               discoveryViewModel = discoveryViewModel,
               spaceViewModel = spaceViewModel,
               onLaunchAppInSpace = { app, spaceId ->
+                lifecycleCoordinator.recordAppLaunch(app.packageName, app.activityName, spaceId)
                 discoveryViewModel.launchApp(app, spaceId)
               },
               onOpenConfiguration = {
