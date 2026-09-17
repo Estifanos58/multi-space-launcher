@@ -10,6 +10,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
@@ -32,15 +33,40 @@ import kotlinx.coroutines.withContext
 
 /**
  * Platform adapter managing installed application discovery, icon caching, and
- * dynamic package install/uninstall/update events via LauncherApps.
+ * dynamic profile-aware package install/uninstall/update events.
  */
 class AppDiscoveryManager(private val context: Context) {
 
   sealed class PackageEvent {
-    data class Added(val packageName: String, val timestamp: Long = System.currentTimeMillis()) : PackageEvent()
-    data class Removed(val packageName: String, val timestamp: Long = System.currentTimeMillis()) : PackageEvent()
-    data class Changed(val packageName: String, val timestamp: Long = System.currentTimeMillis()) : PackageEvent()
-    data class Refreshed(val count: Int, val timestamp: Long = System.currentTimeMillis()) : PackageEvent()
+    abstract val packageName: String
+    abstract val userHandleId: Long
+    abstract val timestamp: Long
+
+    data class Added(
+      override val packageName: String,
+      override val userHandleId: Long = 0L,
+      override val timestamp: Long = System.currentTimeMillis()
+    ) : PackageEvent()
+
+    data class Removed(
+      override val packageName: String,
+      override val userHandleId: Long = 0L,
+      override val timestamp: Long = System.currentTimeMillis()
+    ) : PackageEvent()
+
+    data class Changed(
+      override val packageName: String,
+      override val userHandleId: Long = 0L,
+      override val timestamp: Long = System.currentTimeMillis()
+    ) : PackageEvent()
+
+    data class Refreshed(
+      override val packageName: String = "",
+      override val userHandleId: Long = 0L,
+      val count: Int = 0,
+      val packages: List<String> = emptyList(),
+      override val timestamp: Long = System.currentTimeMillis()
+    ) : PackageEvent()
   }
 
   private val launcherApps: LauncherApps? =
@@ -51,9 +77,12 @@ class AppDiscoveryManager(private val context: Context) {
 
   private val packageManager: PackageManager = context.packageManager
 
-  // In-memory icon cache to prevent scrolling stutter and redundant bitmap decoding
-  private val iconCache = object : LruCache<String, Drawable>(200) {}
-  private val bitmapCache = object : LruCache<String, Bitmap>(200) {}
+  // In-memory caches to prevent scrolling stutter and redundant bitmap decoding
+  // Key format: "$packageName/$activityName#$userHandleId"
+  private val iconCache = object : LruCache<String, Drawable>(250) {}
+  private val bitmapCache = object : LruCache<String, Bitmap>(250) {}
+  private val metadataCache = PackageMetadataCache(300)
+  private val deduplicator = PackageEventDeduplicator(windowMillis = 400L)
 
   // Density-aware icon resolution (128px is memory-efficient and crisp for low-RAM devices)
   private val targetIconSizePx: Int by lazy {
@@ -61,29 +90,45 @@ class AppDiscoveryManager(private val context: Context) {
     (density * 56).toInt().coerceIn(96, 192)
   }
 
-  private val _packageEvents = MutableSharedFlow<PackageEvent>(extraBufferCapacity = 32)
+  private val _packageEvents = MutableSharedFlow<PackageEvent>(extraBufferCapacity = 64)
   val packageEvents: SharedFlow<PackageEvent> = _packageEvents.asSharedFlow()
 
   private var isCallbackRegistered = false
   private var isReceiverRegistered = false
+
+  private fun emitPackageEvent(event: PackageEvent) {
+    if (deduplicator.shouldProcess(event)) {
+      _packageEvents.tryEmit(event)
+    } else {
+      AppLogger.d(AppLogger.Category.LAUNCHER, "Suppressed duplicate package event: $event")
+    }
+  }
 
   private val packageReceiver = object : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
       val action = intent?.action ?: return
       val data = intent.data
       val packageName = data?.schemeSpecificPart ?: return
+      val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle())
+
       AppLogger.i(AppLogger.Category.LAUNCHER, "Package BroadcastReceiver: $action for $packageName")
       when (action) {
         Intent.ACTION_PACKAGE_ADDED -> {
-          _packageEvents.tryEmit(PackageEvent.Added(packageName))
+          val isReplacing = intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)
+          if (!isReplacing) {
+            emitPackageEvent(PackageEvent.Added(packageName, myUserHandleId))
+          }
         }
         Intent.ACTION_PACKAGE_REMOVED -> {
-          evictPackageFromCache(packageName)
-          _packageEvents.tryEmit(PackageEvent.Removed(packageName))
+          val isReplacing = intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)
+          if (!isReplacing) {
+            evictPackageFromCache(packageName, myUserHandleId)
+            emitPackageEvent(PackageEvent.Removed(packageName, myUserHandleId))
+          }
         }
         Intent.ACTION_PACKAGE_REPLACED, Intent.ACTION_PACKAGE_CHANGED -> {
-          evictPackageFromCache(packageName)
-          _packageEvents.tryEmit(PackageEvent.Changed(packageName))
+          evictPackageFromCache(packageName, myUserHandleId)
+          emitPackageEvent(PackageEvent.Changed(packageName, myUserHandleId))
         }
       }
     }
@@ -91,36 +136,65 @@ class AppDiscoveryManager(private val context: Context) {
 
   private val launcherAppsCallback = object : LauncherApps.Callback() {
     override fun onPackageAdded(packageName: String, user: UserHandle) {
-      AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackageAdded: $packageName (user: $user)")
-      _packageEvents.tryEmit(PackageEvent.Added(packageName))
+      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackageAdded: $packageName (user: $userHandleId)")
+      emitPackageEvent(PackageEvent.Added(packageName, userHandleId))
     }
 
     override fun onPackageRemoved(packageName: String, user: UserHandle) {
-      AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackageRemoved: $packageName (user: $user)")
-      evictPackageFromCache(packageName)
-      _packageEvents.tryEmit(PackageEvent.Removed(packageName))
+      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackageRemoved: $packageName (user: $userHandleId)")
+      evictPackageFromCache(packageName, userHandleId)
+      emitPackageEvent(PackageEvent.Removed(packageName, userHandleId))
     }
 
     override fun onPackageChanged(packageName: String, user: UserHandle) {
-      AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackageChanged: $packageName (user: $user)")
-      evictPackageFromCache(packageName)
-      _packageEvents.tryEmit(PackageEvent.Changed(packageName))
+      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackageChanged: $packageName (user: $userHandleId)")
+      evictPackageFromCache(packageName, userHandleId)
+      emitPackageEvent(PackageEvent.Changed(packageName, userHandleId))
     }
 
     override fun onPackagesAvailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) {
-      AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackagesAvailable: ${packageNames.size} packages")
-      _packageEvents.tryEmit(PackageEvent.Refreshed(packageNames.size))
+      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackagesAvailable: ${packageNames.size} packages (user: $userHandleId)")
+      packageNames.forEach { evictPackageFromCache(it, userHandleId) }
+      emitPackageEvent(
+        PackageEvent.Refreshed(
+          userHandleId = userHandleId,
+          count = packageNames.size,
+          packages = packageNames.toList()
+        )
+      )
     }
 
     override fun onPackagesUnavailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) {
-      AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackagesUnavailable: ${packageNames.size} packages")
-      _packageEvents.tryEmit(PackageEvent.Refreshed(packageNames.size))
+      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackagesUnavailable: ${packageNames.size} packages (user: $userHandleId)")
+      packageNames.forEach { evictPackageFromCache(it, userHandleId) }
+      emitPackageEvent(
+        PackageEvent.Refreshed(
+          userHandleId = userHandleId,
+          count = packageNames.size,
+          packages = packageNames.toList()
+        )
+      )
     }
   }
 
-  private fun evictPackageFromCache(packageName: String) {
-    iconCache.snapshot().keys.filter { it.startsWith(packageName) }.forEach { iconCache.remove(it) }
-    bitmapCache.snapshot().keys.filter { it.startsWith(packageName) }.forEach { bitmapCache.remove(it) }
+  fun evictPackageFromCache(packageName: String, userHandleId: Long? = null) {
+    val prefix = "$packageName/"
+    val suffix = if (userHandleId != null) "#$userHandleId" else null
+
+    fun matches(key: String): Boolean {
+      if (!key.startsWith(prefix)) return false
+      if (suffix != null && !key.endsWith(suffix)) return false
+      return true
+    }
+
+    iconCache.snapshot().keys.filter { matches(it) }.forEach { iconCache.remove(it) }
+    bitmapCache.snapshot().keys.filter { matches(it) }.forEach { bitmapCache.remove(it) }
+    metadataCache.evict(packageName, userHandleId)
   }
 
   fun startMonitoring() {
@@ -161,7 +235,7 @@ class AppDiscoveryManager(private val context: Context) {
         AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to unregister LauncherApps.Callback", e)
       }
     }
-    if (isReceiverRegistered) {
+    if (!isReceiverRegistered) {
       try {
         context.unregisterReceiver(packageReceiver)
         isReceiverRegistered = false
@@ -173,8 +247,87 @@ class AppDiscoveryManager(private val context: Context) {
   }
 
   /**
-   * Queries all launchable applications across profiles using LauncherApps,
-   * falling back to PackageManager if necessary.
+   * Resolves package metadata with in-memory caching to avoid repeated PackageManager IPC.
+   */
+  fun resolvePackageMetadata(
+    packageName: String,
+    userHandleId: Long,
+    isSystemApp: Boolean,
+    isUpdatedSystemApp: Boolean
+  ): PackageMetadata {
+    val cached = metadataCache.get(packageName, userHandleId)
+    if (cached != null) return cached
+
+    val dpm = try {
+      context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+    } catch (_: Exception) { null }
+    val isBlocked = try {
+      dpm?.isUninstallBlocked(null, packageName) ?: false
+    } catch (_: Exception) { false }
+    val isUninstallable = (!isSystemApp || isUpdatedSystemApp) && !isBlocked
+
+    var versionName = ""
+    var installTime = 0L
+    var updateTime = 0L
+    try {
+      val pkgInfo = packageManager.getPackageInfo(packageName, 0)
+      versionName = pkgInfo.versionName ?: ""
+      installTime = pkgInfo.firstInstallTime
+      updateTime = pkgInfo.lastUpdateTime
+    } catch (_: Exception) {}
+
+    val metadata = PackageMetadata(
+      versionName = versionName,
+      installTimeMillis = installTime,
+      lastUpdateTimeMillis = updateTime,
+      isUninstallable = isUninstallable
+    )
+    metadataCache.put(packageName, userHandleId, metadata)
+    return metadata
+  }
+
+  /**
+   * Queries launchable activities for a specific package and profile incrementally.
+   */
+  suspend fun loadPackageApps(packageName: String, userHandleId: Long = 0L): List<DiscoveredApp> = withContext(Dispatchers.IO) {
+    val apps = mutableListOf<DiscoveredApp>()
+    try {
+      val profile = UserHandleHelper.resolveUserHandle(userManager, userHandleId)
+      val activityList = try {
+        launcherApps?.getActivityList(packageName, profile)
+      } catch (e: Exception) {
+        null
+      }
+      if (!activityList.isNullOrEmpty()) {
+        for (activityInfo in activityList) {
+          val app = buildDiscoveredAppFromLauncherActivity(activityInfo, userHandleId)
+          apps.add(app)
+        }
+      } else {
+        val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle())
+        if (userHandleId == 0L || userHandleId == myUserHandleId) {
+          val mainIntent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            `package` = packageName
+          }
+          val resolved = packageManager.queryIntentActivities(mainIntent, 0)
+          for (resolveInfo in resolved) {
+            val app = buildDiscoveredAppFromResolveInfo(resolveInfo, userHandleId)
+            if (app != null) {
+              apps.add(app)
+            }
+          }
+        }
+      }
+    } catch (e: Exception) {
+      AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to load activities for package $packageName (user: $userHandleId)", e)
+    }
+    apps.distinctBy { it.id }
+  }
+
+  /**
+   * Performs a full application discovery scan across all available user profiles.
+   * Real platform data only; strictly never returns fake sample applications.
    */
   suspend fun loadInstalledApps(): List<DiscoveredApp> = withContext(Dispatchers.IO) {
     val apps = mutableListOf<DiscoveredApp>()
@@ -185,58 +338,19 @@ class AppDiscoveryManager(private val context: Context) {
       AppLogger.d(AppLogger.Category.LAUNCHER, "Found ${profiles.size} user profile(s)")
 
       for (profile in profiles) {
-        val activityList: List<LauncherActivityInfo>? = launcherApps?.getActivityList(null, profile)
-        if (activityList != null && activityList.isNotEmpty()) {
+        val userHandleId = UserHandleHelper.getUserHandleId(userManager, profile)
+        val activityList: List<LauncherActivityInfo>? = try {
+          launcherApps?.getActivityList(null, profile)
+        } catch (e: Exception) {
+          AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to get activity list for profile $profile", e)
+          null
+        }
+
+        if (!activityList.isNullOrEmpty()) {
           AppLogger.d(AppLogger.Category.LAUNCHER, "LauncherApps returned ${activityList.size} activities for profile $profile")
           for (activityInfo in activityList) {
-            val appInfo = activityInfo.applicationInfo
-            val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-            val isUpdatedSystem = (appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
-            val pkgName = activityInfo.componentName.packageName
-            val clsName = activityInfo.componentName.className
-            val label = activityInfo.label?.toString() ?: pkgName
-
-            val dpm = try {
-              context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
-            } catch (e: Exception) {
-              null
-            }
-            val isBlocked = try {
-              dpm?.isUninstallBlocked(null, pkgName) ?: false
-            } catch (e: Exception) {
-              false
-            }
-            val isUninstallable = (!isSystem || isUpdatedSystem) && !isBlocked
-
-            var versionName = ""
-            var installTime = 0L
-            var updateTime = 0L
-            try {
-              val pkgInfo = packageManager.getPackageInfo(pkgName, 0)
-              versionName = pkgInfo.versionName ?: ""
-              installTime = pkgInfo.firstInstallTime
-              updateTime = pkgInfo.lastUpdateTime
-            } catch (e: Exception) {
-              // Ignore package info read error
-            }
-
-            val userHandleId = UserHandleHelper.getUserHandleId(userManager, profile)
-            val id = "$pkgName/$clsName#$userHandleId"
-
-            apps.add(
-              DiscoveredApp(
-                id = id,
-                packageName = pkgName,
-                activityName = clsName,
-                label = label,
-                userHandleId = userHandleId,
-                isSystemApp = isSystem,
-                isUninstallable = isUninstallable,
-                versionName = versionName,
-                installTimeMillis = installTime,
-                lastUpdateTimeMillis = updateTime
-              )
-            )
+            val app = buildDiscoveredAppFromLauncherActivity(activityInfo, userHandleId)
+            apps.add(app)
           }
         }
       }
@@ -244,17 +358,13 @@ class AppDiscoveryManager(private val context: Context) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "LauncherApps query failed, falling back to PackageManager", e)
     }
 
-    // Fallback if LauncherApps and PackageManager returned empty or only self
+    // Fallback if LauncherApps returned empty
     if (apps.isEmpty()) {
       apps.addAll(loadAppsViaPackageManagerFallback())
     }
 
-    if (apps.isEmpty()) {
-      apps.addAll(loadDefaultSampleApps())
-    }
-
     // Sort alphabetically by app label
-    val sorted = apps.distinctBy { it.key }.sortedWith(
+    val sorted = apps.distinctBy { it.id }.sortedWith(
       compareBy(String.CASE_INSENSITIVE_ORDER) { it.label }
     )
 
@@ -262,104 +372,76 @@ class AppDiscoveryManager(private val context: Context) {
     sorted
   }
 
-  private fun loadDefaultSampleApps(): List<DiscoveredApp> {
-    return listOf(
-      DiscoveredApp(
-        id = "com.android.settings/com.android.settings.Settings#0",
-        packageName = "com.android.settings",
-        activityName = "com.android.settings.Settings",
-        label = "Settings",
-        isSystemApp = true,
-        userHandleId = 0L
-      ),
-      DiscoveredApp(
-        id = "com.android.camera/com.android.camera.Camera#0",
-        packageName = "com.android.camera",
-        activityName = "com.android.camera.Camera",
-        label = "Camera",
-        isSystemApp = true,
-        userHandleId = 0L
-      ),
-      DiscoveredApp(
-        id = "com.android.chrome/com.google.android.apps.chrome.Main#0",
-        packageName = "com.android.chrome",
-        activityName = "com.google.android.apps.chrome.Main",
-        label = "Chrome",
-        isSystemApp = false,
-        userHandleId = 0L
-      ),
-      DiscoveredApp(
-        id = "com.android.calculator2/com.android.calculator2.Calculator#0",
-        packageName = "com.android.calculator2",
-        activityName = "com.android.calculator2.Calculator",
-        label = "Calculator",
-        isSystemApp = true,
-        userHandleId = 0L
-      ),
-      DiscoveredApp(
-        id = "com.google.android.deskclock/com.android.deskclock.DeskClock#0",
-        packageName = "com.google.android.deskclock",
-        activityName = "com.android.deskclock.DeskClock",
-        label = "Clock",
-        isSystemApp = true,
-        userHandleId = 0L
-      ),
-      DiscoveredApp(
-        id = "com.google.android.calendar/com.android.calendar.AllInOneActivity#0",
-        packageName = "com.google.android.calendar",
-        activityName = "com.android.calendar.AllInOneActivity",
-        label = "Calendar",
-        isSystemApp = false,
-        userHandleId = 0L
-      ),
-      DiscoveredApp(
-        id = "com.google.android.contacts/com.android.contacts.activities.PeopleActivity#0",
-        packageName = "com.google.android.contacts",
-        activityName = "com.android.contacts.activities.PeopleActivity",
-        label = "Contacts",
-        isSystemApp = false,
-        userHandleId = 0L
-      ),
-      DiscoveredApp(
-        id = "com.google.android.apps.photos/com.google.android.apps.photos.home.HomeActivity#0",
-        packageName = "com.google.android.apps.photos",
-        activityName = "com.google.android.apps.photos.home.HomeActivity",
-        label = "Photos",
-        isSystemApp = false,
-        userHandleId = 0L
-      ),
-      DiscoveredApp(
-        id = "com.google.android.apps.messaging/com.google.android.apps.messaging.ui.ConversationListActivity#0",
-        packageName = "com.google.android.apps.messaging",
-        activityName = "com.google.android.apps.messaging.ui.ConversationListActivity",
-        label = "Messages",
-        isSystemApp = false,
-        userHandleId = 0L
-      ),
-      DiscoveredApp(
-        id = "com.google.android.dialer/com.google.android.dialer.extensions.GoogleDialtactsActivity#0",
-        packageName = "com.google.android.dialer",
-        activityName = "com.google.android.dialer.extensions.GoogleDialtactsActivity",
-        label = "Phone",
-        isSystemApp = true,
-        userHandleId = 0L
-      ),
-      DiscoveredApp(
-        id = "com.google.android.apps.maps/com.google.android.maps.MapsActivity#0",
-        packageName = "com.google.android.apps.maps",
-        activityName = "com.google.android.maps.MapsActivity",
-        label = "Maps",
-        isSystemApp = false,
-        userHandleId = 0L
-      ),
-      DiscoveredApp(
-        id = "com.google.android.apps.nbu.files/com.google.android.apps.nbu.files.home.HomeActivity#0",
-        packageName = "com.google.android.apps.nbu.files",
-        activityName = "com.google.android.apps.nbu.files.home.HomeActivity",
-        label = "Files",
-        isSystemApp = true,
-        userHandleId = 0L
-      )
+  /**
+   * Executes discovery and returns an explicit [DiscoveryResult] without masking failures.
+   */
+  suspend fun discoverApps(): DiscoveryResult = withContext(Dispatchers.IO) {
+    try {
+      val apps = loadInstalledApps()
+      if (apps.isNotEmpty()) {
+        DiscoveryResult.Success(apps)
+      } else {
+        DiscoveryResult.Empty("No launchable applications found on device")
+      }
+    } catch (t: Throwable) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "App discovery encountered error", t)
+      DiscoveryResult.Failure(t)
+    }
+  }
+
+  private fun buildDiscoveredAppFromLauncherActivity(
+    activityInfo: LauncherActivityInfo,
+    userHandleId: Long
+  ): DiscoveredApp {
+    val appInfo = activityInfo.applicationInfo
+    val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+    val isUpdatedSystem = (appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+    val pkgName = activityInfo.componentName.packageName
+    val clsName = activityInfo.componentName.className
+    val label = activityInfo.label?.toString() ?: pkgName
+
+    val metadata = resolvePackageMetadata(pkgName, userHandleId, isSystem, isUpdatedSystem)
+    val id = "$pkgName/$clsName#$userHandleId"
+
+    return DiscoveredApp(
+      id = id,
+      packageName = pkgName,
+      activityName = clsName,
+      label = label,
+      userHandleId = userHandleId,
+      isSystemApp = isSystem,
+      isUninstallable = metadata.isUninstallable,
+      versionName = metadata.versionName,
+      installTimeMillis = metadata.installTimeMillis,
+      lastUpdateTimeMillis = metadata.lastUpdateTimeMillis
+    )
+  }
+
+  private fun buildDiscoveredAppFromResolveInfo(
+    resolveInfo: ResolveInfo,
+    userHandleId: Long
+  ): DiscoveredApp? {
+    val activityInfo = resolveInfo.activityInfo ?: return null
+    val pkgName = activityInfo.packageName
+    val clsName = activityInfo.name
+    val label = resolveInfo.loadLabel(packageManager)?.toString() ?: pkgName
+    val isSystem = (activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+    val isUpdatedSystem = (activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+
+    val metadata = resolvePackageMetadata(pkgName, userHandleId, isSystem, isUpdatedSystem)
+    val id = "$pkgName/$clsName#$userHandleId"
+
+    return DiscoveredApp(
+      id = id,
+      packageName = pkgName,
+      activityName = clsName,
+      label = label,
+      userHandleId = userHandleId,
+      isSystemApp = isSystem,
+      isUninstallable = metadata.isUninstallable,
+      versionName = metadata.versionName,
+      installTimeMillis = metadata.installTimeMillis,
+      lastUpdateTimeMillis = metadata.lastUpdateTimeMillis
     )
   }
 
@@ -370,54 +452,14 @@ class AppDiscoveryManager(private val context: Context) {
         addCategory(Intent.CATEGORY_LAUNCHER)
       }
       val resolvedActivities = packageManager.queryIntentActivities(mainIntent, 0)
+      val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle())
       AppLogger.d(AppLogger.Category.LAUNCHER, "PackageManager fallback found ${resolvedActivities.size} activities")
 
       for (resolveInfo in resolvedActivities) {
-        val activityInfo = resolveInfo.activityInfo ?: continue
-        val pkgName = activityInfo.packageName
-        val clsName = activityInfo.name
-        val label = resolveInfo.loadLabel(packageManager)?.toString() ?: pkgName
-        val isSystem = (activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-        val isUpdatedSystem = (activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
-        val dpm = try {
-          context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
-        } catch (e: Exception) {
-          null
+        val app = buildDiscoveredAppFromResolveInfo(resolveInfo, myUserHandleId)
+        if (app != null) {
+          fallbackList.add(app)
         }
-        val isBlocked = try {
-          dpm?.isUninstallBlocked(null, pkgName) ?: false
-        } catch (e: Exception) {
-          false
-        }
-        val isUninstallable = (!isSystem || isUpdatedSystem) && !isBlocked
-
-        var versionName = ""
-        var installTime = 0L
-        var updateTime = 0L
-        try {
-          val pkgInfo = packageManager.getPackageInfo(pkgName, 0)
-          versionName = pkgInfo.versionName ?: ""
-          installTime = pkgInfo.firstInstallTime
-          updateTime = pkgInfo.lastUpdateTime
-        } catch (e: Exception) {
-          // Ignore package info read error
-        }
-
-        val id = "$pkgName/$clsName#0"
-        fallbackList.add(
-          DiscoveredApp(
-            id = id,
-            packageName = pkgName,
-            activityName = clsName,
-            label = label,
-            userHandleId = 0L,
-            isSystemApp = isSystem,
-            isUninstallable = isUninstallable,
-            versionName = versionName,
-            installTimeMillis = installTime,
-            lastUpdateTimeMillis = updateTime
-          )
-        )
       }
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "PackageManager fallback query also failed", e)
@@ -442,7 +484,8 @@ class AppDiscoveryManager(private val context: Context) {
   }
 
   /**
-   * Retrieves the Drawable icon for a discovered app using fast direct activity resolution.
+   * Retrieves the Drawable icon for a discovered app using fast direct activity resolution
+   * with profile-aware badging.
    */
   fun loadAppIcon(app: DiscoveredApp): Drawable? {
     val cached = iconCache.get(app.id)
@@ -451,13 +494,16 @@ class AppDiscoveryManager(private val context: Context) {
     return try {
       var icon: Drawable? = null
 
-      // Fast Path 1: LauncherApps direct activity info icon (avoids intent filter resolution)
+      // Fast Path 1: LauncherApps direct activity info icon (avoids intent filter resolution and badges work profiles)
       if (launcherApps != null && userManager != null) {
         val profile = UserHandleHelper.resolveUserHandle(userManager, app.userHandleId)
-        val activityList = launcherApps.getActivityList(app.packageName, profile)
-        val matchedActivity = activityList.firstOrNull {
+        val activityList = try {
+          launcherApps.getActivityList(app.packageName, profile)
+        } catch (_: Exception) { null }
+
+        val matchedActivity = activityList?.firstOrNull {
           it.componentName.className == app.activityName
-        } ?: activityList.firstOrNull()
+        } ?: activityList?.firstOrNull()
 
         if (matchedActivity != null) {
           icon = matchedActivity.getBadgedIcon(0)
@@ -502,7 +548,6 @@ class AppDiscoveryManager(private val context: Context) {
    * so scrolling operations hit 100% in-memory cache without frame drops.
    */
   suspend fun prewarmIconCache(apps: List<DiscoveredApp>) = withContext(Dispatchers.IO) {
-    AppLogger.d(AppLogger.Category.LAUNCHER, "Pre-warming icon cache for ${apps.size} apps...")
     for (app in apps) {
       ensureActive()
       if (bitmapCache.get(app.id) == null) {
@@ -517,7 +562,6 @@ class AppDiscoveryManager(private val context: Context) {
         } catch (_: Exception) {}
       }
     }
-    AppLogger.d(AppLogger.Category.LAUNCHER, "Icon cache pre-warming complete (${bitmapCache.size()} bitmaps cached)")
   }
 
   private fun drawableToBitmap(drawable: Drawable, targetSize: Int): Bitmap? {
@@ -548,6 +592,8 @@ class AppDiscoveryManager(private val context: Context) {
   fun clearIconCache() {
     iconCache.evictAll()
     bitmapCache.evictAll()
-    AppLogger.d(AppLogger.Category.LAUNCHER, "Icon caches evicted")
+    metadataCache.clear()
+    deduplicator.clear()
+    AppLogger.d(AppLogger.Category.LAUNCHER, "Discovery and icon caches evicted")
   }
 }

@@ -14,8 +14,10 @@ import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceUsageStats
 import com.multispace.domain.repository.LaunchHistoryRepository
+import com.multispace.platform.AppCatalogUpdater
 import com.multispace.platform.AppDiscoveryManager
 import com.multispace.platform.AppLaunchManager
+import com.multispace.platform.DiscoveryResult
 import com.multispace.platform.LaunchResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -67,7 +69,8 @@ data class AppDiscoveryUiState(
   val lastScannedTime: Long = 0L,
   val recentPackageEvent: String = "No package events yet",
   val recentLaunchLog: String = "No launch attempts yet",
-  val launchHistory: List<String> = emptyList()
+  val launchHistory: List<String> = emptyList(),
+  val discoveryResult: DiscoveryResult? = null
 )
 
 class AppDiscoveryViewModel(application: Application) : AndroidViewModel(application) {
@@ -138,33 +141,89 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
     loadApps()
   }
 
-  @OptIn(FlowPreview::class)
   private fun observePackageEvents() {
-    // 1. Immediate UI feedback for telemetry / diagnostic view
     viewModelScope.launch {
       discoveryManager.packageEvents.collect { event ->
         val eventDescription = when (event) {
-          is AppDiscoveryManager.PackageEvent.Added -> "Package Added: ${event.packageName}"
-          is AppDiscoveryManager.PackageEvent.Removed -> "Package Removed: ${event.packageName}"
-          is AppDiscoveryManager.PackageEvent.Changed -> "Package Changed: ${event.packageName}"
+          is AppDiscoveryManager.PackageEvent.Added -> "Package Added: ${event.packageName} (profile: ${event.userHandleId})"
+          is AppDiscoveryManager.PackageEvent.Removed -> "Package Removed: ${event.packageName} (profile: ${event.userHandleId})"
+          is AppDiscoveryManager.PackageEvent.Changed -> "Package Changed: ${event.packageName} (profile: ${event.userHandleId})"
           is AppDiscoveryManager.PackageEvent.Refreshed -> "Packages Refreshed: ${event.count} packages"
         }
         _uiState.update { it.copy(recentPackageEvent = eventDescription) }
+
+        // Incremental catalog update without rebuilding entire catalog
+        handlePackageEvent(event)
       }
     }
+  }
 
-    // 2. Debounced scan trigger so rapid package callbacks coalesce into a single refresh
+  private fun handlePackageEvent(event: AppDiscoveryManager.PackageEvent) {
     viewModelScope.launch {
-      discoveryManager.packageEvents
-        .debounce(400L)
-        .collect {
-          loadApps(isSilent = true)
+      when (event) {
+        is AppDiscoveryManager.PackageEvent.Added -> {
+          val newApps = discoveryManager.loadPackageApps(event.packageName, event.userHandleId)
+          applyCatalogMutation { currentCatalog ->
+            AppCatalogUpdater.applyPackageUpsert(currentCatalog, newApps, event.packageName, event.userHandleId)
+          }
+          if (newApps.isNotEmpty()) {
+            discoveryManager.prewarmIconCache(newApps)
+          }
         }
+        is AppDiscoveryManager.PackageEvent.Changed -> {
+          val updatedApps = discoveryManager.loadPackageApps(event.packageName, event.userHandleId)
+          applyCatalogMutation { currentCatalog ->
+            AppCatalogUpdater.applyPackageUpsert(currentCatalog, updatedApps, event.packageName, event.userHandleId)
+          }
+          if (updatedApps.isNotEmpty()) {
+            discoveryManager.prewarmIconCache(updatedApps)
+          }
+        }
+        is AppDiscoveryManager.PackageEvent.Removed -> {
+          applyCatalogMutation { currentCatalog ->
+            AppCatalogUpdater.applyPackageRemoval(currentCatalog, event.packageName, event.userHandleId)
+          }
+        }
+        is AppDiscoveryManager.PackageEvent.Refreshed -> {
+          if (event.packages.isNotEmpty()) {
+            val batchApps = mutableListOf<DiscoveredApp>()
+            for (pkg in event.packages) {
+              batchApps.addAll(discoveryManager.loadPackageApps(pkg, event.userHandleId))
+            }
+            applyCatalogMutation { currentCatalog ->
+              AppCatalogUpdater.applyBatchUpsert(currentCatalog, batchApps, event.packages.toSet(), event.userHandleId)
+            }
+            if (batchApps.isNotEmpty()) {
+              discoveryManager.prewarmIconCache(batchApps)
+            }
+          } else {
+            loadApps(isSilent = true, forceRefresh = true)
+          }
+        }
+      }
+    }
+  }
+
+  private fun applyCatalogMutation(mutation: (List<DiscoveredApp>) -> List<DiscoveredApp>) {
+    _uiState.update { current ->
+      val updatedAllApps = mutation(current.allApps)
+      val userApps = updatedAllApps.count { !it.isSystemApp }
+      val systemApps = updatedAllApps.count { it.isSystemApp }
+      val filtered = applyFiltersAndSort(updatedAllApps, current.searchQuery, current.activeFilter, current.sortMode)
+      current.copy(
+        allApps = updatedAllApps,
+        filteredApps = filtered,
+        totalAppCount = updatedAllApps.size,
+        userAppCount = userApps,
+        systemAppCount = systemApps,
+        lastScannedTime = System.currentTimeMillis(),
+        discoveryResult = if (updatedAllApps.isNotEmpty()) DiscoveryResult.Success(updatedAllApps) else DiscoveryResult.Empty()
+      )
     }
   }
 
   /**
-   * Discovers installed applications.
+   * Discovers installed applications via full discovery scan.
    * Concurrently invoked requests are coalesced so at most one active scan runs at a time.
    * If a scan is already in progress, subsequent requests flag a pending refresh and return immediately.
    * Redundant silent/lifecycle requests when apps are already discovered are skipped.
@@ -202,7 +261,13 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
           }
 
-          val apps = discoveryManager.loadInstalledApps()
+          val result = discoveryManager.discoverApps()
+          val apps = when (result) {
+            is DiscoveryResult.Success -> result.apps
+            is DiscoveryResult.Empty -> emptyList()
+            is DiscoveryResult.Failure -> throw result.error
+          }
+
           val userApps = apps.count { !it.isSystemApp }
           val systemApps = apps.count { it.isSystemApp }
 
@@ -216,14 +281,17 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
               totalAppCount = apps.size,
               userAppCount = userApps,
               systemAppCount = systemApps,
-              lastScannedTime = System.currentTimeMillis()
+              lastScannedTime = System.currentTimeMillis(),
+              discoveryResult = result
             )
           }
 
           // Cancel any previous prewarm job to prevent accumulation
           prewarmJob?.cancel()
-          prewarmJob = viewModelScope.launch(Dispatchers.IO) {
-            discoveryManager.prewarmIconCache(apps)
+          if (apps.isNotEmpty()) {
+            prewarmJob = viewModelScope.launch(Dispatchers.IO) {
+              discoveryManager.prewarmIconCache(apps)
+            }
           }
 
           runNext = hasPendingScan
@@ -235,7 +303,8 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
         _uiState.update {
           it.copy(
             isLoading = false,
-            errorMessage = "Unable to discover installed applications. Tap to retry."
+            errorMessage = "Unable to discover installed applications. Tap to retry.",
+            discoveryResult = DiscoveryResult.Failure(e)
           )
         }
       }
