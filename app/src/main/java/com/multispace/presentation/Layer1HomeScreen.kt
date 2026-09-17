@@ -168,194 +168,27 @@ fun Layer1HomeScreen(
     val availableGridWidthDp = (maxWidth - gridHorizontalPadding * 2).coerceAtLeast(100.dp)
     val cellWidth = (availableGridWidthDp - appSpacing * (cols - 1)) / cols
 
-    // Authoritative Layer 1 placements:
-    // When placements exist in Room, honor them directly (preserving preset curation, widgets, and user drag-and-drop moves).
-    // Never auto-inject unplaced apps or dock apps onto Page 0 over widgets or curated empty space.
-    // CRITICAL: Preset layouts place initial Page 0 apps at the bottom row (cols count),
-    // and users can freely drag them anywhere on the page, BUT NO APP MAY EVER BE LAID ON A WIDGET!
-    val effectivePlacements = remember(placements, allApps, space.id, pageSize, gridRows, cols) {
-      val basePlacements = if (placements.isNotEmpty()) {
-        val seenAppIdentities = mutableSetOf<AppIdentity>()
-        val deduplicated = mutableListOf<SpaceItemPlacement>()
-        for (p in placements) {
-          if (p.isFolder || p.isWidget) {
-            deduplicated.add(p)
-          } else {
-            val identity = p.appIdentity
-            if (identity != null) {
-              if (seenAppIdentities.add(identity)) {
-                deduplicated.add(p)
-              }
-            } else {
-              deduplicated.add(p)
-            }
-          }
-        }
-        deduplicated
-      } else {
-        // Fallback only if there are absolutely NO placements in Room yet.
-        // Default layout: exactly cols apps on Page 0 at the bottom row (lastRow * cols + i)
-        val lastRow = (gridRows - 1).coerceAtLeast(0)
-        val distinctApps = allApps.distinctBy { it.appIdentity }
-        val page0Count = minOf(cols, distinctApps.size)
-        val fallbackList = mutableListOf<SpaceItemPlacement>()
-        for (i in 0 until page0Count) {
-          val app = distinctApps[i]
-          fallbackList.add(
-            SpaceItemPlacement(
-              id = "fallback:${app.id}",
-              spaceId = space.id,
-              layer = SpaceItemPlacement.LAYER_HOME,
-              pageIndex = 0,
-              positionIndex = lastRow * cols + i,
-              itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-              packageName = app.packageName,
-              componentName = app.activityName,
-              userHandleId = app.userHandleId
-            )
-          )
-        }
-        for (i in page0Count until distinctApps.size) {
-          val app = distinctApps[i]
-          val rem = i - page0Count
-          fallbackList.add(
-            SpaceItemPlacement(
-              id = "fallback:${app.id}",
-              spaceId = space.id,
-              layer = SpaceItemPlacement.LAYER_HOME,
-              pageIndex = 1 + (rem / pageSize),
-              positionIndex = rem % pageSize,
-              itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-              packageName = app.packageName,
-              componentName = app.activityName,
-              userHandleId = app.userHandleId
-            )
-          )
-        }
-        fallbackList
-      }
-
-      // CRITICAL GUARANTEE: NO APP MAY EVER BE LAID ON A WIDGET!
-      val widgetSlotsByPage = mutableMapOf<Int, MutableSet<Int>>()
-      for (p in basePlacements) {
-        if (p.isWidget) {
-          val r = (p.positionIndex / cols).coerceIn(0, gridRows - 1)
-          val c = (p.positionIndex % cols).coerceIn(0, cols - 1)
-          val sX = p.spanX.coerceIn(1, cols - c)
-          val sY = p.spanY.coerceIn(1, gridRows - r)
-          for (dr in 0 until sY) {
-            for (dc in 0 until sX) {
-              widgetSlotsByPage.getOrPut(p.pageIndex) { mutableSetOf() }.add((r + dr) * cols + (c + dc))
-            }
-          }
-        }
-      }
-
-      val lastRow = (gridRows - 1).coerceAtLeast(0)
-      val resolvedList = mutableListOf<SpaceItemPlacement>()
-      val occupiedSlotsByPage = mutableMapOf<Int, MutableSet<Int>>()
-
-      // 1. Keep all widgets and folders intact
-      for (p in basePlacements) {
-        if (p.isWidget || p.isFolder) {
-          resolvedList.add(p)
-          val r = (p.positionIndex / cols).coerceIn(0, gridRows - 1)
-          val c = (p.positionIndex % cols).coerceIn(0, cols - 1)
-          val sX = if (p.isWidget) p.spanX.coerceIn(1, cols - c) else 1
-          val sY = if (p.isWidget) p.spanY.coerceIn(1, gridRows - r) else 1
-          for (dr in 0 until sY) {
-            for (dc in 0 until sX) {
-              occupiedSlotsByPage.getOrPut(p.pageIndex) { mutableSetOf() }.add((r + dr) * cols + (c + dc))
-            }
-          }
-        }
-      }
-
-      // 2. Validate and place apps: never allow an app on a widget
-      val apps = basePlacements.filter { !it.isWidget && !it.isFolder }
-      for (app in apps) {
-        val page = app.pageIndex
-        val pos = app.positionIndex
-        val isCoveredByWidget = widgetSlotsByPage[page]?.contains(pos) == true
-        val isSlotTaken = occupiedSlotsByPage[page]?.contains(pos) == true
-
-        if (!isCoveredByWidget && !isSlotTaken) {
-          // Valid placement: can be anywhere the user placed it, as long as it is not on a widget!
-          resolvedList.add(app)
-          occupiedSlotsByPage.getOrPut(page) { mutableSetOf() }.add(pos)
-        } else {
-          // Relocate app away from widget or collision
-          var placed = false
-          if (page == 0) {
-            // If on Page 0: default to the bottom row first
-            for (c in 0 until cols) {
-              val candidatePos = lastRow * cols + c
-              val onWidget = widgetSlotsByPage[0]?.contains(candidatePos) == true
-              val taken = occupiedSlotsByPage[0]?.contains(candidatePos) == true
-              if (!onWidget && !taken) {
-                val relocated = app.copy(pageIndex = 0, positionIndex = candidatePos)
-                resolvedList.add(relocated)
-                occupiedSlotsByPage.getOrPut(0) { mutableSetOf() }.add(candidatePos)
-                placed = true
-                break
-              }
-            }
-          }
-          if (!placed) {
-            // Find first available non-widget slot on Page 1 or beyond
-            var searchPage = maxOf(1, page)
-            var searchPos = 0
-            while (!placed) {
-              val onWidget = widgetSlotsByPage[searchPage]?.contains(searchPos) == true
-              val taken = occupiedSlotsByPage[searchPage]?.contains(searchPos) == true
-              if (!onWidget && !taken) {
-                val relocated = app.copy(pageIndex = searchPage, positionIndex = searchPos)
-                resolvedList.add(relocated)
-                occupiedSlotsByPage.getOrPut(searchPage) { mutableSetOf() }.add(searchPos)
-                placed = true
-              } else {
-                searchPos++
-                if (searchPos >= pageSize) {
-                  searchPage++
-                  searchPos = 0
-                }
-              }
-            }
-          }
-        }
-      }
-
-      val validationReport = PlacementValidator.validatePlacements(resolvedList, cols = cols, rows = gridRows)
-      if (validationReport.hasIssues) {
-        AppLogger.w(
-          AppLogger.Category.LAUNCHER,
-          "Placement validation detected ${validationReport.issues.size} issues on desktop layout for space '${space.name}': ${validationReport.issues.take(3)}"
-        )
-      }
-
-      resolvedList
+    // Authoritative Layer 1 placements resolved deterministically via PlacementLayoutResolver
+    val resolvedLayout = remember(placements, allApps, space.id, pageSize, gridRows, cols) {
+      PlacementLayoutResolver.resolveEffectivePlacements(
+        placements = placements,
+        allApps = allApps,
+        spaceId = space.id,
+        spaceName = space.name,
+        cols = cols,
+        gridRows = gridRows,
+        pageSize = pageSize
+      )
     }
+    val effectivePlacements = resolvedLayout.effectivePlacements
+
+  val dragState = unifiedDragState ?: remember { UnifiedDragState() }
 
   val dragSlopPx = with(density) { 8.dp.toPx() }
-  var dragLifecycleState by remember { mutableStateOf(DragLifecycleState.IDLE) }
-  var isDragging by remember { mutableStateOf(false) }
-  var isDropping by remember { mutableStateOf(false) }
-  var activeActionPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
-  var draggedPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
-  var pendingDragPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
-  var currentPointerPos by remember { mutableStateOf(Offset.Zero) }
-  var touchOffsetWithinItem by remember { mutableStateOf(Offset.Zero) }
-  var accumulatedDragDistance by remember { mutableFloatStateOf(0f) }
   var lastLongPressTimestamp by remember { mutableLongStateOf(0L) }
 
   val launcherInteractionState by remember {
-    derivedStateOf {
-      when {
-        isDragging -> LauncherInteractionState.DraggingApp(draggedPlacement?.id, draggedPlacement?.packageName)
-        dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE -> LauncherInteractionState.LongPressingApp(activeActionPlacement?.id)
-        else -> LauncherInteractionState.Idle
-      }
-    }
+    derivedStateOf { dragState.interactionState }
   }
 
   val currentPlacements by rememberUpdatedState(effectivePlacements)
@@ -368,16 +201,11 @@ fun Layer1HomeScreen(
   val currentOnOpenCustomization by rememberUpdatedState(onOpenCustomization)
 
   fun dismissActions() {
-    activeActionPlacement = null
-    pendingDragPlacement = null
-    dragLifecycleState = DragLifecycleState.IDLE
+    dragState.dismissActions()
   }
 
   var resizingWidgetId by remember { mutableStateOf<String?>(null) }
-  var targetHoverPlacement by remember { mutableStateOf<SpaceItemPlacement?>(null) }
-  var previewTargetSlot by remember { mutableStateOf<Int?>(null) }
   var binBounds by remember { mutableStateOf<Rect?>(null) }
-  var isOverBin by remember { mutableStateOf(false) }
 
   // Root and page geometry measurements
   var rootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -560,7 +388,7 @@ fun Layer1HomeScreen(
   }
 
   // Page management with dynamic trailing page expansion
-  val maxPageInPlacements = effectivePlacements.maxOfOrNull { it.pageIndex } ?: 0
+  val maxPageInPlacements = resolvedLayout.maxPageIndex
   val basePageCount = maxOf(space.pageCount, (maxPageInPlacements + 1).coerceAtLeast(1))
   var extraPagesCount by remember { mutableIntStateOf(0) }
   val totalPageCount = (basePageCount + extraPagesCount).coerceAtLeast(1)
@@ -639,13 +467,13 @@ fun Layer1HomeScreen(
     return (clampedR * cols + clampedC).coerceIn(0, totalSlots - 1)
   }
 
-  fun updatePreviewTargetSlot(pointerPos: Offset = currentPointerPos) {
+  fun updatePreviewTargetSlot(pointerPos: Offset = dragState.localPointerPos) {
     if (viewportWidth <= 0f || viewportHeight <= 0f) return
 
-    val item = draggedPlacement
+    val item = dragState.draggedPlacement
     val cellWPx = with(density) { cellWidth.toPx() }
     val cellHPx = with(density) { cellHeight.toPx() }
-    val touchOffset = touchOffsetWithinItem
+    val touchOffset = dragState.touchOffsetWithinItem
     val targetPointerPos = if (item?.isWidget == true) {
       val widgetTopLeft = pointerPos - touchOffset
       Offset(
@@ -664,23 +492,22 @@ fun Layer1HomeScreen(
 
     // Check if candidateSlot is covered by a widget on targetPage
     val isCandidateOverWidget = if (isApp) {
-      effectivePlacements.any { other ->
-        if (other.isWidget && (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL || other.pageIndex == targetPage)) {
-          val r = (other.positionIndex / cols).coerceIn(0, gridRows - 1)
-          val c = (other.positionIndex % cols).coerceIn(0, cols - 1)
-          val sX = other.spanX.coerceIn(1, cols - c)
-          val sY = other.spanY.coerceIn(1, gridRows - r)
-          val targetR = candidateSlot / cols
-          val targetC = candidateSlot % cols
-          targetC in c until (c + sX) && targetR in r until (r + sY)
-        } else false
-      }
+      resolvedLayout.isCandidateOverWidget(
+        targetPage = targetPage,
+        candidateSlot = candidateSlot,
+        spanX = draggedSpanX,
+        spanY = draggedSpanY,
+        cols = cols,
+        gridRows = gridRows
+      )
     } else false
 
     val validCandidateSlot = if (isCandidateOverWidget) null else candidateSlot
 
-    if (previewTargetSlot != validCandidateSlot) {
-      previewTargetSlot = validCandidateSlot
+    if (dragState.previewTargetSlot != validCandidateSlot) {
+      dragState.previewTargetSlot = validCandidateSlot
+      dragState.targetDesktopPage = targetPage
+      dragState.targetDesktopPosition = validCandidateSlot ?: -1
       AppLogger.i(
         AppLogger.Category.LAUNCHER,
         "PREVIEW_TARGET: pointerPos=$pointerPos previewTargetSlot=$validCandidateSlot targetPage=$targetPage targetPos=$validCandidateSlot gridRows=$gridRows pageSize=$pageSize isCandidateOverWidget=$isCandidateOverWidget"
@@ -692,42 +519,40 @@ fun Layer1HomeScreen(
 
     if (isApp) {
       val hovered = (findItemAtOffset(pointerPos, targetPage)?.takeIf { it.id != item?.id && !it.isWidget }
-        ?: effectivePlacements.firstOrNull { other ->
+        ?: resolvedLayout.placementsForPage(targetPage).firstOrNull { other ->
           other.id != item?.id && !other.isWidget &&
-          (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL || other.pageIndex == targetPage) &&
           (
             getPlacementFootprintRect(other)?.contains(pointerPos) == true ||
             cellBounds[other.id]?.contains(pointerPos) == true
           )
         })
-      if (hovered != null && targetHoverPlacement?.id != hovered.id) {
+      if (hovered != null && dragState.targetHoverPlacement?.id != hovered.id) {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
       }
-      targetHoverPlacement = hovered
+      dragState.targetHoverPlacement = hovered
     } else {
-      targetHoverPlacement = null
+      dragState.targetHoverPlacement = null
     }
   }
 
   // Cross-component drag listener: highlight desktop slots when dragging app from DockBar
-  LaunchedEffect(unifiedDragState?.rootPointerPos, unifiedDragState?.currentTargetZone) {
-    val uds = unifiedDragState
-    if (uds != null && uds.isDragging && uds.dragSource == DragSource.DOCK_BAR) {
-      if (uds.currentTargetZone == DragTargetZone.DESKTOP) {
+  LaunchedEffect(dragState.rootPointerPos, dragState.currentTargetZone) {
+    if (dragState.isDragging && dragState.dragSource == DragSource.DOCK_BAR) {
+      if (dragState.currentTargetZone == DragTargetZone.DESKTOP) {
         val coords = rootCoordinates
         if (coords != null && coords.isAttached) {
-          val localPos = coords.rootToLocal(uds.rootPointerPos)
+          val localPos = coords.rootToLocal(dragState.rootPointerPos)
           val candidateSlot = calculateSlotForPosition(localPos, 1, 1)
-          if (previewTargetSlot != candidateSlot) {
-            previewTargetSlot = candidateSlot
+          if (dragState.previewTargetSlot != candidateSlot) {
+            dragState.previewTargetSlot = candidateSlot
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
           }
-          uds.targetDesktopPage = pagerState.currentPage
-          uds.targetDesktopPosition = candidateSlot
+          dragState.targetDesktopPage = pagerState.currentPage
+          dragState.targetDesktopPosition = candidateSlot
         }
       } else {
-        if (previewTargetSlot != null) {
-          previewTargetSlot = null
+        if (dragState.previewTargetSlot != null) {
+          dragState.previewTargetSlot = null
         }
       }
     }
@@ -736,7 +561,7 @@ fun Layer1HomeScreen(
   var handleDragMoveRef: ((Offset) -> Unit)? = null
 
   fun performPageTransition(direction: EdgePagingDirection) {
-    if (!isDragging || isDropping || isTransitioningPage || pagerState.isScrollInProgress) return
+    if (!dragState.isDragging || dragState.isDropping || isTransitioningPage || pagerState.isScrollInProgress) return
 
     if (direction == EdgePagingDirection.LEFT && pagerState.currentPage > 0) {
       isTransitioningPage = true
@@ -758,8 +583,8 @@ fun Layer1HomeScreen(
             delay(550L)
             edgeTriggerState = EdgeTriggerState.IDLE
             activeEdgeZone = EdgePagingDirection.NONE
-            if (isDragging && !isDropping) {
-              handleDragMoveRef?.invoke(currentPointerPos)
+            if (dragState.isDragging && !dragState.isDropping) {
+              handleDragMoveRef?.invoke(dragState.localPointerPos)
             }
           }
         }
@@ -788,8 +613,8 @@ fun Layer1HomeScreen(
             delay(550L)
             edgeTriggerState = EdgeTriggerState.IDLE
             activeEdgeZone = EdgePagingDirection.NONE
-            if (isDragging && !isDropping) {
-              handleDragMoveRef?.invoke(currentPointerPos)
+            if (dragState.isDragging && !dragState.isDropping) {
+              handleDragMoveRef?.invoke(dragState.localPointerPos)
             }
           }
         }
@@ -798,18 +623,10 @@ fun Layer1HomeScreen(
   }
 
   fun handleStartDrag(placement: SpaceItemPlacement, startOffset: Offset) {
-    dragLifecycleState = DragLifecycleState.DRAGGING
-    isDragging = true
-    isDropping = false
-    draggedPlacement = placement
-    currentPointerPos = startOffset
-    isOverBin = false
-    targetHoverPlacement = null
     activeEdgeZone = EdgePagingDirection.NONE
     edgeTriggerState = EdgeTriggerState.IDLE
     edgeDwellJob?.cancel()
     edgeDwellJob = null
-    previewTargetSlot = null
 
     // Preserve finger-to-icon offset to eliminate visual jumping when drag starts
     val itemRect = getPlacementFootprintRect(placement) ?: cellBounds[placement.id] ?: slotBounds[placement.positionIndex]
@@ -823,47 +640,36 @@ fun Layer1HomeScreen(
       val sY = if (placement.isWidget) placement.spanY.coerceIn(1, gridRows) else 1
       with(density) { Offset((cellWidth * sX).toPx() / 2f, (cellHeight * sY).toPx() / 2f) }
     }
-    touchOffsetWithinItem = computedTouchOffset
 
-    if (unifiedDragState != null) {
-      val app = appLookup[placement]
-      unifiedDragState.lifecycleState = DragLifecycleState.DRAGGING
-      unifiedDragState.isDragging = true
-      unifiedDragState.dragSource = DragSource.LAYER1_DESKTOP
-      unifiedDragState.draggedPlacement = placement
-      unifiedDragState.draggedApp = app
-      unifiedDragState.touchOffsetInItem = computedTouchOffset
-      unifiedDragState.rootPointerPos = rootCoordinates?.localToRoot(startOffset) ?: startOffset
-      unifiedDragState.currentTargetZone = DragTargetZone.DESKTOP
-    }
+    val rootPos = rootCoordinates?.localToRoot(startOffset) ?: startOffset
+    val app = appLookup[placement]
+
+    dragState.startDesktopDrag(
+      placement = placement,
+      app = app,
+      pointerPos = rootPos,
+      touchOffset = computedTouchOffset,
+      localPos = startOffset
+    )
 
     AppLogger.i(
       AppLogger.Category.LAUNCHER,
       "DRAG_START item=${placement.id} pkg=${placement.packageName ?: "folder"} page=${placement.pageIndex} slot=${placement.positionIndex} touchOffset=$computedTouchOffset"
     )
-    currentPointerPos = startOffset
     updatePreviewTargetSlot(startOffset)
   }
 
   fun handleDragMove(newPos: Offset) {
-    currentPointerPos = newPos
     val rootPos = rootCoordinates?.localToRoot(newPos) ?: newPos
-    if (unifiedDragState != null) {
-      unifiedDragState.rootPointerPos = rootPos
-    }
+    dragState.updatePointerPosition(pos = rootPos, localPos = newPos)
 
     val overBin = binBounds?.contains(newPos) == true
-    isOverBin = overBin
-    if (unifiedDragState != null) {
-      unifiedDragState.isOverBin = overBin
-    }
+    dragState.isOverBin = overBin
 
     if (overBin) {
-      if (unifiedDragState != null) {
-        unifiedDragState.currentTargetZone = DragTargetZone.REMOVE_BIN
-      }
-      targetHoverPlacement = null
-      previewTargetSlot = null
+      dragState.currentTargetZone = DragTargetZone.REMOVE_BIN
+      dragState.targetHoverPlacement = null
+      dragState.previewTargetSlot = null
       if (activeEdgeZone != EdgePagingDirection.NONE) {
         AppLogger.i(AppLogger.Category.LAUNCHER, "EDGE_DWELL_CANCEL direction=$activeEdgeZone reason=over_bin")
         edgeDwellJob?.cancel()
@@ -875,12 +681,12 @@ fun Layer1HomeScreen(
     }
 
     // Check if dragging over the DockBar (only valid for apps, not widgets)
-    val isAppPlacement = draggedPlacement?.isWidget != true
-    val isOverDock = isAppPlacement && (unifiedDragState?.isPointerOverDock(rootPos) == true)
+    val isAppPlacement = dragState.draggedPlacement?.isWidget != true
+    val isOverDock = isAppPlacement && dragState.isPointerOverDock(rootPos)
     if (isOverDock) {
-      unifiedDragState?.currentTargetZone = DragTargetZone.DOCK_BAR
-      targetHoverPlacement = null
-      previewTargetSlot = null
+      dragState.currentTargetZone = DragTargetZone.DOCK_BAR
+      dragState.targetHoverPlacement = null
+      dragState.previewTargetSlot = null
       if (activeEdgeZone != EdgePagingDirection.NONE) {
         edgeDwellJob?.cancel()
         edgeDwellJob = null
@@ -890,10 +696,7 @@ fun Layer1HomeScreen(
       return
     }
 
-    if (unifiedDragState != null) {
-      unifiedDragState.currentTargetZone = DragTargetZone.DESKTOP
-    }
-
+    dragState.currentTargetZone = DragTargetZone.DESKTOP
     updatePreviewTargetSlot(newPos)
 
     // Robust edge paging state machine (horizontal pager mode only)
@@ -971,35 +774,26 @@ fun Layer1HomeScreen(
   handleDragMoveRef = { handleDragMove(it) }
 
   fun cleanupDragState() {
-    isDropping = false
-    isDragging = false
-    draggedPlacement = null
-    pendingDragPlacement = null
-    dragLifecycleState = DragLifecycleState.IDLE
-    previewTargetSlot = null
-    targetHoverPlacement = null
-    isOverBin = false
     extraPagesCount = 0
-    accumulatedDragDistance = 0f
-    unifiedDragState?.reset()
+    dragState.reset()
   }
 
   fun handleEndDrag(draggedOverride: SpaceItemPlacement? = null, dropPosOverride: Offset? = null) {
-    if (isDropping) return
+    if (dragState.isDropping) return
     edgeDwellJob?.cancel()
     edgeDwellJob = null
     isTransitioningPage = false
     activeEdgeZone = EdgePagingDirection.NONE
     edgeTriggerState = EdgeTriggerState.IDLE
 
-    val dragged = draggedOverride ?: draggedPlacement
+    val dragged = draggedOverride ?: dragState.draggedPlacement
     if (dragged == null) {
       cleanupDragState()
       return
     }
 
-    val dropPos = dropPosOverride ?: currentPointerPos
-    val targetZone = unifiedDragState?.currentTargetZone ?: if (isOverBin) DragTargetZone.REMOVE_BIN else DragTargetZone.DESKTOP
+    val dropPos = dropPosOverride ?: dragState.localPointerPos
+    val targetZone = dragState.currentTargetZone
     when (targetZone) {
       DragTargetZone.REMOVE_BIN -> {
         AppLogger.i(AppLogger.Category.LAUNCHER, "DROP_REMOVE item=${dragged.id} pkg=${dragged.packageName}")
@@ -1010,9 +804,9 @@ fun Layer1HomeScreen(
         if (!dragged.isWidget) {
           val app = appLookup[dragged]
           if (app != null) {
-            AppLogger.i(AppLogger.Category.LAUNCHER, "DROP_TO_DOCK item=${dragged.id} pkg=${dragged.packageName} slot=${unifiedDragState?.targetDockIndex}")
+            AppLogger.i(AppLogger.Category.LAUNCHER, "DROP_TO_DOCK item=${dragged.id} pkg=${dragged.packageName} slot=${dragState.targetDockIndex}")
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            onDropItemToDock?.invoke(dragged, app, unifiedDragState?.targetDockIndex ?: -1)
+            onDropItemToDock?.invoke(dragged, app, dragState.targetDockIndex)
           }
         }
         cleanupDragState()
@@ -1024,7 +818,7 @@ fun Layer1HomeScreen(
 
         val cellWPx = with(density) { cellWidth.toPx() }
         val cellHPx = with(density) { cellHeight.toPx() }
-        val touchOffset = touchOffsetWithinItem
+        val touchOffset = dragState.touchOffsetWithinItem
         val targetPointerPos = if (dragged.isWidget) {
           val widgetTopLeft = dropPos - touchOffset
           Offset(widgetTopLeft.x + cellWPx / 2f, widgetTopLeft.y + cellHPx / 2f)
@@ -1033,7 +827,7 @@ fun Layer1HomeScreen(
         }
 
         val slotAtDrop = calculateSlotForPosition(targetPointerPos, draggedSpanX, draggedSpanY)
-        val rawTargetPos = previewTargetSlot ?: slotAtDrop
+        val rawTargetPos = dragState.previewTargetSlot ?: slotAtDrop
         val rawC = rawTargetPos % cols
         val rawR = rawTargetPos / cols
         val clampedC = rawC.coerceIn(0, maxOf(0, cols - draggedSpanX))
@@ -1042,17 +836,14 @@ fun Layer1HomeScreen(
 
         val isDraggedApp = !dragged.isWidget && !dragged.isFolder
         val isTargetOverWidget = if (isDraggedApp) {
-          effectivePlacements.any { other ->
-            if (other.isWidget && (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL || other.pageIndex == targetPage)) {
-              val r = (other.positionIndex / cols).coerceIn(0, gridRows - 1)
-              val c = (other.positionIndex % cols).coerceIn(0, cols - 1)
-              val sX = other.spanX.coerceIn(1, cols - c)
-              val sY = other.spanY.coerceIn(1, gridRows - r)
-              val targetR = targetPos / cols
-              val targetC = targetPos % cols
-              targetC in c until (c + sX) && targetR in r until (r + sY)
-            } else false
-          }
+          resolvedLayout.isCandidateOverWidget(
+            targetPage = targetPage,
+            candidateSlot = targetPos,
+            spanX = draggedSpanX,
+            spanY = draggedSpanY,
+            cols = cols,
+            gridRows = gridRows
+          )
         } else false
 
         if (isDraggedApp && isTargetOverWidget) {
@@ -1066,12 +857,13 @@ fun Layer1HomeScreen(
 
         AppLogger.i(
           AppLogger.Category.LAUNCHER,
-          "FINAL_DROP: dropPos=$dropPos previewTargetSlot=$previewTargetSlot slotAtDrop=$slotAtDrop targetPage=$targetPage targetPos=$targetPos gridRows=$gridRows pageSize=$pageSize dragged.pageIndex=${dragged.pageIndex} dragged.positionIndex=${dragged.positionIndex}"
+          "FINAL_DROP: dropPos=$dropPos previewTargetSlot=${dragState.previewTargetSlot} slotAtDrop=$slotAtDrop targetPage=$targetPage targetPos=$targetPos gridRows=$gridRows pageSize=$pageSize dragged.pageIndex=${dragged.pageIndex} dragged.positionIndex=${dragged.positionIndex}"
         )
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
 
-        if (isDraggedApp && targetHoverPlacement != null) {
-          val targetPlacement = targetHoverPlacement!!.takeIf {
+        val targetHover = dragState.targetHoverPlacement
+        if (isDraggedApp && targetHover != null) {
+          val targetPlacement = targetHover.takeIf {
             it.id != dragged.id && (space.layer1DisplayMode == Space.DISPLAY_MODE_SCROLL || it.pageIndex == targetPage)
           }
 
@@ -1118,14 +910,14 @@ fun Layer1HomeScreen(
         // Animate smooth drop glide to destination slot
         val targetRect = slotBounds[targetPos]
         if (targetRect != null && draggedOverride == null) {
-          isDropping = true
+          dragState.isDropping = true
           val targetDest = Offset(targetRect.left + touchOffset.x, targetRect.top + touchOffset.y)
-          val startPos = currentPointerPos
+          val startPos = dragState.localPointerPos
           coroutineScope.launch {
             try {
               val anim = Animatable(0f)
               anim.animateTo(1f, animationSpec = tween(120, easing = FastOutSlowInEasing)) {
-                currentPointerPos = Offset(
+                dragState.localPointerPos = Offset(
                   startPos.x + (targetDest.x - startPos.x) * value,
                   startPos.y + (targetDest.y - startPos.y) * value
                 )
@@ -1160,13 +952,13 @@ fun Layer1HomeScreen(
         rootCoordinates = coordinates
         viewportWidth = coordinates.size.width.toFloat()
         viewportHeight = coordinates.size.height.toFloat()
-        unifiedDragState?.layer1Coordinates = coordinates
+        dragState.layer1Coordinates = coordinates
         updatePageGridBounds()
       }
       .layerTransitionEmptySpaceSwipe(
         spaceId = space.id,
         isSwipeAllowed = isSwipeAllowed,
-        canTransition = { !isDragging && !isDropping && dragLifecycleState == DragLifecycleState.IDLE },
+        canTransition = { !dragState.isDragging && !dragState.isDropping && dragState.lifecycleState == DragLifecycleState.IDLE },
         findItemAtOffset = { offset -> findItemAtOffset(offset, pagerState.currentPage) },
         onSwipeStart = onEmptySpaceSwipeStart,
         onSwipeMove = onEmptySpaceSwipeMove,
@@ -1177,8 +969,8 @@ fun Layer1HomeScreen(
         spaceId = space.id,
         enabled = true,
         onTap = { offset ->
-          if (isDropping) return@desktopTapAndEmptyLongPressGesture
-          if (activeActionPlacement != null) {
+          if (dragState.isDropping) return@desktopTapAndEmptyLongPressGesture
+          if (dragState.activeActionPlacement != null) {
             dismissActions()
           } else {
             val hitItem = findItemAtOffset(offset, pagerState.currentPage)
@@ -1198,7 +990,7 @@ fun Layer1HomeScreen(
           }
         },
         onEmptyLongPress = { offset ->
-          if (isDropping) return@desktopTapAndEmptyLongPressGesture
+          if (dragState.isDropping) return@desktopTapAndEmptyLongPressGesture
           val hitItem = findItemAtOffset(offset, pagerState.currentPage)
           if (hitItem == null) {
             if (resizingWidgetId != null) {
@@ -1214,7 +1006,7 @@ fun Layer1HomeScreen(
         spaceId = space.id,
         enabled = true,
         onDragStart = { startOffset ->
-          if (isDropping) return@appDragGestures
+          if (dragState.isDropping) return@appDragGestures
           val hitItem = findItemAtOffset(startOffset, pagerState.currentPage)
           if (hitItem != null) {
             resizingWidgetId = null
@@ -1224,44 +1016,47 @@ fun Layer1HomeScreen(
             } else {
               haptic.performHapticFeedback(HapticFeedbackType.LongPress)
               lastLongPressTimestamp = System.currentTimeMillis()
-              dragLifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
-              activeActionPlacement = hitItem
-              pendingDragPlacement = hitItem
-              accumulatedDragDistance = 0f
+              val rootPos = rootCoordinates?.localToRoot(startOffset) ?: startOffset
+              dragState.startItemLongPress(
+                placement = hitItem,
+                touchOffset = Offset.Zero,
+                localOffset = startOffset,
+                rootOffset = rootPos
+              )
             }
           }
         },
         onDrag = { change, dragAmount ->
-          if (isDropping) return@appDragGestures
+          if (dragState.isDropping) return@appDragGestures
           change.consume()
-          accumulatedDragDistance += dragAmount.getDistance()
-          if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE && pendingDragPlacement != null) {
-            if (accumulatedDragDistance >= dragSlopPx) {
-              val itemToDrag = pendingDragPlacement!!
-              activeActionPlacement = null
-              pendingDragPlacement = null
+          dragState.accumulatedDragDistance += dragAmount.getDistance()
+          if (dragState.lifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE && dragState.pendingDragPlacement != null) {
+            if (dragState.accumulatedDragDistance >= dragSlopPx) {
+              val itemToDrag = dragState.pendingDragPlacement!!
+              dragState.activeActionPlacement = null
+              dragState.pendingDragPlacement = null
               handleStartDrag(itemToDrag, change.position)
             }
-          } else if (isDragging) {
+          } else if (dragState.isDragging) {
             handleDragMove(change.position)
           }
         },
         onDragEnd = {
-          if (isDropping) return@appDragGestures
-          if (isDragging) {
+          if (dragState.isDropping) return@appDragGestures
+          if (dragState.isDragging) {
             handleEndDrag()
-          } else if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
-            pendingDragPlacement = null
+          } else if (dragState.lifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
+            dragState.pendingDragPlacement = null
           } else {
             handleCancelDrag()
           }
         },
         onDragCancel = {
-          if (isDropping) return@appDragGestures
-          if (isDragging) {
+          if (dragState.isDropping) return@appDragGestures
+          if (dragState.isDragging) {
             handleCancelDrag()
-          } else if (dragLifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
-            pendingDragPlacement = null
+          } else if (dragState.lifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
+            dragState.pendingDragPlacement = null
           } else {
             handleCancelDrag()
           }
@@ -1311,8 +1106,8 @@ fun Layer1HomeScreen(
               onRemovePlacement = onRemovePlacement,
               appWidgetHost = appWidgetHost,
               onPositioned = { rect -> cellBounds[placement.id] = rect },
-              isBeingDragged = isDragging && draggedPlacement?.id == placement.id,
-              isTargetHover = targetHoverPlacement?.id == placement.id,
+              isBeingDragged = dragState.isDragging && dragState.draggedPlacement?.id == placement.id,
+              isTargetHover = dragState.targetHoverPlacement?.id == placement.id,
               rootCoordinates = rootCoordinates,
               isResizeMode = isResizing,
               onLongClick = null,
@@ -1335,9 +1130,9 @@ fun Layer1HomeScreen(
           state = pagerState,
           userScrollEnabled = HorizontalPageGesturePolicy.isScrollEnabled(
             interactionState = launcherInteractionState,
-            isDragging = isDragging,
-            isDropping = isDropping,
-            dragLifecycleState = dragLifecycleState
+            isDragging = dragState.isDragging,
+            isDropping = dragState.isDropping,
+            dragLifecycleState = dragState.lifecycleState
           ),
           modifier = Modifier
             .weight(1f)
@@ -1350,9 +1145,9 @@ fun Layer1HomeScreen(
         ) { page ->
           val isCurrentPage = page == pagerState.currentPage
 
-          val rawPagePlacements = effectivePlacements.filter { it.pageIndex == page }
-          val otherPlacements = if (isDragging && draggedPlacement != null) {
-            val dragged = draggedPlacement!!
+          val rawPagePlacements = resolvedLayout.placementsForPage(page)
+          val otherPlacements = if (dragState.isDragging && dragState.draggedPlacement != null) {
+            val dragged = dragState.draggedPlacement!!
             rawPagePlacements.filter { p ->
               p.id != dragged.id && (dragged.packageName == null || p.packageName != dragged.packageName)
             }
@@ -1401,8 +1196,8 @@ fun Layer1HomeScreen(
                 set
               }
 
-              val draggedSpanX = if (draggedPlacement?.isWidget == true) draggedPlacement!!.spanX.coerceIn(1, cols) else 1
-              val draggedSpanY = if (draggedPlacement?.isWidget == true) draggedPlacement!!.spanY.coerceIn(1, gridRows) else 1
+              val draggedSpanX = if (dragState.draggedPlacement?.isWidget == true) dragState.draggedPlacement!!.spanX.coerceIn(1, cols) else 1
+              val draggedSpanY = if (dragState.draggedPlacement?.isWidget == true) dragState.draggedPlacement!!.spanY.coerceIn(1, gridRows) else 1
 
               // 1. Slot grid placeholders (handles empty clicks, slotBounds measurement, and drop landing)
               for (r in 0 until gridRows) {
@@ -1410,8 +1205,8 @@ fun Layer1HomeScreen(
                   val slotIndex = r * cols + c
                   val leftDp = (cellWidth + appSpacing) * c
                   val topDp = rowPitch * r
-                  val isPreviewTarget = if (isDragging && isCurrentPage && !isOverBin && previewTargetSlot != null) {
-                    val targetSlot = previewTargetSlot!!
+                  val isPreviewTarget = if (dragState.isDragging && isCurrentPage && !dragState.isOverBin && dragState.previewTargetSlot != null) {
+                    val targetSlot = dragState.previewTargetSlot!!
                     val tR = targetSlot / cols
                     val tC = targetSlot % cols
                     r in tR until (tR + draggedSpanY) && c in tC until (tC + draggedSpanX)
@@ -1429,7 +1224,7 @@ fun Layer1HomeScreen(
                     } else if (!isCovered) {
                       EmptyGridCell(
                         slotIndex = slotIndex,
-                        isDragging = isDragging && !isOverBin
+                        isDragging = dragState.isDragging && !dragState.isOverBin
                       )
                     }
                   }
@@ -1455,8 +1250,8 @@ fun Layer1HomeScreen(
                     .zIndex(if (isResizing) 50f else 1f),
                   contentAlignment = Alignment.Center
                 ) {
-                  val isPreviewTarget = if (isDragging && isCurrentPage && !isOverBin && previewTargetSlot != null) {
-                    val targetSlot = previewTargetSlot!!
+                  val isPreviewTarget = if (dragState.isDragging && isCurrentPage && !dragState.isOverBin && dragState.previewTargetSlot != null) {
+                    val targetSlot = dragState.previewTargetSlot!!
                     val tR = targetSlot / cols
                     val tC = targetSlot % cols
                     val overlapX = maxOf(tC, c) < minOf(tC + draggedSpanX, c + sX)
@@ -1477,8 +1272,8 @@ fun Layer1HomeScreen(
                     onRemovePlacement = onRemovePlacement,
                     appWidgetHost = appWidgetHost,
                     onPositioned = { rect -> cellBounds[item.id] = rect },
-                    isBeingDragged = isDragging && (draggedPlacement?.id == item.id || (draggedPlacement?.packageName != null && item.packageName == draggedPlacement?.packageName)),
-                    isTargetHover = isPreviewTarget || (targetHoverPlacement?.id == item.id),
+                    isBeingDragged = dragState.isDragging && (dragState.draggedPlacement?.id == item.id || (dragState.draggedPlacement?.packageName != null && item.packageName == dragState.draggedPlacement?.packageName)),
+                    isTargetHover = isPreviewTarget || (dragState.targetHoverPlacement?.id == item.id),
                     rootCoordinates = rootCoordinates,
                     isResizeMode = isResizing,
                     onLongClick = null,
@@ -1525,8 +1320,8 @@ fun Layer1HomeScreen(
 
     // Top Removal Bucket overlay (floats on top of apps without shifting grid layout)
     RemovalBucketBar(
-      isVisible = isDragging && draggedPlacement != null,
-      isHovered = isOverBin,
+      isVisible = dragState.isDragging && dragState.draggedPlacement != null,
+      isHovered = dragState.isOverBin,
       onPositioned = { /* Coordinates measured accurately below */ },
       modifier = Modifier
         .align(Alignment.TopCenter)
@@ -1541,7 +1336,7 @@ fun Layer1HomeScreen(
     )
 
     // Subtle edge auto-paging activation indicator cues
-    if (isDragging && space.layer1DisplayMode != Space.DISPLAY_MODE_SCROLL && !isOverBin && !isDropping) {
+    if (dragState.isDragging && space.layer1DisplayMode != Space.DISPLAY_MODE_SCROLL && !dragState.isOverBin && !dragState.isDropping) {
       if (activeEdgeZone == EdgePagingDirection.LEFT && edgeTriggerState == EdgeTriggerState.ARMED) {
         Box(
           modifier = Modifier
@@ -1612,23 +1407,23 @@ fun Layer1HomeScreen(
     }
 
     // Floating dragged item follow overlay (rendered in root coordinate space)
-    if ((isDragging || isDropping) && draggedPlacement != null) {
-      val dragged = draggedPlacement!!
+    if ((dragState.isDragging || dragState.isDropping) && dragState.draggedPlacement != null) {
+      val dragged = dragState.draggedPlacement!!
       val app = appLookup[dragged]
       val bitmap = remember(app?.id) { app?.let { getBitmap(it) } }
 
-      var lastPointerX by remember { mutableFloatStateOf(currentPointerPos.x) }
+      var lastPointerX by remember { mutableFloatStateOf(dragState.localPointerPos.x) }
       var targetTilt by remember { mutableFloatStateOf(0f) }
-      LaunchedEffect(currentPointerPos.x) {
-        val dx = currentPointerPos.x - lastPointerX
-        lastPointerX = currentPointerPos.x
+      LaunchedEffect(dragState.localPointerPos.x) {
+        val dx = dragState.localPointerPos.x - lastPointerX
+        lastPointerX = dragState.localPointerPos.x
         targetTilt = (dx * 0.16f).coerceIn(-6f, 6f)
       }
 
       val targetScale = when {
-        isDropping -> 1.0f
-        isOverBin -> 0.82f
-        targetHoverPlacement != null -> 1.16f
+        dragState.isDropping -> 1.0f
+        dragState.isOverBin -> 0.82f
+        dragState.targetHoverPlacement != null -> 1.16f
         else -> 1.12f
       }
       val dragScale by animateFloatAsState(
@@ -1637,12 +1432,12 @@ fun Layer1HomeScreen(
         label = "dragScale"
       )
       val dragTilt by animateFloatAsState(
-        targetValue = if (isDropping) 0f else targetTilt,
+        targetValue = if (dragState.isDropping) 0f else targetTilt,
         animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "dragTilt"
       )
       val dragElevation by animateDpAsState(
-        targetValue = if (isDropping) 2.dp else if (isOverBin) 8.dp else 22.dp,
+        targetValue = if (dragState.isDropping) 2.dp else if (dragState.isOverBin) 8.dp else 22.dp,
         animationSpec = spring(stiffness = Spring.StiffnessMedium),
         label = "dragElevation"
       )
@@ -1651,8 +1446,8 @@ fun Layer1HomeScreen(
         modifier = Modifier
           .offset {
             IntOffset(
-              (currentPointerPos.x - touchOffsetWithinItem.x).roundToInt(),
-              (currentPointerPos.y - touchOffsetWithinItem.y).roundToInt()
+              (dragState.localPointerPos.x - dragState.touchOffsetWithinItem.x).roundToInt(),
+              (dragState.localPointerPos.y - dragState.touchOffsetWithinItem.y).roundToInt()
             )
           }
           .wrapContentSize()
@@ -1661,7 +1456,7 @@ fun Layer1HomeScreen(
             scaleY = dragScale
             rotationZ = dragTilt
             shadowElevation = dragElevation.toPx()
-            alpha = if (isOverBin) 0.75f else 1.0f
+            alpha = if (dragState.isOverBin) 0.75f else 1.0f
           }
           .zIndex(999f)
           .testTag("floating_dragged_item"),
@@ -1732,11 +1527,11 @@ fun Layer1HomeScreen(
     }
 
     // Tap-away dismiss scrim for pre-drag action overlay (only shown when finger has been released without dragging)
-    if (activeActionPlacement != null && pendingDragPlacement == null && !isDragging) {
+    if (dragState.activeActionPlacement != null && dragState.pendingDragPlacement == null && !dragState.isDragging) {
       Box(
         modifier = Modifier
           .fillMaxSize()
-          .pointerInput(activeActionPlacement) {
+          .pointerInput(dragState.activeActionPlacement) {
             detectTapGestures(
               onPress = {
                 dismissActions()
@@ -1748,8 +1543,8 @@ fun Layer1HomeScreen(
     }
 
     // Pre-drag floating action box overlay (rendered above the app/widget when action is active and not dragging)
-    if (activeActionPlacement != null && !isDragging) {
-      val targetPlacement = activeActionPlacement!!
+    if (dragState.activeActionPlacement != null && !dragState.isDragging) {
+      val targetPlacement = dragState.activeActionPlacement!!
       val targetRect = getPlacementFootprintRect(targetPlacement)
         ?: cellBounds[targetPlacement.id]
         ?: slotBounds[targetPlacement.positionIndex]

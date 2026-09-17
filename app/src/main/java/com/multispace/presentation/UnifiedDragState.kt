@@ -76,6 +76,16 @@ class UnifiedDragState(
   // Trash / Removal Bin
   var isOverBin by mutableStateOf(false)
 
+  // Desktop drag and interaction lifecycle state
+  var isDropping by mutableStateOf(false)
+  var activeActionPlacement by mutableStateOf<SpaceItemPlacement?>(null)
+  var pendingDragPlacement by mutableStateOf<SpaceItemPlacement?>(null)
+  var localPointerPos by mutableStateOf(Offset.Zero)
+  var touchOffsetWithinItem by mutableStateOf(Offset.Zero)
+  var targetHoverPlacement by mutableStateOf<SpaceItemPlacement?>(null)
+  var previewTargetSlot by mutableStateOf<Int?>(null)
+  var accumulatedDragDistance by mutableStateOf(0f)
+
   /**
    * Formal deterministic interaction lifecycle:
    * Idle -> Pressing -> ContextMenu -> Dragging -> Dropping -> Idle
@@ -156,13 +166,30 @@ class UnifiedDragState(
     draggedDockItem = null
     draggedApp = null
     rootPointerPos = Offset.Zero
+    localPointerPos = Offset.Zero
     touchOffsetInItem = Offset.Zero
+    touchOffsetWithinItem = Offset.Zero
     currentTargetZone = DragTargetZone.NONE
     targetDockIndex = -1
     isOverDock = false
     isDockFull = false
     targetDesktopPosition = -1
     isOverBin = false
+    activeActionPlacement = null
+    pendingDragPlacement = null
+    targetHoverPlacement = null
+    previewTargetSlot = null
+    isDropping = false
+    accumulatedDragDistance = 0f
+  }
+
+  fun dismissActions() {
+    activeActionPlacement = null
+    pendingDragPlacement = null
+    if (lifecycleState == DragLifecycleState.PRESSED_ACTION_VISIBLE) {
+      lifecycleState = DragLifecycleState.IDLE
+      eventTracer.record(com.multispace.presentation.events.LauncherEvent.ActionMenuDismissed())
+    }
   }
 
   fun startPressing(identity: AppIdentity, startPos: Offset, itemId: String? = null) {
@@ -182,14 +209,25 @@ class UnifiedDragState(
     )
   }
 
-  fun startItemLongPress(placement: SpaceItemPlacement, touchOffset: Offset = Offset.Zero) {
+  fun startItemLongPress(
+    placement: SpaceItemPlacement,
+    touchOffset: Offset = Offset.Zero,
+    localOffset: Offset = Offset.Zero,
+    rootOffset: Offset = Offset.Zero
+  ) {
     lifecycleState = DragLifecycleState.PRESSED_ACTION_VISIBLE
+    activeActionPlacement = placement
+    pendingDragPlacement = placement
     draggedPlacement = placement
     touchOffsetInItem = touchOffset
+    touchOffsetWithinItem = touchOffset
+    if (localOffset != Offset.Zero) localPointerPos = localOffset
+    if (rootOffset != Offset.Zero) rootPointerPos = rootOffset
+    accumulatedDragDistance = 0f
     eventTracer.record(
       com.multispace.presentation.events.LauncherEvent.ActionMenuOpened(
         identity = placement.toAppIdentity(),
-        position = rootPointerPos,
+        position = if (rootOffset != Offset.Zero) rootOffset else rootPointerPos,
         itemId = placement.id
       )
     )
@@ -199,16 +237,26 @@ class UnifiedDragState(
     placement: SpaceItemPlacement,
     app: DiscoveredApp? = null,
     pointerPos: Offset = Offset.Zero,
-    touchOffset: Offset = Offset.Zero
+    touchOffset: Offset = Offset.Zero,
+    localPos: Offset = Offset.Zero
   ) {
     lifecycleState = DragLifecycleState.DRAGGING
     isDragging = true
+    isDropping = false
+    activeActionPlacement = null
+    pendingDragPlacement = null
     dragSource = DragSource.LAYER1_DESKTOP
     draggedPlacement = placement
     draggedApp = app
     rootPointerPos = pointerPos
     touchOffsetInItem = touchOffset
+    touchOffsetWithinItem = touchOffset
+    localPointerPos = if (localPos != Offset.Zero) localPos else pointerPos
     currentTargetZone = DragTargetZone.DESKTOP
+    targetHoverPlacement = null
+    previewTargetSlot = null
+    isOverBin = false
+    accumulatedDragDistance = 0f
     eventTracer.record(
       com.multispace.presentation.events.LauncherEvent.DragStarted(
         identity = currentAppIdentity,
@@ -245,8 +293,9 @@ class UnifiedDragState(
     )
   }
 
-  fun updatePointerPosition(pos: Offset) {
+  fun updatePointerPosition(pos: Offset, localPos: Offset = pos) {
     rootPointerPos = pos
+    localPointerPos = localPos
     isOverDock = isPointerOverDock(pos)
     isOverBin = isPointerOverBin(pos)
     val prevZone = currentTargetZone
@@ -274,7 +323,9 @@ class UnifiedDragState(
     draggedDockItem = null
     draggedApp = null
     rootPointerPos = Offset.Zero
+    localPointerPos = Offset.Zero
     touchOffsetInItem = Offset.Zero
+    touchOffsetWithinItem = Offset.Zero
     currentTargetZone = DragTargetZone.NONE
     targetDockIndex = -1
     isOverDock = false
@@ -282,6 +333,12 @@ class UnifiedDragState(
     targetDesktopPage = 0
     targetDesktopPosition = -1
     isOverBin = false
+    activeActionPlacement = null
+    pendingDragPlacement = null
+    targetHoverPlacement = null
+    previewTargetSlot = null
+    isDropping = false
+    accumulatedDragDistance = 0f
     lifecycleState = DragLifecycleState.CANCEL
     eventTracer.record(
       com.multispace.presentation.events.LauncherEvent.DragCancelled(
@@ -300,7 +357,9 @@ class UnifiedDragState(
     draggedDockItem = null
     draggedApp = null
     rootPointerPos = Offset.Zero
+    localPointerPos = Offset.Zero
     touchOffsetInItem = Offset.Zero
+    touchOffsetWithinItem = Offset.Zero
     currentTargetZone = DragTargetZone.NONE
     targetDockIndex = -1
     isOverDock = false
@@ -308,6 +367,12 @@ class UnifiedDragState(
     targetDesktopPage = 0
     targetDesktopPosition = -1
     isOverBin = false
+    activeActionPlacement = null
+    pendingDragPlacement = null
+    targetHoverPlacement = null
+    previewTargetSlot = null
+    isDropping = false
+    accumulatedDragDistance = 0f
     lifecycleState = DragLifecycleState.DROP
     eventTracer.record(
       com.multispace.presentation.events.LauncherEvent.DragDropped(
