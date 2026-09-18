@@ -1550,13 +1550,25 @@ class RoomSpaceRepository(
   }
 
   override suspend fun cleanupUninstalledApp(packageName: String): Result<Unit> {
+    return cleanupUninstalledApp(packageName, null)
+  }
+
+  override suspend fun cleanupUninstalledApp(packageName: String, userHandleId: Long?): Result<Unit> {
     return try {
       runInTransaction {
-        layoutDao.deletePlacementsForPackage(packageName)
-        layoutDao.deleteFolderItemsForPackage(packageName)
-        layoutDao.deleteDockItemsForPackage(packageName)
+        if (userHandleId != null) {
+          layoutDao.deletePlacementsForPackage(packageName, userHandleId)
+          layoutDao.deleteFolderItemsForPackage(packageName, userHandleId)
+          layoutDao.deleteDockItemsForPackage(packageName, userHandleId)
+          membershipDao.deleteAllMembershipsForPackage(packageName, userHandleId)
+        } else {
+          layoutDao.deletePlacementsForPackage(packageName)
+          layoutDao.deleteFolderItemsForPackage(packageName)
+          layoutDao.deleteDockItemsForPackage(packageName)
+          membershipDao.deleteAllMembershipsForPackage(packageName)
+        }
       }
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Cleaned up layout placements for uninstalled package: $packageName")
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Cleaned up layout placements for uninstalled package: $packageName (userHandleId=$userHandleId)")
       Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to cleanup uninstalled package: $packageName", e)

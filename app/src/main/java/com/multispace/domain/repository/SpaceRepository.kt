@@ -161,7 +161,8 @@ interface SpaceRepository : SpaceMembershipRepository, PlacementRepository, Fold
 
   suspend fun applyLayoutPreset(spaceId: String, preset: com.multispace.domain.model.LayoutPreset, apps: List<DiscoveredApp>): Result<Unit>
   suspend fun importCurrentHomeLayout(spaceId: String, allInstalledApps: List<DiscoveredApp>): Result<com.multispace.domain.model.ImportReport>
-  suspend fun cleanupUninstalledApp(packageName: String): Result<Unit>
+  suspend fun cleanupUninstalledApp(packageName: String): Result<Unit> = cleanupUninstalledApp(packageName, null)
+  suspend fun cleanupUninstalledApp(packageName: String, userHandleId: Long?): Result<Unit>
 
   // --- Desktop Customization & Page Control ---
   suspend fun updateSpaceTheme(

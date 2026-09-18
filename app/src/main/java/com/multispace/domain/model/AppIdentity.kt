@@ -43,6 +43,11 @@ data class AppIdentity(
    */
   fun toComponentName(): ComponentName = ComponentName(packageName, componentName)
 
+  /**
+   * Serializes this identity to a canonical string matching DiscoveredApp.id: "packageName/componentName#userHandleId".
+   */
+  fun toIdentifier(): String = "$packageName/$componentName#$userHandleId"
+
   companion object {
     fun fromDiscoveredApp(app: DiscoveredApp): AppIdentity =
       AppIdentity(app.packageName, app.activityName, app.userHandleId)
@@ -80,6 +85,75 @@ data class AppIdentity(
         info.componentName.className,
         com.multispace.platform.UserHandleHelper.getUserHandleId(null as android.content.Context?, userHandle)
       )
+
+    /**
+     * Parses an [AppIdentity] from a serialized string, placement ID, or virtual identifier.
+     * Supports canonical and virtual formats:
+     * - "virtual:pkg/comp#userHandleId"
+     * - "virtual:pkg/comp/userHandleId"
+     * - "virtual:pkg#userHandleId"
+     * - "virtual_pkg_userHandleId"
+     * - "pkg/comp#userHandleId" (canonical DiscoveredApp.id)
+     * - "pkg/comp/userHandleId"
+     * - "virtual:pkg"
+     * - "pkg"
+     */
+    fun parseFromIdentifier(raw: String?): AppIdentity? {
+      if (raw.isNullOrBlank()) return null
+      val stripped = raw
+        .removePrefix("virtual:")
+        .removePrefix("fallback:")
+        .removePrefix("virtual_")
+
+      if (stripped.contains("#")) {
+        val beforeHash = stripped.substringBefore("#")
+        val userPart = stripped.substringAfter("#")
+        val userId = userPart.toLongOrNull() ?: 0L
+        return if (beforeHash.contains("/")) {
+          val pkg = beforeHash.substringBefore("/")
+          val comp = beforeHash.substringAfter("/")
+          AppIdentity(packageName = pkg, componentName = comp, userHandleId = userId)
+        } else {
+          AppIdentity(packageName = beforeHash, componentName = "", userHandleId = userId)
+        }
+      }
+
+      if (stripped.contains("/")) {
+        val parts = stripped.split("/")
+        if (parts.size >= 3) {
+          val pkg = parts[0]
+          val comp = parts[1]
+          val userId = parts[2].toLongOrNull() ?: 0L
+          return AppIdentity(packageName = pkg, componentName = comp, userHandleId = userId)
+        } else if (parts.size == 2) {
+          val pkg = parts[0]
+          val secondPart = parts[1]
+          val possibleUserId = secondPart.toLongOrNull()
+          return if (possibleUserId != null) {
+            AppIdentity(packageName = pkg, componentName = "", userHandleId = possibleUserId)
+          } else {
+            AppIdentity(packageName = pkg, componentName = secondPart, userHandleId = 0L)
+          }
+        }
+      }
+
+      if (raw.startsWith("virtual_")) {
+        val lastUnderscore = stripped.lastIndexOf('_')
+        if (lastUnderscore != -1) {
+          val suffix = stripped.substring(lastUnderscore + 1)
+          val userId = suffix.toLongOrNull()
+          if (userId != null) {
+            val pkg = stripped.substring(0, lastUnderscore)
+            return AppIdentity(packageName = pkg, componentName = "", userHandleId = userId)
+          }
+        }
+      }
+
+      if (stripped.isNotEmpty()) {
+        return AppIdentity(packageName = stripped, componentName = "", userHandleId = 0L)
+      }
+      return null
+    }
   }
 }
 

@@ -233,8 +233,8 @@ fun LauncherHomeScreen(
                       onAddAppToHome = { app, page ->
                         desktopController.addAppToHome(currentSpace.id, app, page)
                       },
-                      onMovePlacement = { placementId, targetPage, targetPos, pageSize ->
-                        desktopController.movePlacement(currentSpace.id, placementId, targetPage, targetPos, pageSize)
+                      onMovePlacement = { placementId, targetPage, targetPos, pageSize, appIdentity ->
+                        desktopController.movePlacement(currentSpace.id, placementId, targetPage, targetPos, pageSize, appIdentity)
                       },
                       onResizeWidget = { placementId, spanX, spanY, pos ->
                         desktopController.resizeWidget(placementId, spanX, spanY, pos)

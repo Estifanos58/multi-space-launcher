@@ -50,7 +50,7 @@ interface SpaceLayoutDao {
   @Query("DELETE FROM space_item_placements WHERE folder_id = :folderId")
   suspend fun deletePlacementByFolderId(folderId: String)
 
-  @Query("DELETE FROM space_item_placements WHERE item_type = 'APP' AND package_name IS NOT NULL AND id NOT IN (SELECT MIN(id) FROM space_item_placements WHERE item_type = 'APP' AND package_name IS NOT NULL GROUP BY space_id, layer, package_name)")
+  @Query("DELETE FROM space_item_placements WHERE item_type = 'APP' AND package_name IS NOT NULL AND id NOT IN (SELECT MIN(id) FROM space_item_placements WHERE item_type = 'APP' AND package_name IS NOT NULL GROUP BY space_id, layer, package_name, COALESCE(component_name, ''), user_handle_id)")
   suspend fun pruneDuplicatePlacements(): Int
 
   @Query("DELETE FROM space_item_placements WHERE id NOT IN (SELECT MIN(id) FROM space_item_placements GROUP BY space_id, layer, page_index, position_index)")
@@ -126,6 +126,15 @@ interface SpaceLayoutDao {
   suspend fun updateWidgetSpanAndPosition(placementId: String, spanX: Int, spanY: Int, positionIndex: Int)
 
   // --- Cleanup on App Uninstall ---
+  @Query("DELETE FROM space_item_placements WHERE package_name = :packageName AND user_handle_id = :userHandleId")
+  suspend fun deletePlacementsForPackage(packageName: String, userHandleId: Long)
+
+  @Query("DELETE FROM space_folder_items WHERE package_name = :packageName AND user_handle_id = :userHandleId")
+  suspend fun deleteFolderItemsForPackage(packageName: String, userHandleId: Long)
+
+  @Query("DELETE FROM space_dock_items WHERE package_name = :packageName AND user_handle_id = :userHandleId")
+  suspend fun deleteDockItemsForPackage(packageName: String, userHandleId: Long)
+
   @Query("DELETE FROM space_item_placements WHERE package_name = :packageName")
   suspend fun deletePlacementsForPackage(packageName: String)
 

@@ -176,17 +176,14 @@ class RoomPlacementRepository(
   override suspend fun removePlacement(placementId: String): Result<Unit> {
     return try {
       runInTransaction {
-        if (placementId.startsWith("virtual:") || placementId.startsWith("virtual_")) {
-          val pkg = when {
-            placementId.startsWith("virtual:") -> placementId.removePrefix("virtual:").substringBefore(":")
-            else -> {
-              val withoutPrefix = placementId.removePrefix("virtual_")
-              val lastUnderscore = withoutPrefix.lastIndexOf('_')
-              val secondLast = if (lastUnderscore != -1) withoutPrefix.lastIndexOf('_', lastUnderscore - 1) else -1
-              if (secondLast != -1) withoutPrefix.substring(0, secondLast) else withoutPrefix
-            }
+        if (placementId.startsWith("virtual:") || placementId.startsWith("virtual_") || placementId.startsWith("fallback:")) {
+          val targetIdentity = AppIdentity.parseFromIdentifier(placementId)
+          if (targetIdentity != null) {
+            layoutDao.deletePlacementsForPackage(targetIdentity.packageName, targetIdentity.userHandleId)
+          } else {
+            val pkg = placementId.removePrefix("virtual:").removePrefix("fallback:").removePrefix("virtual_").substringBefore(":")
+            layoutDao.deletePlacementsForPackage(pkg)
           }
-          layoutDao.deletePlacementsForPackage(pkg)
         } else {
           layoutDao.deletePlacementById(placementId)
         }
@@ -215,7 +212,8 @@ class RoomPlacementRepository(
     placementId: String,
     targetPage: Int,
     targetPosition: Int,
-    pageSize: Int?
+    pageSize: Int?,
+    appIdentity: AppIdentity?
   ): Result<Unit> {
     return try {
       runInTransaction {
@@ -283,45 +281,34 @@ class RoomPlacementRepository(
           layoutDao.insertPlacements(bootstrapped)
         }
 
-        // 2. Resolve the target item to move
-        val pkgFromVirtual = when {
-          placementId.startsWith("fallback:") -> {
-            placementId.removePrefix("fallback:")
-          }
-          placementId.startsWith("virtual:") -> {
-            placementId.removePrefix("virtual:").substringBefore(":")
-          }
-          placementId.startsWith("virtual_") -> {
-            val withoutPrefix = placementId.removePrefix("virtual_")
-            val lastUnderscore = withoutPrefix.lastIndexOf('_')
-            val secondLast = if (lastUnderscore != -1) withoutPrefix.lastIndexOf('_', lastUnderscore - 1) else -1
-            if (secondLast != -1) withoutPrefix.substring(0, secondLast) else withoutPrefix
-          }
-          else -> null
-        }
+        // 2. Resolve the target item to move strictly using canonical AppIdentity
+        val targetIdentity = appIdentity ?: AppIdentity.parseFromIdentifier(placementId)
 
         var itemIndex = allHome.indexOfFirst { it.id == placementId }
-        if (itemIndex == -1 && pkgFromVirtual != null) {
-          itemIndex = allHome.indexOfFirst { it.packageName == pkgFromVirtual }
-        }
-        if (itemIndex == -1 && pkgFromVirtual != null) {
-          itemIndex = allHome.indexOfFirst { it.packageName?.contains(pkgFromVirtual) == true || pkgFromVirtual.contains(it.packageName ?: "---") }
-        }
-        if (itemIndex == -1) {
-          itemIndex = allHome.indexOfFirst { it.id.contains(placementId) || placementId.contains(it.id) }
+        if (itemIndex == -1 && targetIdentity != null) {
+          itemIndex = allHome.indexOfFirst {
+            it.itemType == SpaceItemPlacement.ITEM_TYPE_APP && it.appIdentity?.matches(targetIdentity) == true
+          }
         }
 
         val itemToMoveRaw = if (itemIndex != -1) {
           allHome.removeAt(itemIndex)
-        } else {
-          val matchedMember = memberships.firstOrNull { it.packageName == pkgFromVirtual }
-          val discoveredApp = if (matchedMember == null && context != null && pkgFromVirtual != null) {
+        } else if (targetIdentity != null) {
+          val matchedMember = memberships.firstOrNull { it.appIdentity.matches(targetIdentity) }
+          val discoveredApp = if (matchedMember == null && context != null) {
             try {
-              AppDiscoveryManager(context).loadInstalledApps().firstOrNull { it.packageName == pkgFromVirtual }
+              AppDiscoveryManager(context).loadInstalledApps().firstOrNull { it.appIdentity.matches(targetIdentity) }
             } catch (e: Exception) {
               null
             }
           } else null
+
+          val compName = when {
+            targetIdentity.componentName.isNotEmpty() -> targetIdentity.componentName
+            matchedMember != null && matchedMember.componentName.isNotEmpty() -> matchedMember.componentName
+            discoveredApp != null && discoveredApp.activityName.isNotEmpty() -> discoveredApp.activityName
+            else -> ""
+          }
 
           SpaceItemPlacementEntity(
             id = "place_" + UUID.randomUUID().toString().replace("-", "").take(10),
@@ -330,10 +317,16 @@ class RoomPlacementRepository(
             pageIndex = targetPage,
             positionIndex = targetPosClamped,
             itemType = SpaceItemPlacement.ITEM_TYPE_APP,
-            packageName = pkgFromVirtual,
-            componentName = matchedMember?.componentName ?: discoveredApp?.activityName,
-            userHandleId = matchedMember?.userHandleId ?: discoveredApp?.userHandleId ?: 0L
+            packageName = targetIdentity.packageName,
+            componentName = compName,
+            userHandleId = targetIdentity.userHandleId
           )
+        } else {
+          AppLogger.w(
+            AppLogger.Category.LAUNCHER,
+            "Cannot resolve placement to move: placementId='$placementId' is not present in Space '$spaceId' and cannot be parsed to an AppIdentity"
+          )
+          throw IllegalArgumentException("Cannot resolve placement for ID: $placementId")
         }
 
         val itemToMove = if (itemToMoveRaw.id.startsWith("virtual") || itemToMoveRaw.id.startsWith("fallback")) {
@@ -344,10 +337,10 @@ class RoomPlacementRepository(
 
         // CRITICAL: Prevent duplicate apps - purge any existing placements for the exact same app identity
         if (itemToMove.itemType == SpaceItemPlacement.ITEM_TYPE_APP) {
-          val targetIdentity = itemToMove.appIdentity
-          if (targetIdentity != null) {
+          val targetAppIdentity = itemToMove.appIdentity
+          if (targetAppIdentity != null) {
             val duplicatePlacements = allHome.filter {
-              it.itemType == SpaceItemPlacement.ITEM_TYPE_APP && it.appIdentity?.matches(targetIdentity) == true
+              it.itemType == SpaceItemPlacement.ITEM_TYPE_APP && it.appIdentity?.matches(targetAppIdentity) == true
             }
             if (duplicatePlacements.isNotEmpty()) {
               allHome.removeAll(duplicatePlacements)
@@ -387,7 +380,7 @@ class RoomPlacementRepository(
 
         // Deduplicate toInsert before persistence using AppIdentity
         val deduplicatedToInsert = mutableListOf<SpaceItemPlacementEntity>()
-        val seenIdentities = mutableSetOf<AppIdentity>()
+        val seenIdentities = mutableListOf<AppIdentity>()
         val seenIds = mutableSetOf<String>()
 
         val finalItem = toInsert.firstOrNull { it.id == itemToMove.id } ?: itemToMove
@@ -399,7 +392,7 @@ class RoomPlacementRepository(
           if (seenIds.contains(item.id)) continue
           val itemIdentity = item.appIdentity
           if (item.itemType == SpaceItemPlacement.ITEM_TYPE_APP && itemIdentity != null) {
-            if (seenIdentities.contains(itemIdentity)) continue
+            if (seenIdentities.any { it.matches(itemIdentity) }) continue
             seenIdentities.add(itemIdentity)
           }
           seenIds.add(item.id)
@@ -410,7 +403,7 @@ class RoomPlacementRepository(
         val persistedItem = deduplicatedToInsert.firstOrNull { it.id == itemToMove.id }
         AppLogger.i(
           AppLogger.Category.LAUNCHER,
-          "PERSISTED_PLACEMENT: id=${persistedItem?.id} pkg=${persistedItem?.packageName} targetPage=$targetPage targetPos=$targetPosClamped gridRows=${effectivePageSize / cols} pageSize=$effectivePageSize persistedPage=${persistedItem?.pageIndex} persistedPos=${persistedItem?.positionIndex} from=($sourcePage, $sourcePos) shiftedCount=${toInsert.size - 1}"
+          "PERSISTED_PLACEMENT: id=${persistedItem?.id} pkg=${persistedItem?.packageName} user=${persistedItem?.userHandleId} targetPage=$targetPage targetPos=$targetPosClamped gridRows=${effectivePageSize / cols} pageSize=$effectivePageSize persistedPage=${persistedItem?.pageIndex} persistedPos=${persistedItem?.positionIndex} from=($sourcePage, $sourcePos) shiftedCount=${toInsert.size - 1}"
         )
         Result.success(Unit)
       }

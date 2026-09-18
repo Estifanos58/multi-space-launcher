@@ -113,7 +113,7 @@ fun Layer1HomeScreen(
   onCreateFolderFromApps: (sourceApp: DiscoveredApp, targetApp: DiscoveredApp, sourcePlacementId: String?, targetPlacementId: String?, targetPage: Int, targetPosition: Int) -> Unit = { _, _, _, _, _, _ -> },
   onAddAppToExistingFolder: (folderId: String, app: DiscoveredApp, sourcePlacementId: String) -> Unit = { _, _, _ -> },
   onAddAppToHome: (DiscoveredApp, Int) -> Unit,
-  onMovePlacement: (placementId: String, targetPage: Int, targetPos: Int, pageSize: Int) -> Unit = { _, _, _, _ -> },
+  onMovePlacement: (placementId: String, targetPage: Int, targetPos: Int, pageSize: Int, appIdentity: AppIdentity?) -> Unit = { _, _, _, _, _ -> },
   onResizeWidget: (placementId: String, spanX: Int, spanY: Int, positionIndex: Int?) -> Unit = { _, _, _, _ -> },
   onOpenCustomization: (Int) -> Unit = {},
   onOpenAppInfo: (DiscoveredApp) -> Unit = {},
@@ -932,13 +932,13 @@ fun Layer1HomeScreen(
                   startPos.y + (targetDest.y - startPos.y) * value
                 )
               }
-              onMovePlacement(dragged.id, targetPage, targetPos, pageSize)
+              onMovePlacement(dragged.id, targetPage, targetPos, pageSize, dragged.appIdentity)
             } finally {
               cleanupDragState()
             }
           }
         } else {
-          onMovePlacement(dragged.id, targetPage, targetPos, pageSize)
+          onMovePlacement(dragged.id, targetPage, targetPos, pageSize, dragged.appIdentity)
           cleanupDragState()
         }
       }

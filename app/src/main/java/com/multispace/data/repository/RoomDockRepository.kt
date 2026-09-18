@@ -235,7 +235,8 @@ class RoomDockRepository(
             placementId = virtualId,
             targetPage = originalPage,
             targetPosition = originalPos,
-            pageSize = effectivePageSize
+            pageSize = effectivePageSize,
+            appIdentity = displacedIdentity
           )
           if (moveRes != null && moveRes.isFailure) {
             throw moveRes.exceptionOrNull() ?: IllegalStateException("Failed to move displaced dock item to desktop")
@@ -275,7 +276,8 @@ class RoomDockRepository(
           placementId = virtualId,
           targetPage = targetPage,
           targetPosition = targetPosition,
-          pageSize = pageSize
+          pageSize = pageSize,
+          appIdentity = app.appIdentity
         )
         if (moveRes != null && moveRes.isFailure) {
           throw moveRes.exceptionOrNull() ?: IllegalStateException("Failed to place item onto home page")

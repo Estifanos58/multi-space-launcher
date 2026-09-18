@@ -12,7 +12,14 @@ interface PlacementRepository {
   suspend fun addPlacement(placement: SpaceItemPlacement): Result<Unit>
   suspend fun removePlacement(placementId: String): Result<Unit>
   suspend fun updatePlacements(placements: List<SpaceItemPlacement>): Result<Unit>
-  suspend fun moveAppToPage(spaceId: String, placementId: String, targetPage: Int, targetPosition: Int, pageSize: Int? = null): Result<Unit>
+  suspend fun moveAppToPage(
+    spaceId: String,
+    placementId: String,
+    targetPage: Int,
+    targetPosition: Int,
+    pageSize: Int? = null,
+    appIdentity: com.multispace.domain.model.AppIdentity? = null
+  ): Result<Unit>
   suspend fun addPage(spaceId: String): Result<Int>
   suspend fun deletePage(spaceId: String, pageIndex: Int): Result<Unit>
   suspend fun addWidgetPlacement(

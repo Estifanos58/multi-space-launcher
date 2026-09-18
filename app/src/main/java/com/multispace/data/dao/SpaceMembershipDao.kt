@@ -38,9 +38,27 @@ interface SpaceMembershipDao {
     userHandleId: Long
   ): Int
 
+  @Query("DELETE FROM space_memberships WHERE space_id = :spaceId AND package_name = :packageName AND user_handle_id = :userHandleId")
+  suspend fun deleteMembershipByPackage(
+    spaceId: String,
+    packageName: String,
+    userHandleId: Long
+  ): Int
+
   @Query("DELETE FROM space_memberships WHERE space_id = :spaceId AND package_name = :packageName")
   suspend fun deleteMembershipByPackage(
     spaceId: String,
+    packageName: String
+  ): Int
+
+  @Query("DELETE FROM space_memberships WHERE package_name = :packageName AND user_handle_id = :userHandleId")
+  suspend fun deleteAllMembershipsForPackage(
+    packageName: String,
+    userHandleId: Long
+  ): Int
+
+  @Query("DELETE FROM space_memberships WHERE package_name = :packageName")
+  suspend fun deleteAllMembershipsForPackage(
     packageName: String
   ): Int
 

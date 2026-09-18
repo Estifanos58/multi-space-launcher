@@ -164,7 +164,7 @@ class RoomSpaceMembershipRepository(
         orderedApps.forEachIndexed { index, app ->
           val membership = membershipByIdentity[app.appIdentity]
             ?: memberships.firstOrNull { it.appIdentity.matches(app.appIdentity) }
-            ?: memberships.firstOrNull { it.packageName == app.packageName }
+            ?: memberships.firstOrNull { it.packageName == app.packageName && it.userHandleId == app.userHandleId }
           if (membership != null) {
             membershipDao.updateMembershipOrder(
               spaceId = spaceId,

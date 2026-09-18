@@ -98,8 +98,15 @@ class DesktopInteractionController(
     spaceViewModel.addAppToHome(spaceId, app, page)
   }
 
-  fun movePlacement(spaceId: String, placementId: String, targetPage: Int, targetPos: Int, pageSize: Int) {
-    spaceViewModel.moveAppToPage(spaceId, placementId, targetPage, targetPos, pageSize)
+  fun movePlacement(
+    spaceId: String,
+    placementId: String,
+    targetPage: Int,
+    targetPos: Int,
+    pageSize: Int,
+    appIdentity: com.multispace.domain.model.AppIdentity? = null
+  ) {
+    spaceViewModel.moveAppToPage(spaceId, placementId, targetPage, targetPos, pageSize, appIdentity)
   }
 
   fun resizeWidget(placementId: String, spanX: Int, spanY: Int, pos: Int?) {

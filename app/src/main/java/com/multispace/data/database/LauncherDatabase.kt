@@ -395,7 +395,6 @@ abstract class LauncherDatabase : RoomDatabase() {
           MIGRATION_7_9,
           MIGRATION_9_10
         )
-        .fallbackToDestructiveMigration(true)
         .build()
         INSTANCE = instance
         instance

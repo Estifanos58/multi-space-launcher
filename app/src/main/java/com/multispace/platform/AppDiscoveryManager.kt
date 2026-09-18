@@ -235,7 +235,7 @@ class AppDiscoveryManager(private val context: Context) {
         AppLogger.w(AppLogger.Category.LAUNCHER, "Failed to unregister LauncherApps.Callback", e)
       }
     }
-    if (!isReceiverRegistered) {
+    if (isReceiverRegistered) {
       try {
         context.unregisterReceiver(packageReceiver)
         isReceiverRegistered = false
