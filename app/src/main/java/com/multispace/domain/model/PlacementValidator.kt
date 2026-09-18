@@ -78,7 +78,7 @@ object PlacementValidator {
     val issues = mutableListOf<PlacementIssue>()
 
     val seenIds = mutableSetOf<String>()
-    val seenPackagesByLayer = mutableMapOf<Int, MutableSet<String>>()
+    val seenIdentitiesByLayer = mutableMapOf<Int, MutableSet<AppIdentity>>()
     val occupiedSlotsByPageAndLayer = mutableMapOf<Pair<Int, Int>, MutableMap<Int, String>>()
 
     for (p in placements) {
@@ -141,15 +141,15 @@ object PlacementValidator {
         )
       }
 
-      // Check duplicate app package on the same layer
-      if (p.itemType == SpaceItemPlacement.ITEM_TYPE_APP && !p.packageName.isNullOrBlank()) {
-        val layerSeen = seenPackagesByLayer.getOrPut(p.layer) { mutableSetOf() }
-        if (!layerSeen.add(p.packageName)) {
+      // Check duplicate app identity on the same layer
+      if (p.itemType == SpaceItemPlacement.ITEM_TYPE_APP && p.appIdentity != null) {
+        val layerSeen = seenIdentitiesByLayer.getOrPut(p.layer) { mutableSetOf() }
+        if (!layerSeen.add(p.appIdentity!!)) {
           issues.add(
             PlacementIssue(
               placementId = p.id,
               type = IssueType.DuplicateRecord,
-              description = "Duplicate app package on layer ${p.layer}: '${p.packageName}'",
+              description = "Duplicate app identity on layer ${p.layer}: '${p.appIdentity}'",
               pageIndex = p.pageIndex,
               positionIndex = p.positionIndex
             )

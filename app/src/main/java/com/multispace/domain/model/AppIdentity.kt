@@ -19,16 +19,22 @@ data class AppIdentity(
 ) {
 
   /**
-   * Compares equality with another [AppIdentity].
-   * If either componentName is empty, matches on package and userHandleId.
+   * Compares strict equality with another [AppIdentity].
+   * Requires exact match on packageName, componentName, and userHandleId.
    */
   fun matches(other: AppIdentity): Boolean {
-    if (packageName != other.packageName) return false
-    if (userHandleId != other.userHandleId) return false
-    if (componentName.isNotEmpty() && other.componentName.isNotEmpty()) {
-      return componentName == other.componentName
-    }
-    return true
+    return packageName == other.packageName &&
+           componentName == other.componentName &&
+           userHandleId == other.userHandleId
+  }
+
+  /**
+   * Controlled recovery comparison: matches if both identities share the same
+   * packageName and userHandleId, regardless of componentName.
+   */
+  fun matchesSameProfilePackage(other: AppIdentity): Boolean {
+    return packageName == other.packageName &&
+           userHandleId == other.userHandleId
   }
 
   /**
@@ -79,24 +85,37 @@ data class AppIdentity(
     fun fromLauncherActivityInfo(info: LauncherActivityInfo, userHandleId: Long): AppIdentity =
       AppIdentity(info.componentName.packageName, info.componentName.className, userHandleId)
 
-    fun fromLauncherActivityInfo(info: LauncherActivityInfo, userHandle: UserHandle): AppIdentity =
-      AppIdentity(
-        info.componentName.packageName,
-        info.componentName.className,
-        com.multispace.platform.UserHandleHelper.getUserHandleId(null as android.content.Context?, userHandle)
-      )
+    fun fromLauncherActivityInfo(info: LauncherActivityInfo, userHandle: UserHandle, context: android.content.Context): AppIdentity {
+      val userHandleId = com.multispace.platform.UserHandleHelper.getUserHandleId(context, userHandle)
+        ?: throw IllegalArgumentException("Cannot obtain canonical user serial for UserHandle: $userHandle")
+      return AppIdentity(info.componentName.packageName, info.componentName.className, userHandleId)
+    }
+
+    fun fromLauncherActivityInfo(info: LauncherActivityInfo, userHandle: UserHandle, userManager: android.os.UserManager): AppIdentity {
+      val userHandleId = com.multispace.platform.UserHandleHelper.getUserHandleId(userManager, userHandle)
+        ?: throw IllegalArgumentException("Cannot obtain canonical user serial for UserHandle: $userHandle")
+      return AppIdentity(info.componentName.packageName, info.componentName.className, userHandleId)
+    }
+
+    fun fromLauncherActivityInfo(info: LauncherActivityInfo, context: android.content.Context): AppIdentity =
+      fromLauncherActivityInfo(info, info.user, context)
+
+    fun fromLauncherActivityInfo(info: LauncherActivityInfo, userManager: android.os.UserManager): AppIdentity =
+      fromLauncherActivityInfo(info, info.user, userManager)
 
     /**
-     * Parses an [AppIdentity] from a serialized string, placement ID, or virtual identifier.
-     * Supports canonical and virtual formats:
-     * - "virtual:pkg/comp#userHandleId"
-     * - "virtual:pkg/comp/userHandleId"
-     * - "virtual:pkg#userHandleId"
-     * - "virtual_pkg_userHandleId"
-     * - "pkg/comp#userHandleId" (canonical DiscoveredApp.id)
-     * - "pkg/comp/userHandleId"
-     * - "virtual:pkg"
-     * - "pkg"
+     * Strictly parses an [AppIdentity] from a serialized string or placement ID.
+     * Requires explicit profile information (userHandleId).
+     *
+     * Preferred canonical representation: "package/component#userHandleId"
+     * Also supports:
+     * - "virtual:package/component#userHandleId"
+     * - "fallback:package/component#userHandleId"
+     * - "package#userHandleId" (or "virtual:package#userHandleId")
+     * - "package/component/userHandleId" (or "virtual:package/component/userHandleId")
+     * - "virtual_package_userHandleId"
+     *
+     * Returns null if raw is null/blank or lacks valid user profile information.
      */
     fun parseFromIdentifier(raw: String?): AppIdentity? {
       if (raw.isNullOrBlank()) return null
@@ -105,38 +124,44 @@ data class AppIdentity(
         .removePrefix("fallback:")
         .removePrefix("virtual_")
 
+      // 1. Preferred canonical representation: pkg/comp#userId or pkg#userId
       if (stripped.contains("#")) {
         val beforeHash = stripped.substringBefore("#")
         val userPart = stripped.substringAfter("#")
-        val userId = userPart.toLongOrNull() ?: 0L
+        val userId = userPart.toLongOrNull() ?: return null
+        if (beforeHash.isBlank()) return null
         return if (beforeHash.contains("/")) {
           val pkg = beforeHash.substringBefore("/")
           val comp = beforeHash.substringAfter("/")
+          if (pkg.isBlank()) return null
           AppIdentity(packageName = pkg, componentName = comp, userHandleId = userId)
         } else {
           AppIdentity(packageName = beforeHash, componentName = "", userHandleId = userId)
         }
       }
 
+      // 2. 3-part slash representation: pkg/comp/userId
       if (stripped.contains("/")) {
         val parts = stripped.split("/")
         if (parts.size >= 3) {
           val pkg = parts[0]
           val comp = parts[1]
-          val userId = parts[2].toLongOrNull() ?: 0L
+          val userId = parts[2].toLongOrNull() ?: return null
+          if (pkg.isBlank()) return null
           return AppIdentity(packageName = pkg, componentName = comp, userHandleId = userId)
         } else if (parts.size == 2) {
           val pkg = parts[0]
           val secondPart = parts[1]
           val possibleUserId = secondPart.toLongOrNull()
-          return if (possibleUserId != null) {
-            AppIdentity(packageName = pkg, componentName = "", userHandleId = possibleUserId)
-          } else {
-            AppIdentity(packageName = pkg, componentName = secondPart, userHandleId = 0L)
+          if (possibleUserId != null && pkg.isNotBlank()) {
+            return AppIdentity(packageName = pkg, componentName = "", userHandleId = possibleUserId)
           }
+          // "pkg/comp" lacks userHandleId: strict parsing returns null
+          return null
         }
       }
 
+      // 3. Underscore representation for virtual_pkg_userId
       if (raw.startsWith("virtual_")) {
         val lastUnderscore = stripped.lastIndexOf('_')
         if (lastUnderscore != -1) {
@@ -144,13 +169,43 @@ data class AppIdentity(
           val userId = suffix.toLongOrNull()
           if (userId != null) {
             val pkg = stripped.substring(0, lastUnderscore)
-            return AppIdentity(packageName = pkg, componentName = "", userHandleId = userId)
+            if (pkg.isNotBlank()) {
+              return AppIdentity(packageName = pkg, componentName = "", userHandleId = userId)
+            }
           }
         }
       }
 
-      if (stripped.isNotEmpty()) {
-        return AppIdentity(packageName = stripped, componentName = "", userHandleId = 0L)
+      // Incomplete identifier without profile information: never guess a userHandleId!
+      return null
+    }
+
+    /**
+     * Explicit legacy/ambiguous parsing method that supplies a fallback userHandleId (default 0L)
+     * when the identifier lacks profile information.
+     * Only use where legacy backwards-compatibility is explicitly required.
+     */
+    fun parseLegacyOrAmbiguousIdentifier(raw: String?, defaultUserHandleId: Long = 0L): AppIdentity? {
+      val strict = parseFromIdentifier(raw)
+      if (strict != null) return strict
+
+      if (raw.isNullOrBlank()) return null
+      val stripped = raw
+        .removePrefix("virtual:")
+        .removePrefix("fallback:")
+        .removePrefix("virtual_")
+
+      if (stripped.contains("/")) {
+        val parts = stripped.split("/")
+        val pkg = parts[0]
+        val comp = if (parts.size > 1) parts[1] else ""
+        if (pkg.isNotBlank()) {
+          return AppIdentity(packageName = pkg, componentName = comp, userHandleId = defaultUserHandleId)
+        }
+      }
+
+      if (stripped.isNotBlank()) {
+        return AppIdentity(packageName = stripped, componentName = "", userHandleId = defaultUserHandleId)
       }
       return null
     }

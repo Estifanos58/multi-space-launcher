@@ -46,7 +46,7 @@ interface SpaceMembershipDao {
   ): Int
 
   @Query("DELETE FROM space_memberships WHERE space_id = :spaceId AND package_name = :packageName")
-  suspend fun deleteMembershipByPackage(
+  suspend fun deleteMembershipForAllProfiles(
     spaceId: String,
     packageName: String
   ): Int
@@ -58,7 +58,7 @@ interface SpaceMembershipDao {
   ): Int
 
   @Query("DELETE FROM space_memberships WHERE package_name = :packageName")
-  suspend fun deleteAllMembershipsForPackage(
+  suspend fun deleteAllMembershipsForAllProfiles(
     packageName: String
   ): Int
 

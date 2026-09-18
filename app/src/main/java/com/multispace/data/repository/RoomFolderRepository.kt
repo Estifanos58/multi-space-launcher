@@ -166,7 +166,12 @@ class RoomFolderRepository(
           userHandleId = sourceApp.userHandleId,
           orderIndex = 1
         )
-        layoutDao.insertFolderItems(listOf(item1, item2))
+        val itemsToInsert = if (targetApp.appIdentity.matches(sourceApp.appIdentity)) {
+          listOf(item1)
+        } else {
+          listOf(item1, item2)
+        }
+        layoutDao.insertFolderItems(itemsToInsert)
 
         // Remove the original standalone placements if any
         if (!sourcePlacementId.isNullOrEmpty()) {

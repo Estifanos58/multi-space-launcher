@@ -19,7 +19,8 @@ import com.multispace.domain.model.SpaceItemPlacement
   ],
   indices = [
     Index(value = ["space_id"]),
-    Index(value = ["space_id", "layer", "page_index"])
+    Index(value = ["space_id", "layer", "page_index"]),
+    Index(value = ["space_id", "layer", "package_name", "component_name", "user_handle_id"])
   ]
 )
 data class SpaceItemPlacementEntity(

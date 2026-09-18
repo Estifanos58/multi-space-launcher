@@ -178,11 +178,11 @@ class RoomPlacementRepository(
       runInTransaction {
         if (placementId.startsWith("virtual:") || placementId.startsWith("virtual_") || placementId.startsWith("fallback:")) {
           val targetIdentity = AppIdentity.parseFromIdentifier(placementId)
-          if (targetIdentity != null) {
-            layoutDao.deletePlacementsForPackage(targetIdentity.packageName, targetIdentity.userHandleId)
+            ?: throw IllegalArgumentException("Cannot safely remove virtual placement without complete profile identity: $placementId")
+          if (targetIdentity.componentName.isNotBlank()) {
+            layoutDao.deletePlacementsForIdentity(targetIdentity.packageName, targetIdentity.componentName, targetIdentity.userHandleId)
           } else {
-            val pkg = placementId.removePrefix("virtual:").removePrefix("fallback:").removePrefix("virtual_").substringBefore(":")
-            layoutDao.deletePlacementsForPackage(pkg)
+            layoutDao.deletePlacementsForPackage(targetIdentity.packageName, targetIdentity.userHandleId)
           }
         } else {
           layoutDao.deletePlacementById(placementId)
@@ -191,6 +191,22 @@ class RoomPlacementRepository(
       }
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to remove placement: $placementId", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun removePlacementByIdentity(spaceId: String, appIdentity: AppIdentity): Result<Unit> {
+    return try {
+      runInTransaction {
+        val existing = layoutDao.getPlacementsForSpaceLayer(spaceId, SpaceItemPlacement.LAYER_HOME)
+        val targets = existing.filter { it.itemType == SpaceItemPlacement.ITEM_TYPE_APP && it.appIdentity?.matches(appIdentity) == true }
+        for (t in targets) {
+          layoutDao.deletePlacementById(t.id)
+        }
+      }
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to remove placement by identity: $appIdentity", e)
       Result.failure(e)
     }
   }

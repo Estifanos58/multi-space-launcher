@@ -19,7 +19,8 @@ import com.multispace.domain.model.SpaceFolderItem
   ],
   indices = [
     Index(value = ["folder_id"]),
-    Index(value = ["folder_id", "order_index"])
+    Index(value = ["folder_id", "order_index"]),
+    Index(value = ["folder_id", "package_name", "component_name", "user_handle_id"], unique = true)
   ]
 )
 data class SpaceFolderItemEntity(

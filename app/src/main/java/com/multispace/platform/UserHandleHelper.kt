@@ -15,24 +15,24 @@ import android.os.UserManager
 object UserHandleHelper {
 
   /**
-   * Converts an Android [UserHandle] to a canonical [Long] identity.
-   * Prefers [UserManager.getSerialNumberForUser] when available.
-   * Falls back to deterministic handle conversion if UserManager is unavailable.
+   * Converts an Android [UserHandle] to a canonical [Long] identity using [Context].
+   * Returns null if Context or UserManager is unavailable, or fails to return a valid non-negative serial.
    */
-  fun getUserHandleId(context: Context?, userHandle: UserHandle): Long {
+  fun getUserHandleId(context: Context?, userHandle: UserHandle): Long? {
     if (context != null) {
       try {
         val userManager = context.getSystemService(UserManager::class.java)
         return getUserHandleId(userManager, userHandle)
       } catch (_: Throwable) {}
     }
-    return userHandle.hashCode().toLong()
+    return null
   }
 
   /**
    * Converts an Android [UserHandle] to a canonical [Long] identity using [UserManager].
+   * Returns null if [userManager] is null or [UserManager.getSerialNumberForUser] returns < 0.
    */
-  fun getUserHandleId(userManager: UserManager?, userHandle: UserHandle): Long {
+  fun getUserHandleId(userManager: UserManager?, userHandle: UserHandle): Long? {
     if (userManager != null) {
       try {
         val serial = userManager.getSerialNumberForUser(userHandle)
@@ -41,7 +41,7 @@ object UserHandleHelper {
         }
       } catch (_: Throwable) {}
     }
-    return userHandle.hashCode().toLong()
+    return null
   }
 
   /**
@@ -75,12 +75,6 @@ object UserHandleHelper {
         val profiles = userManager.userProfiles ?: emptyList()
         for (profile in profiles) {
           if (getUserHandleId(userManager, profile) == userHandleId) {
-            return profile
-          }
-        }
-        // Also support legacy hashCode IDs for backwards compatibility
-        for (profile in profiles) {
-          if (profile.hashCode().toLong() == userHandleId) {
             return profile
           }
         }

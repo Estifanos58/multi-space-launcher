@@ -11,6 +11,7 @@ interface PlacementRepository {
   suspend fun getPlacementsForSpaceLayer(spaceId: String, layer: Int): List<SpaceItemPlacement>
   suspend fun addPlacement(placement: SpaceItemPlacement): Result<Unit>
   suspend fun removePlacement(placementId: String): Result<Unit>
+  suspend fun removePlacementByIdentity(spaceId: String, appIdentity: com.multispace.domain.model.AppIdentity): Result<Unit>
   suspend fun updatePlacements(placements: List<SpaceItemPlacement>): Result<Unit>
   suspend fun moveAppToPage(
     spaceId: String,

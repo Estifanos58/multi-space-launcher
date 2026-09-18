@@ -15,6 +15,7 @@ import com.multispace.data.entity.SpaceFolderEntity
 import com.multispace.data.entity.SpaceFolderItemEntity
 import com.multispace.data.entity.SpaceItemPlacementEntity
 import com.multispace.data.entity.SpaceMembershipEntity
+import com.multispace.diagnostics.AppLogger
 
 @Database(
   entities = [
@@ -25,7 +26,7 @@ import com.multispace.data.entity.SpaceMembershipEntity
     SpaceFolderItemEntity::class,
     SpaceDockItemEntity::class
   ],
-  version = 10,
+  version = 11,
   exportSchema = false
 )
 abstract class LauncherDatabase : RoomDatabase() {
@@ -359,19 +360,92 @@ abstract class LauncherDatabase : RoomDatabase() {
                 SELECT MIN(id) 
                 FROM space_item_placements 
                 WHERE item_type = 'APP' AND package_name IS NOT NULL 
-                GROUP BY space_id, layer, package_name
+                GROUP BY space_id, layer, package_name, COALESCE(component_name, ''), user_handle_id
               )
-          """.trimIndent())
-          db.execSQL("""
-            DELETE FROM space_item_placements 
-            WHERE id NOT IN (
-              SELECT MIN(id) 
-              FROM space_item_placements 
-              GROUP BY space_id, layer, page_index, position_index
-            )
           """.trimIndent())
         } catch (_: Exception) {
           // Fallback if table schema or temporary state conflicts
+        }
+      }
+    }
+
+    internal val MIGRATION_10_11 = object : Migration(10, 11) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        try {
+          // 1. Deduplicate dock items by full canonical identity before creating unique index
+          db.execSQL("""
+            DELETE FROM space_dock_items 
+            WHERE id NOT IN (
+              SELECT MIN(id) 
+              FROM space_dock_items 
+              GROUP BY space_id, package_name, component_name, user_handle_id
+            )
+          """.trimIndent())
+          db.execSQL("""
+            CREATE UNIQUE INDEX IF NOT EXISTS `index_space_dock_items_space_id_package_name_component_name_user_handle_id` 
+            ON `space_dock_items` (`space_id`, `package_name`, `component_name`, `user_handle_id`)
+          """.trimIndent())
+
+          // 2. Deduplicate folder items by full canonical identity before creating unique index
+          db.execSQL("""
+            DELETE FROM space_folder_items 
+            WHERE id NOT IN (
+              SELECT MIN(id) 
+              FROM space_folder_items 
+              GROUP BY folder_id, package_name, component_name, user_handle_id
+            )
+          """.trimIndent())
+          db.execSQL("""
+            CREATE UNIQUE INDEX IF NOT EXISTS `index_space_folder_items_folder_id_package_name_component_name_user_handle_id` 
+            ON `space_folder_items` (`folder_id`, `package_name`, `component_name`, `user_handle_id`)
+          """.trimIndent())
+
+          // 3. Deduplicate space item placements by full canonical identity
+          db.execSQL("""
+            DELETE FROM space_item_placements 
+            WHERE item_type = 'APP' 
+              AND package_name IS NOT NULL 
+              AND id NOT IN (
+                SELECT MIN(id) 
+                FROM space_item_placements 
+                WHERE item_type = 'APP' AND package_name IS NOT NULL 
+                GROUP BY space_id, layer, package_name, COALESCE(component_name, ''), user_handle_id
+              )
+          """.trimIndent())
+          db.execSQL("""
+            CREATE INDEX IF NOT EXISTS `index_space_item_placements_space_id_layer_package_name_component_name_user_handle_id` 
+            ON `space_item_placements` (`space_id`, `layer`, `package_name`, `component_name`, `user_handle_id`)
+          """.trimIndent())
+
+          // 4. Resolve position collisions between distinct placements instead of deleting them
+          val collidingCursor = db.query("""
+            SELECT p1.id, p1.space_id, p1.layer, p1.page_index 
+            FROM space_item_placements p1 
+            INNER JOIN space_item_placements p2 
+              ON p1.space_id = p2.space_id 
+             AND p1.layer = p2.layer 
+             AND p1.page_index = p2.page_index 
+             AND p1.position_index = p2.position_index 
+             AND p1.id > p2.id
+          """.trimIndent())
+          collidingCursor.use { cursor ->
+            while (cursor.moveToNext()) {
+              val id = cursor.getString(0)
+              val spaceId = cursor.getString(1)
+              val layer = cursor.getInt(2)
+              val pageIndex = cursor.getInt(3)
+              val maxCursor = db.query(
+                "SELECT COALESCE(MAX(position_index), 0) + 1 FROM space_item_placements WHERE space_id = ? AND layer = ? AND page_index = ?",
+                arrayOf(spaceId, layer, pageIndex)
+              )
+              val newPos = maxCursor.use { mc ->
+                if (mc.moveToNext()) mc.getInt(0) else 0
+              }
+              db.execSQL("UPDATE space_item_placements SET position_index = ? WHERE id = ?", arrayOf(newPos, id))
+            }
+          }
+        } catch (e: Exception) {
+          AppLogger.e(AppLogger.Category.LAUNCHER, "Migration 10->11 failed", e)
         }
       }
     }
@@ -393,7 +467,8 @@ abstract class LauncherDatabase : RoomDatabase() {
           MIGRATION_7_8,
           MIGRATION_8_9,
           MIGRATION_7_9,
-          MIGRATION_9_10
+          MIGRATION_9_10,
+          MIGRATION_10_11
         )
         .build()
         INSTANCE = instance

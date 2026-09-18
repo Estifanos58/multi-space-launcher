@@ -109,7 +109,7 @@ class AppDiscoveryManager(private val context: Context) {
       val action = intent?.action ?: return
       val data = intent.data
       val packageName = data?.schemeSpecificPart ?: return
-      val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle())
+      val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle()) ?: 0L
 
       AppLogger.i(AppLogger.Category.LAUNCHER, "Package BroadcastReceiver: $action for $packageName")
       when (action) {
@@ -136,27 +136,27 @@ class AppDiscoveryManager(private val context: Context) {
 
   private val launcherAppsCallback = object : LauncherApps.Callback() {
     override fun onPackageAdded(packageName: String, user: UserHandle) {
-      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user)
+      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user) ?: return
       AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackageAdded: $packageName (user: $userHandleId)")
       emitPackageEvent(PackageEvent.Added(packageName, userHandleId))
     }
 
     override fun onPackageRemoved(packageName: String, user: UserHandle) {
-      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user)
+      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user) ?: return
       AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackageRemoved: $packageName (user: $userHandleId)")
       evictPackageFromCache(packageName, userHandleId)
       emitPackageEvent(PackageEvent.Removed(packageName, userHandleId))
     }
 
     override fun onPackageChanged(packageName: String, user: UserHandle) {
-      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user)
+      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user) ?: return
       AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackageChanged: $packageName (user: $userHandleId)")
       evictPackageFromCache(packageName, userHandleId)
       emitPackageEvent(PackageEvent.Changed(packageName, userHandleId))
     }
 
     override fun onPackagesAvailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) {
-      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user)
+      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user) ?: return
       AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackagesAvailable: ${packageNames.size} packages (user: $userHandleId)")
       packageNames.forEach { evictPackageFromCache(it, userHandleId) }
       emitPackageEvent(
@@ -169,7 +169,7 @@ class AppDiscoveryManager(private val context: Context) {
     }
 
     override fun onPackagesUnavailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) {
-      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user)
+      val userHandleId = UserHandleHelper.getUserHandleId(userManager, user) ?: return
       AppLogger.i(AppLogger.Category.LAUNCHER, "LauncherApps.Callback: onPackagesUnavailable: ${packageNames.size} packages (user: $userHandleId)")
       packageNames.forEach { evictPackageFromCache(it, userHandleId) }
       emitPackageEvent(
@@ -304,7 +304,7 @@ class AppDiscoveryManager(private val context: Context) {
           apps.add(app)
         }
       } else {
-        val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle())
+        val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle()) ?: 0L
         if (userHandleId == 0L || userHandleId == myUserHandleId) {
           val mainIntent = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
@@ -338,7 +338,7 @@ class AppDiscoveryManager(private val context: Context) {
       AppLogger.d(AppLogger.Category.LAUNCHER, "Found ${profiles.size} user profile(s)")
 
       for (profile in profiles) {
-        val userHandleId = UserHandleHelper.getUserHandleId(userManager, profile)
+        val userHandleId = UserHandleHelper.getUserHandleId(userManager, profile) ?: continue
         val activityList: List<LauncherActivityInfo>? = try {
           launcherApps?.getActivityList(null, profile)
         } catch (e: Exception) {
@@ -452,7 +452,7 @@ class AppDiscoveryManager(private val context: Context) {
         addCategory(Intent.CATEGORY_LAUNCHER)
       }
       val resolvedActivities = packageManager.queryIntentActivities(mainIntent, 0)
-      val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle())
+      val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle()) ?: 0L
       AppLogger.d(AppLogger.Category.LAUNCHER, "PackageManager fallback found ${resolvedActivities.size} activities")
 
       for (resolveInfo in resolvedActivities) {

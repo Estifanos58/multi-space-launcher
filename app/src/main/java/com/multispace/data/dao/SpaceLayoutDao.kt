@@ -53,7 +53,7 @@ interface SpaceLayoutDao {
   @Query("DELETE FROM space_item_placements WHERE item_type = 'APP' AND package_name IS NOT NULL AND id NOT IN (SELECT MIN(id) FROM space_item_placements WHERE item_type = 'APP' AND package_name IS NOT NULL GROUP BY space_id, layer, package_name, COALESCE(component_name, ''), user_handle_id)")
   suspend fun pruneDuplicatePlacements(): Int
 
-  @Query("DELETE FROM space_item_placements WHERE id NOT IN (SELECT MIN(id) FROM space_item_placements GROUP BY space_id, layer, page_index, position_index)")
+  @Query("DELETE FROM space_item_placements WHERE id NOT IN (SELECT MIN(id) FROM space_item_placements GROUP BY space_id, layer, page_index, position_index, package_name, COALESCE(component_name, ''), user_handle_id)")
   suspend fun pruneDuplicatePositions(): Int
 
   // --- Folders ---
@@ -135,12 +135,16 @@ interface SpaceLayoutDao {
   @Query("DELETE FROM space_dock_items WHERE package_name = :packageName AND user_handle_id = :userHandleId")
   suspend fun deleteDockItemsForPackage(packageName: String, userHandleId: Long)
 
+  @Query("DELETE FROM space_item_placements WHERE package_name = :packageName AND component_name = :componentName AND user_handle_id = :userHandleId")
+  suspend fun deletePlacementsForIdentity(packageName: String, componentName: String, userHandleId: Long)
+
+  // Explicit all-profile cleanup operations
   @Query("DELETE FROM space_item_placements WHERE package_name = :packageName")
-  suspend fun deletePlacementsForPackage(packageName: String)
+  suspend fun deletePlacementsForAllProfiles(packageName: String)
 
   @Query("DELETE FROM space_folder_items WHERE package_name = :packageName")
-  suspend fun deleteFolderItemsForPackage(packageName: String)
+  suspend fun deleteFolderItemsForAllProfiles(packageName: String)
 
   @Query("DELETE FROM space_dock_items WHERE package_name = :packageName")
-  suspend fun deleteDockItemsForPackage(packageName: String)
+  suspend fun deleteDockItemsForAllProfiles(packageName: String)
 }

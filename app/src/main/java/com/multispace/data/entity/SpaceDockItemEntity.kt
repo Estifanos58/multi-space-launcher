@@ -19,7 +19,8 @@ import com.multispace.domain.model.SpaceDockItem
   ],
   indices = [
     Index(value = ["space_id"]),
-    Index(value = ["space_id", "order_index"])
+    Index(value = ["space_id", "order_index"]),
+    Index(value = ["space_id", "package_name", "component_name", "user_handle_id"], unique = true)
   ]
 )
 data class SpaceDockItemEntity(
