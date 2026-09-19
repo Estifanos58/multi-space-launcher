@@ -6,7 +6,10 @@ import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.multispace.data.database.LauncherDatabase
+import com.multispace.data.preferences.LauncherPreferences
 import com.multispace.data.repository.RoomLaunchHistoryRepository
+import com.multispace.data.repository.RoomSpaceRepository
 import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.AppIdentity
 import com.multispace.domain.model.AppUsageStats
@@ -14,6 +17,7 @@ import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceUsageStats
 import com.multispace.domain.repository.LaunchHistoryRepository
+import com.multispace.domain.repository.SpaceRepository
 import com.multispace.platform.AppCatalogUpdater
 import com.multispace.platform.AppDiscoveryManager
 import com.multispace.platform.AppLaunchManager
@@ -73,7 +77,20 @@ data class AppDiscoveryUiState(
   val discoveryResult: DiscoveryResult? = null
 )
 
-class AppDiscoveryViewModel(application: Application) : AndroidViewModel(application) {
+class AppDiscoveryViewModel @JvmOverloads constructor(
+  application: Application,
+  private val spaceRepository: SpaceRepository = run {
+    val db = LauncherDatabase.getInstance(application.applicationContext)
+    RoomSpaceRepository(
+      spaceDao = db.spaceDao(),
+      membershipDao = db.spaceMembershipDao(),
+      layoutDao = db.spaceLayoutDao(),
+      preferences = LauncherPreferences(application.applicationContext),
+      context = application.applicationContext,
+      database = db
+    )
+  }
+) : AndroidViewModel(application) {
 
   private val discoveryManager = AppDiscoveryManager(application.applicationContext)
   private val launchManager = AppLaunchManager(
@@ -182,6 +199,14 @@ class AppDiscoveryViewModel(application: Application) : AndroidViewModel(applica
         is AppDiscoveryManager.PackageEvent.Removed -> {
           applyCatalogMutation { currentCatalog ->
             AppCatalogUpdater.applyPackageRemoval(currentCatalog, event.packageName, event.userHandleId)
+          }
+          // Profile-safe persistence reconciliation:
+          // Placements, dock items, folders, and memberships for this uninstalled package and userHandleId
+          // are cleaned up transactionally without affecting any other profile.
+          try {
+            spaceRepository.cleanupUninstalledApp(event.packageName, event.userHandleId)
+          } catch (e: Exception) {
+            AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to reconcile persistence for uninstalled package ${event.packageName} (profile: ${event.userHandleId})", e)
           }
         }
         is AppDiscoveryManager.PackageEvent.Refreshed -> {

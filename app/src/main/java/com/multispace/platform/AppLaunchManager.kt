@@ -72,8 +72,9 @@ class AppLaunchManager(
 
   /**
    * Resolves the UserHandle corresponding to the discovered app's user profile.
+   * Returns null if the profile cannot be resolved or is no longer present.
    */
-  private fun resolveUserHandle(userHandleId: Long): UserHandle {
+  private fun resolveUserHandle(userHandleId: Long): UserHandle? {
     return UserHandleHelper.resolveUserHandle(userManager, userHandleId)
   }
 
@@ -93,6 +94,20 @@ class AppLaunchManager(
       AppLogger.Category.LAUNCH,
       "LAUNCH_REQUESTED: ${app.label} [$identity] (profile: $userHandle)"
     )
+
+    if (userHandle == null) {
+      AppLogger.w(
+        AppLogger.Category.LAUNCH,
+        "LAUNCH_UNAVAILABLE: User profile ${identity.userHandleId} could not be resolved for ${app.packageName}"
+      )
+      return Pair(
+        LaunchResult.Unavailable(
+          packageName = app.packageName,
+          reason = "User profile ${identity.userHandleId} is unavailable or uninstalled."
+        ),
+        null
+      )
+    }
 
     if (launcherApps == null) {
       AppLogger.w(AppLogger.Category.LAUNCH, "LAUNCH_UNAVAILABLE: LauncherApps service is unavailable")

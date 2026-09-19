@@ -44,25 +44,25 @@ class AppDiscoveryManager(private val context: Context) {
 
     data class Added(
       override val packageName: String,
-      override val userHandleId: Long = 0L,
+      override val userHandleId: Long,
       override val timestamp: Long = System.currentTimeMillis()
     ) : PackageEvent()
 
     data class Removed(
       override val packageName: String,
-      override val userHandleId: Long = 0L,
+      override val userHandleId: Long,
       override val timestamp: Long = System.currentTimeMillis()
     ) : PackageEvent()
 
     data class Changed(
       override val packageName: String,
-      override val userHandleId: Long = 0L,
+      override val userHandleId: Long,
       override val timestamp: Long = System.currentTimeMillis()
     ) : PackageEvent()
 
     data class Refreshed(
       override val packageName: String = "",
-      override val userHandleId: Long = 0L,
+      override val userHandleId: Long,
       val count: Int = 0,
       val packages: List<String> = emptyList(),
       override val timestamp: Long = System.currentTimeMillis()
@@ -109,9 +109,14 @@ class AppDiscoveryManager(private val context: Context) {
       val action = intent?.action ?: return
       val data = intent.data
       val packageName = data?.schemeSpecificPart ?: return
-      val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle()) ?: 0L
+      val myUserHandle = Process.myUserHandle()
+      val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, myUserHandle)
+      if (myUserHandleId == null) {
+        AppLogger.w(AppLogger.Category.LAUNCHER, "Package BroadcastReceiver: Cannot resolve user serial for current process; dropping broadcast $action for $packageName")
+        return
+      }
 
-      AppLogger.i(AppLogger.Category.LAUNCHER, "Package BroadcastReceiver: $action for $packageName")
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Package BroadcastReceiver: $action for $packageName (user: $myUserHandleId)")
       when (action) {
         Intent.ACTION_PACKAGE_ADDED -> {
           val isReplacing = intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)
@@ -289,10 +294,14 @@ class AppDiscoveryManager(private val context: Context) {
   /**
    * Queries launchable activities for a specific package and profile incrementally.
    */
-  suspend fun loadPackageApps(packageName: String, userHandleId: Long = 0L): List<DiscoveredApp> = withContext(Dispatchers.IO) {
+  suspend fun loadPackageApps(packageName: String, userHandleId: Long): List<DiscoveredApp> = withContext(Dispatchers.IO) {
     val apps = mutableListOf<DiscoveredApp>()
     try {
       val profile = UserHandleHelper.resolveUserHandle(userManager, userHandleId)
+      if (profile == null) {
+        AppLogger.w(AppLogger.Category.LAUNCHER, "loadPackageApps: Profile $userHandleId cannot be resolved for package $packageName")
+        return@withContext emptyList()
+      }
       val activityList = try {
         launcherApps?.getActivityList(packageName, profile)
       } catch (e: Exception) {
@@ -304,8 +313,8 @@ class AppDiscoveryManager(private val context: Context) {
           apps.add(app)
         }
       } else {
-        val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle()) ?: 0L
-        if (userHandleId == 0L || userHandleId == myUserHandleId) {
+        val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle())
+        if (myUserHandleId != null && userHandleId == myUserHandleId) {
           val mainIntent = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
             `package` = packageName
@@ -448,12 +457,16 @@ class AppDiscoveryManager(private val context: Context) {
   private fun loadAppsViaPackageManagerFallback(): List<DiscoveredApp> {
     val fallbackList = mutableListOf<DiscoveredApp>()
     try {
+      val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle())
+      if (myUserHandleId == null) {
+        AppLogger.w(AppLogger.Category.LAUNCHER, "PackageManager fallback: Cannot determine user serial for current process; skipping fallback")
+        return emptyList()
+      }
       val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
         addCategory(Intent.CATEGORY_LAUNCHER)
       }
       val resolvedActivities = packageManager.queryIntentActivities(mainIntent, 0)
-      val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle()) ?: 0L
-      AppLogger.d(AppLogger.Category.LAUNCHER, "PackageManager fallback found ${resolvedActivities.size} activities")
+      AppLogger.d(AppLogger.Category.LAUNCHER, "PackageManager fallback found ${resolvedActivities.size} activities for profile $myUserHandleId")
 
       for (resolveInfo in resolvedActivities) {
         val app = buildDiscoveredAppFromResolveInfo(resolveInfo, myUserHandleId)
@@ -497,29 +510,33 @@ class AppDiscoveryManager(private val context: Context) {
       // Fast Path 1: LauncherApps direct activity info icon (avoids intent filter resolution and badges work profiles)
       if (launcherApps != null && userManager != null) {
         val profile = UserHandleHelper.resolveUserHandle(userManager, app.userHandleId)
-        val activityList = try {
-          launcherApps.getActivityList(app.packageName, profile)
-        } catch (_: Exception) { null }
+        if (profile != null) {
+          val activityList = try {
+            launcherApps.getActivityList(app.packageName, profile)
+          } catch (_: Exception) { null }
 
-        val matchedActivity = activityList?.firstOrNull {
-          it.componentName.className == app.activityName
-        } ?: activityList?.firstOrNull()
+          val matchedActivity = activityList?.firstOrNull {
+            it.componentName.className == app.activityName
+          } ?: activityList?.firstOrNull()
 
-        if (matchedActivity != null) {
-          icon = matchedActivity.getBadgedIcon(0)
+          if (matchedActivity != null) {
+            icon = matchedActivity.getBadgedIcon(0)
+          }
         }
       }
 
-      // Fast Path 2: Direct ComponentName PackageManager lookup
-      if (icon == null) {
+      val myUserHandleId = UserHandleHelper.getUserHandleId(userManager, Process.myUserHandle())
+
+      // Fast Path 2: Direct ComponentName PackageManager lookup (only allowed for matching process profile)
+      if (icon == null && myUserHandleId != null && app.userHandleId == myUserHandleId) {
         try {
           val componentName = ComponentName(app.packageName, app.activityName)
           icon = packageManager.getActivityInfo(componentName, 0).loadIcon(packageManager)
         } catch (_: Exception) {}
       }
 
-      // Fast Path 3: Application icon fallback
-      if (icon == null) {
+      // Fast Path 3: Application icon fallback (only allowed for matching process profile)
+      if (icon == null && myUserHandleId != null && app.userHandleId == myUserHandleId) {
         try {
           icon = packageManager.getApplicationIcon(app.packageName)
         } catch (_: Exception) {}

@@ -5,10 +5,13 @@ import androidx.test.core.app.ApplicationProvider
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.platform.AppCatalogUpdater
 import com.multispace.platform.AppDiscoveryManager
+import com.multispace.platform.AppLaunchManager
 import com.multispace.platform.DiscoveryResult
+import com.multispace.platform.LaunchResult
 import com.multispace.platform.PackageEventDeduplicator
 import com.multispace.platform.PackageMetadata
 import com.multispace.platform.PackageMetadataCache
+import com.multispace.platform.UserHandleHelper
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -321,5 +324,39 @@ class AppDiscoveryPipelineTest {
 
     // Both can still be queried, but eviction targeted only work profile without touching personal
     manager.clearIconCache()
+  }
+
+  // --- 5. UserHandle Resolution & Boundary Hardening Tests ---
+
+  @Test
+  fun testResolveUserHandleReturnsNullForUnresolvedProfileWithoutManufacturingUser0() {
+    // Non-existent profile serial 9999L must NEVER resolve to Process.myUserHandle() or user 0
+    val resolved = UserHandleHelper.resolveUserHandle(context, 9999L)
+    assertNull("Unresolved profile serial must return null, never manufacture a fallback UserHandle", resolved)
+  }
+
+  @Test
+  fun testAppLaunchWithUnresolvedProfileFailsSafelyWithoutCrossProfileLaunch() {
+    val launchManager = AppLaunchManager(context)
+    val workApp = DiscoveredApp(
+      id = "com.work.app/.MainActivity#9999",
+      packageName = "com.work.app",
+      activityName = ".MainActivity",
+      label = "Work App",
+      userHandleId = 9999L
+    )
+
+    val result = launchManager.launchApp(workApp)
+    assertTrue("Launch on unresolved profile must return Unavailable", result is LaunchResult.Unavailable)
+    val unavailable = result as LaunchResult.Unavailable
+    assertEquals("com.work.app", unavailable.packageName)
+    assertTrue("Error reason must mention user profile", unavailable.reason.contains("profile 9999"))
+  }
+
+  @Test
+  fun testLoadPackageAppsWithUnresolvedProfileReturnsEmptyList() = kotlinx.coroutines.runBlocking {
+    val manager = AppDiscoveryManager(context)
+    val apps = manager.loadPackageApps("com.android.chrome", userHandleId = 9999L)
+    assertTrue("loadPackageApps for non-existent profile must return empty list without cross-profile leak", apps.isEmpty())
   }
 }

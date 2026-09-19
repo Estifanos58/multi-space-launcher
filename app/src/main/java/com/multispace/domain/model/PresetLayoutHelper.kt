@@ -360,7 +360,7 @@ object PresetLayoutHelper {
           itemType = SpaceItemPlacement.ITEM_TYPE_APP,
           packageName = app.packageName,
           componentName = app.activityName ?: "${app.packageName}.MainActivity",
-          userHandleId = 0L,
+          userHandleId = app.userHandleId,
           spanX = 1,
           spanY = 1
         )

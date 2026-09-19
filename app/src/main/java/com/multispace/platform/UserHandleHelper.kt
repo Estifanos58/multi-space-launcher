@@ -46,22 +46,24 @@ object UserHandleHelper {
 
   /**
    * Resolves a [UserHandle] from a canonical [userHandleId].
-   * Prefers [UserManager.getUserForSerialNumber], with fallback to profile scanning and myUserHandle.
+   * Returns null if Context or UserManager is unavailable, or if the profile cannot be found.
+   * Strictly never falls back to [Process.myUserHandle()] or user 0 for an unresolvable profile.
    */
-  fun resolveUserHandle(context: Context?, userHandleId: Long): UserHandle {
+  fun resolveUserHandle(context: Context?, userHandleId: Long): UserHandle? {
     if (context != null) {
       try {
         val userManager = context.getSystemService(UserManager::class.java)
         return resolveUserHandle(userManager, userHandleId)
       } catch (_: Throwable) {}
     }
-    return Process.myUserHandle()
+    return null
   }
 
   /**
    * Resolves a [UserHandle] from a canonical [userHandleId] using [UserManager].
+   * Returns null if [userManager] is null or if the profile cannot be found.
    */
-  fun resolveUserHandle(userManager: UserManager?, userHandleId: Long): UserHandle {
+  fun resolveUserHandle(userManager: UserManager?, userHandleId: Long): UserHandle? {
     if (userManager != null) {
       try {
         val handle = userManager.getUserForSerialNumber(userHandleId)
@@ -81,6 +83,6 @@ object UserHandleHelper {
       } catch (_: Throwable) {}
     }
 
-    return Process.myUserHandle()
+    return null
   }
 }
