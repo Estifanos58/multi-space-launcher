@@ -184,4 +184,13 @@ interface SpaceRepository : SpaceMembershipRepository, PlacementRepository, Fold
    * Repairs legacy Spaces automatically and eliminates duplicates.
    */
   suspend fun ensureMostUsedFolderExists(spaceId: String)
+
+  /**
+   * Updates stale component references across placements, dock items, folders, and memberships
+   * when an app activity is repaired with an alternative launcher activity for the exact same profile.
+   */
+  suspend fun repairAppIdentity(
+    oldIdentity: com.multispace.domain.model.AppIdentity,
+    newIdentity: com.multispace.domain.model.AppIdentity
+  ): Result<Unit>
 }

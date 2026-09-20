@@ -6,6 +6,7 @@ import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.multispace.MultiSpaceApplication
 import com.multispace.data.database.LauncherDatabase
 import com.multispace.data.preferences.LauncherPreferences
 import com.multispace.data.repository.RoomLaunchHistoryRepository
@@ -79,24 +80,27 @@ data class AppDiscoveryUiState(
 
 class AppDiscoveryViewModel @JvmOverloads constructor(
   application: Application,
-  private val spaceRepository: SpaceRepository = run {
+  private val spaceRepository: SpaceRepository = (application as? MultiSpaceApplication)?.container?.spaceRepository ?: run {
     val db = LauncherDatabase.getInstance(application.applicationContext)
     RoomSpaceRepository(
       spaceDao = db.spaceDao(),
       membershipDao = db.spaceMembershipDao(),
       layoutDao = db.spaceLayoutDao(),
-      preferences = LauncherPreferences(application.applicationContext),
+      preferences = LauncherPreferences.getInstance(application.applicationContext),
       context = application.applicationContext,
       database = db
     )
-  }
+  },
+  private val discoveryManager: AppDiscoveryManager = (application as? MultiSpaceApplication)?.container?.discoveryManager
+    ?: AppDiscoveryManager(application.applicationContext),
+  private val launchManager: AppLaunchManager = (application as? MultiSpaceApplication)?.container?.appLaunchManager
+    ?: AppLaunchManager(
+      context = application.applicationContext,
+      spaceRepository = spaceRepository,
+      coroutineScope = null
+    )
 ) : AndroidViewModel(application) {
 
-  private val discoveryManager = AppDiscoveryManager(application.applicationContext)
-  private val launchManager = AppLaunchManager(
-    context = application.applicationContext,
-    coroutineScope = viewModelScope
-  )
   val launchHistoryRepository: LaunchHistoryRepository = launchManager.historyRepository
 
   private val _uiState = MutableStateFlow(AppDiscoveryUiState())
@@ -365,8 +369,21 @@ class AppDiscoveryViewModel @JvmOverloads constructor(
     return discoveryManager.loadAppIcon(app)
   }
 
+  fun getCachedAppIconBitmap(app: DiscoveredApp): Bitmap? {
+    return discoveryManager.getCachedAppIconBitmap(app)
+  }
+
+  suspend fun getAppIconBitmapAsync(app: DiscoveredApp): Bitmap? {
+    return discoveryManager.loadAppIconBitmapAsync(app)
+  }
+
   fun getAppIconBitmap(app: DiscoveredApp): Bitmap? {
-    return discoveryManager.loadAppIconBitmap(app)
+    val cached = discoveryManager.getCachedAppIconBitmap(app)
+    if (cached != null) return cached
+    viewModelScope.launch(Dispatchers.IO) {
+      discoveryManager.loadAppIconBitmap(app)
+    }
+    return null
   }
 
   /**

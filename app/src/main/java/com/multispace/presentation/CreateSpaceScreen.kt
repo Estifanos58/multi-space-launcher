@@ -2488,12 +2488,12 @@ private fun Tab2WallpaperAndTheme(
       )
     }
 
-    // Phone Lock Screen Wallpaper Section
+    // Launcher Lock Screen Wallpaper Section
     item {
       WallpaperSectionCard(
-        title = "Phone Lock Screen Wallpaper",
-        description = "Wallpaper applied to your device lock screen when this Space is active",
-        icon = Icons.Default.Smartphone,
+        title = "Launcher Lock Screen Wallpaper",
+        description = "Wallpaper applied to the launcher lock screen when this Space is active",
+        icon = Icons.Default.LockClock,
         category = phoneLockWallpaperCategory,
         onCategoryChange = onPhoneLockWallpaperCategoryChange,
         selectedBgColor = phoneLockSelectedBgColor,

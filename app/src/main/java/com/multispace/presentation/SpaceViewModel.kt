@@ -3,6 +3,7 @@ package com.multispace.presentation
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.multispace.MultiSpaceApplication
 import com.multispace.data.database.LauncherDatabase
 import com.multispace.data.preferences.LauncherPreferences
 import com.multispace.data.repository.RoomSpaceRepository
@@ -14,6 +15,7 @@ import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceItemPlacement
 import com.multispace.domain.model.SpaceMembership
 import com.multispace.domain.repository.SpaceRepository
+import com.multispace.platform.LauncherSessionManager
 import com.multispace.presentation.events.HomeTriggerSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -28,18 +30,23 @@ data class SpaceUiState(
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class SpaceViewModel(application: Application) : AndroidViewModel(application) {
-
-  private val database = LauncherDatabase.getInstance(application.applicationContext)
-  private val preferences = LauncherPreferences(application.applicationContext)
-  val spaceRepository: SpaceRepository = RoomSpaceRepository(
-    spaceDao = database.spaceDao(),
-    membershipDao = database.spaceMembershipDao(),
-    layoutDao = database.spaceLayoutDao(),
-    preferences = preferences,
-    context = application.applicationContext,
-    database = database
-  )
+class SpaceViewModel @JvmOverloads constructor(
+  application: Application,
+  val spaceRepository: SpaceRepository = (application as? MultiSpaceApplication)?.container?.spaceRepository ?: run {
+    val database = LauncherDatabase.getInstance(application.applicationContext)
+    val preferences = LauncherPreferences.getInstance(application.applicationContext)
+    RoomSpaceRepository(
+      spaceDao = database.spaceDao(),
+      membershipDao = database.spaceMembershipDao(),
+      layoutDao = database.spaceLayoutDao(),
+      preferences = preferences,
+      context = application.applicationContext,
+      database = database
+    )
+  },
+  private val sessionManager: LauncherSessionManager = (application as? MultiSpaceApplication)?.container?.sessionManager
+    ?: LauncherSessionManager()
+) : AndroidViewModel(application) {
 
   private val _userFeedback = MutableSharedFlow<String>(extraBufferCapacity = 8)
   val userFeedback: SharedFlow<String> = _userFeedback.asSharedFlow()
@@ -81,8 +88,9 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     _activeLayerIndex.value = if (_activeLayerIndex.value == 1) 2 else 1
   }
 
-  private val _unlockedSpaceIds = MutableStateFlow<Set<String>>(emptySet())
-  val unlockedSpaceIds: StateFlow<Set<String>> = _unlockedSpaceIds.asStateFlow()
+  val unlockedSpaceIds: StateFlow<Set<String>> = sessionManager.unlockedSpaceIds
+  val isLauncherLocked: StateFlow<Boolean> = sessionManager.isLauncherLocked
+  val isPhoneLocked: StateFlow<Boolean> get() = isLauncherLocked
 
   val allSpaces: StateFlow<List<Space>> = spaceRepository.allSpacesFlow
     .stateIn(
@@ -94,7 +102,7 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
   val activeSpaceState: StateFlow<ActiveSpaceState> = combine(
     spaceRepository.activeSpaceStateFlow,
     activeLayerIndex,
-    _unlockedSpaceIds
+    unlockedSpaceIds
   ) { state, layer, unlockedIds ->
     val isUnlocked = state.space?.let { !it.isProtected || unlockedIds.contains(it.id) } ?: true
     state.copy(layer = layer, unlocked = isUnlocked)
@@ -511,6 +519,12 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
+  fun reconcilePlacements(spaceId: String) {
+    viewModelScope.launch {
+      spaceRepository.reconcilePlacements(spaceId)
+    }
+  }
+
   fun addAppToSpace(spaceId: String, app: DiscoveredApp) {
     viewModelScope.launch {
       val result = spaceRepository.addAppToSpace(spaceId, app)
@@ -539,43 +553,43 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
-  private val _isPhoneLocked = MutableStateFlow(false)
-  val isPhoneLocked: StateFlow<Boolean> = _isPhoneLocked.asStateFlow()
-
   fun isSpaceUnlocked(space: Space?): Boolean {
     if (space == null) return true
     if (!space.isProtected) return true
-    return _unlockedSpaceIds.value.contains(space.id)
+    return sessionManager.isSpaceUnlocked(space.id)
   }
 
   fun unlockSpace(spaceId: String) {
-    _unlockedSpaceIds.update { it + spaceId }
+    sessionManager.unlockSpace(spaceId)
   }
 
   fun lockSpace(spaceId: String) {
-    _unlockedSpaceIds.update { it - spaceId }
+    sessionManager.lockSpace(spaceId)
   }
 
   fun lockAllProtectedSpaces() {
-    _unlockedSpaceIds.value = emptySet()
+    sessionManager.lockAllProtectedSpaces()
   }
 
-  fun lockPhone() {
-    lockAllProtectedSpaces()
-    _isPhoneLocked.value = true
+  fun lockLauncher() {
+    sessionManager.lockLauncher()
     _userFeedback.tryEmit("Multi-Space secured. Enter credential to unlock.")
   }
 
-  fun unlockPhone() {
-    _isPhoneLocked.value = false
+  fun unlockLauncher() {
+    sessionManager.unlockLauncher()
   }
+
+  fun lockPhone() = lockLauncher()
+
+  fun unlockPhone() = unlockLauncher()
 
   suspend fun authenticateAndUnlockSpaceByCredential(credential: String): Space? {
     val matchedSpace = spaceRepository.findSpaceMatchingCredential(credential)
     if (matchedSpace != null) {
       unlockSpace(matchedSpace.id)
       selectActiveSpace(matchedSpace.id)
-      _isPhoneLocked.value = false
+      unlockLauncher()
       _userFeedback.tryEmit("Unlocked into '${matchedSpace.name}'")
       return matchedSpace
     }
@@ -592,7 +606,7 @@ class SpaceViewModel(application: Application) : AndroidViewModel(application) {
       unlockSpace(targetSpace.id)
       selectActiveSpace(targetSpace.id)
     }
-    _isPhoneLocked.value = false
+    unlockLauncher()
     _userFeedback.tryEmit(
       if (targetSpace != null) "Biometric unlocked into '${targetSpace.name}'"
       else "Device unlocked with biometrics"

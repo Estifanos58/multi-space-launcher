@@ -47,6 +47,8 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class RoomSpaceRepository(
   private val spaceDao: SpaceDao,
@@ -64,6 +66,8 @@ class RoomSpaceRepository(
     PlacementRepository by placementRepository,
     FolderRepository by folderRepository,
     DockRepository by dockRepository {
+
+  private val initMutex = Mutex()
 
   private suspend fun <T> runInTransaction(block: suspend () -> T): T {
     return if (database != null) {
@@ -111,8 +115,8 @@ class RoomSpaceRepository(
     }
   }
 
-  override suspend fun ensureDefaultSpaceInitialized(initialApps: List<DiscoveredApp>): Result<Space> {
-    return try {
+  override suspend fun ensureDefaultSpaceInitialized(initialApps: List<DiscoveredApp>): Result<Space> = initMutex.withLock {
+    return@withLock try {
       val count = spaceDao.getSpaceCount()
       if (count == 0) {
         AppLogger.i(AppLogger.Category.LAUNCHER, "No Spaces found in database. Initializing Default Space with default apps.")
@@ -148,6 +152,7 @@ class RoomSpaceRepository(
             gridColumns = 4,
             candidateApps = initialApps
           )
+          preferences.markSpaceInitialized(Space.DEFAULT_SPACE_ID)
           space
         }
 
@@ -179,21 +184,25 @@ class RoomSpaceRepository(
           }
         }
 
-        // If the default space has no placements and no dock items yet, auto-initialize
+        // Check explicit persistent initialization state rather than placements.isEmpty()
         val defaultEntity = spaces.firstOrNull { it.id == Space.DEFAULT_SPACE_ID }
         if (defaultEntity != null) {
-          val placements = layoutDao.getPlacementsForSpaceLayer(Space.DEFAULT_SPACE_ID, SpaceItemPlacement.LAYER_HOME)
-          val dockItems = layoutDao.getDockItemsForSpace(Space.DEFAULT_SPACE_ID)
-          if (placements.isEmpty() && dockItems.isEmpty()) {
-            AppLogger.i(AppLogger.Category.LAUNCHER, "Default Space unconfigured: initializing default DockBar and Layer 1 apps")
-            initializeNewSpaceDefaults(
-              spaceId = Space.DEFAULT_SPACE_ID,
-              spaceName = Space.DEFAULT_SPACE_NAME,
-              layoutPreset = Space.PRESET_DEFAULT,
-              dockCapacity = defaultEntity.dockCapacity,
-              gridColumns = defaultEntity.gridColumns,
-              candidateApps = initialApps
-            )
+          val isDefaultInitialized = preferences.isSpaceInitialized(Space.DEFAULT_SPACE_ID)
+          if (!isDefaultInitialized) {
+            val placements = layoutDao.getPlacementsForSpaceLayer(Space.DEFAULT_SPACE_ID, SpaceItemPlacement.LAYER_HOME)
+            val dockItems = layoutDao.getDockItemsForSpace(Space.DEFAULT_SPACE_ID)
+            if (placements.isEmpty() && dockItems.isEmpty()) {
+              AppLogger.i(AppLogger.Category.LAUNCHER, "Default Space unconfigured: initializing default DockBar and Layer 1 apps")
+              initializeNewSpaceDefaults(
+                spaceId = Space.DEFAULT_SPACE_ID,
+                spaceName = Space.DEFAULT_SPACE_NAME,
+                layoutPreset = Space.PRESET_DEFAULT,
+                dockCapacity = defaultEntity.dockCapacity,
+                gridColumns = defaultEntity.gridColumns,
+                candidateApps = initialApps
+              )
+            }
+            preferences.markSpaceInitialized(Space.DEFAULT_SPACE_ID)
           }
         }
 
@@ -284,6 +293,7 @@ class RoomSpaceRepository(
     }
 
     ensureMostUsedFolderExists(spaceId)
+    preferences.markSpaceInitialized(spaceId)
   }
 
   /**
@@ -1577,6 +1587,45 @@ class RoomSpaceRepository(
       Result.success(Unit)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to cleanup uninstalled package across all profiles: $packageName", e)
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun repairAppIdentity(
+    oldIdentity: AppIdentity,
+    newIdentity: AppIdentity
+  ): Result<Unit> {
+    return try {
+      runInTransaction {
+        layoutDao.updatePlacementComponent(
+          packageName = oldIdentity.packageName,
+          oldComponent = oldIdentity.componentName,
+          newComponent = newIdentity.componentName,
+          userHandleId = oldIdentity.userHandleId
+        )
+        layoutDao.updateDockItemComponent(
+          packageName = oldIdentity.packageName,
+          oldComponent = oldIdentity.componentName,
+          newComponent = newIdentity.componentName,
+          userHandleId = oldIdentity.userHandleId
+        )
+        layoutDao.updateFolderItemComponent(
+          packageName = oldIdentity.packageName,
+          oldComponent = oldIdentity.componentName,
+          newComponent = newIdentity.componentName,
+          userHandleId = oldIdentity.userHandleId
+        )
+        membershipDao.updateMembershipComponent(
+          packageName = oldIdentity.packageName,
+          oldComponent = oldIdentity.componentName,
+          newComponent = newIdentity.componentName,
+          userHandleId = oldIdentity.userHandleId
+        )
+      }
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Repaired app identity from $oldIdentity to $newIdentity")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to repair app identity", e)
       Result.failure(e)
     }
   }

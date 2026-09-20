@@ -481,6 +481,22 @@ class AppDiscoveryManager(private val context: Context) {
   }
 
   /**
+   * Safe non-blocking cache lookup. Returns the in-memory cached Bitmap if available,
+   * or null immediately on a cache miss without executing synchronous IPC or decoding.
+   */
+  fun getCachedAppIconBitmap(app: DiscoveredApp): Bitmap? {
+    return bitmapCache.get(app.id)
+  }
+
+  /**
+   * Safe asynchronous icon resolution on cache misses.
+   * Executes decoding, LauncherApps queries, and badging off the UI thread on Dispatchers.IO.
+   */
+  suspend fun loadAppIconBitmapAsync(app: DiscoveredApp): Bitmap? = withContext(Dispatchers.IO) {
+    loadAppIconBitmap(app)
+  }
+
+  /**
    * Retrieves the pre-rasterized, memory-efficient Bitmap icon for an app.
    * Fast path returns instantly from LruCache in <0.01ms without UI thread jank.
    */

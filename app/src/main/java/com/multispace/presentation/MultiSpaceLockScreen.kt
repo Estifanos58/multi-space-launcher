@@ -150,13 +150,13 @@ fun MultiSpaceLockScreen(
       .testTag("multi_space_lock_screen")
   ) {
     // 1. Wallpaper background
-    val phoneLockBgType = activeSpace?.phoneLockWallpaperType ?: Space.BACKGROUND_DEFAULT
-    val phoneLockBgColor = activeSpace?.phoneLockWallpaperColor
-    val phoneLockBgImageUri = activeSpace?.phoneLockWallpaperImageUri
+    val launcherLockBgType = activeSpace?.launcherLockWallpaperType ?: Space.BACKGROUND_DEFAULT
+    val launcherLockBgColor = activeSpace?.launcherLockWallpaperColor
+    val launcherLockBgImageUri = activeSpace?.launcherLockWallpaperImageUri
 
     when {
-      phoneLockBgType == Space.BACKGROUND_IMAGE || phoneLockBgType == Space.BACKGROUND_DEFAULT -> {
-        val presetRes = WallpaperCatalog.resolveDrawableRes(phoneLockBgImageUri)
+      launcherLockBgType == Space.BACKGROUND_IMAGE || launcherLockBgType == Space.BACKGROUND_DEFAULT -> {
+        val presetRes = WallpaperCatalog.resolveDrawableRes(launcherLockBgImageUri)
         if (presetRes != null) {
           Image(
             painter = painterResource(id = presetRes),
@@ -164,9 +164,9 @@ fun MultiSpaceLockScreen(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
           )
-        } else if (!phoneLockBgImageUri.isNullOrEmpty()) {
+        } else if (!launcherLockBgImageUri.isNullOrEmpty()) {
           AsyncImage(
-            model = phoneLockBgImageUri,
+            model = launcherLockBgImageUri,
             contentDescription = "Lock Screen Wallpaper",
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
@@ -185,11 +185,11 @@ fun MultiSpaceLockScreen(
             .background(Color.Black.copy(alpha = 0.50f))
         )
       }
-      phoneLockBgType == Space.BACKGROUND_COLOR && phoneLockBgColor != null -> {
+      launcherLockBgType == Space.BACKGROUND_COLOR && launcherLockBgColor != null -> {
         Box(
           modifier = Modifier
             .fillMaxSize()
-            .background(Color(phoneLockBgColor))
+            .background(Color(launcherLockBgColor.toInt()))
         )
         Box(
           modifier = Modifier

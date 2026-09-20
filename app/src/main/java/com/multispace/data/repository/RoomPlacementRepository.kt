@@ -584,4 +584,50 @@ class RoomPlacementRepository(
       Result.failure(e)
     }
   }
+
+  override suspend fun reconcilePlacements(spaceId: String, cols: Int, rows: Int): Result<Int> {
+    return try {
+      runInTransaction {
+        val placements = layoutDao.getAllPlacementsForSpace(spaceId).map { it.toDomain() }
+        val report = PlacementValidator.validatePlacements(placements, cols = cols, rows = rows)
+        if (!report.hasIssues) {
+          return@runInTransaction Result.success(0)
+        }
+        var fixedCount = 0
+        val byLayerAndPage = placements.groupBy { Pair(it.layer, it.pageIndex.coerceAtLeast(0)) }
+        val maxSlot = (cols * rows).coerceAtLeast(1)
+        val updatedPlacements = mutableListOf<SpaceItemPlacement>()
+
+        for ((_, pageItems) in byLayerAndPage) {
+          val occupied = mutableSetOf<Int>()
+          for (item in pageItems) {
+            var pos = item.positionIndex
+            val safePage = item.pageIndex.coerceAtLeast(0)
+            if (pos < 0 || occupied.contains(pos)) {
+              var candidate = 0
+              while (occupied.contains(candidate)) {
+                candidate++
+              }
+              pos = candidate
+              fixedCount++
+            }
+            occupied.add(pos)
+            val updated = item.copy(
+              pageIndex = if (pos >= maxSlot && item.layer == SpaceItemPlacement.LAYER_HOME) safePage + (pos / maxSlot) else safePage,
+              positionIndex = if (pos >= maxSlot && item.layer == SpaceItemPlacement.LAYER_HOME) pos % maxSlot else pos
+            )
+            updatedPlacements.add(updated)
+          }
+        }
+        layoutDao.insertPlacements(updatedPlacements.map { SpaceItemPlacementEntity.fromDomain(it) })
+        layoutDao.pruneDuplicatePlacements()
+        layoutDao.pruneDuplicatePositions()
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Reconciled placements for space $spaceId ($fixedCount adjusted)")
+        Result.success(fixedCount)
+      }
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to reconcile placements for space $spaceId", e)
+      Result.failure(e)
+    }
+  }
 }

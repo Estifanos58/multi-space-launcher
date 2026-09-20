@@ -16,7 +16,7 @@ The following are strictly outside the V1 product scope:
 * Root, custom ROM, boot image modification, or privileged system APK modification.
 * Accessibility Service or System Overlay based app restriction / simulation hacks.
 * Cloud backends, remote servers, user account sync, or telemetry/analytics infrastructure.
-* Widget hosting (`AppWidgetHost`), custom icon pack engines, or complex animation frameworks.
+* Custom external icon pack engines or proprietary third-party theme engines. Native Android AppWidget hosting (`AppWidgetHost`) is supported as an application-scoped platform service via `AppWidgetHostManager`.
 * Automated application test code (e.g. Robolectric, Espresso, UI tests).
 
 ## 4. Architecture Principles

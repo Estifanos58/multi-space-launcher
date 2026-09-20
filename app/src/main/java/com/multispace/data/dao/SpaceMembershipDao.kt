@@ -67,4 +67,12 @@ interface SpaceMembershipDao {
 
   @Query("SELECT COUNT(*) FROM space_memberships WHERE space_id = :spaceId")
   suspend fun getMembershipCountForSpace(spaceId: String): Int
+
+  @Query("UPDATE space_memberships SET component_name = :newComponent WHERE package_name = :packageName AND component_name = :oldComponent AND user_handle_id = :userHandleId")
+  suspend fun updateMembershipComponent(
+    packageName: String,
+    oldComponent: String,
+    newComponent: String,
+    userHandleId: Long
+  ): Int
 }

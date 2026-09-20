@@ -52,6 +52,8 @@ sealed class LaunchResult {
 class AppLaunchManager(
   private val context: Context,
   val historyRepository: LaunchHistoryRepository = RoomLaunchHistoryRepository.getInstance(context),
+  private val spaceRepository: com.multispace.domain.repository.SpaceRepository? = null,
+  private val applicationScope: CoroutineScope? = null,
   private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
   private val coroutineScope: CoroutineScope? = null
 ) {
@@ -236,10 +238,18 @@ class AppLaunchManager(
   ): LaunchResult {
     val (result, launchedApp) = performLaunch(app, sourceBounds)
     if (result is LaunchResult.Success) {
-      val targetScope = callerScope ?: coroutineScope
+      val targetScope = callerScope ?: applicationScope ?: coroutineScope
       if (targetScope != null) {
         targetScope.launch(ioDispatcher) {
           recordSuccessfulLaunch(launchedApp ?: app, spaceId)
+          if (spaceRepository != null && launchedApp != null && launchedApp.activityName != app.activityName) {
+            try {
+              spaceRepository.repairAppIdentity(app.appIdentity, launchedApp.appIdentity)
+              AppLogger.i(AppLogger.Category.LAUNCH, "Persisted repaired component for ${app.label}: ${app.activityName} -> ${launchedApp.activityName}")
+            } catch (e: Exception) {
+              AppLogger.w(AppLogger.Category.LAUNCH, "Failed to persist repaired component for ${app.label}", e)
+            }
+          }
         }
       } else {
         AppLogger.d(
@@ -264,6 +274,14 @@ class AppLaunchManager(
     if (result is LaunchResult.Success) {
       withContext(ioDispatcher) {
         recordSuccessfulLaunch(launchedApp ?: app, spaceId)
+        if (spaceRepository != null && launchedApp != null && launchedApp.activityName != app.activityName) {
+          try {
+            spaceRepository.repairAppIdentity(app.appIdentity, launchedApp.appIdentity)
+            AppLogger.i(AppLogger.Category.LAUNCH, "Persisted repaired component for ${app.label}: ${app.activityName} -> ${launchedApp.activityName}")
+          } catch (e: Exception) {
+            AppLogger.w(AppLogger.Category.LAUNCH, "Failed to persist repaired component for ${app.label}", e)
+          }
+        }
       }
     }
     return result

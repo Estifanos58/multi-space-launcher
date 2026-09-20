@@ -65,6 +65,15 @@ data class Space(
   val pageTurnIntensity: Float = DEFAULT_PAGE_TURN_INTENSITY,
   val pageCount: Int = 1
 ) {
+  val launcherLockWallpaperType: String get() = phoneLockWallpaperType
+  val launcherLockWallpaperColor: Long? get() = phoneLockWallpaperColor
+  val launcherLockWallpaperImageUri: String? get() = phoneLockWallpaperImageUri
+  val launcherLockWallpaperScaleMode: String get() = phoneLockWallpaperScaleMode
+  val launcherLockWallpaperZoomLevel: Float get() = phoneLockWallpaperZoomLevel
+  val launcherLockWallpaperDimLevel: Float get() = phoneLockWallpaperDimLevel
+  val launcherLockWallpaperOffsetX: Float get() = phoneLockWallpaperOffsetX
+  val launcherLockWallpaperOffsetY: Float get() = phoneLockWallpaperOffsetY
+
   val isProtected: Boolean
     get() = if (authPolicy == AUTH_BIOMETRIC) true else ((authPolicy == AUTH_PIN || authPolicy == AUTH_PATTERN) && !pinHash.isNullOrEmpty() && !pinSalt.isNullOrEmpty())
 

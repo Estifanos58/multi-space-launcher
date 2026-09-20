@@ -23,7 +23,7 @@ class MainActivity : FragmentActivity() {
   private val lifecycleCoordinator by lazy {
     LauncherLifecycleCoordinator(
       onScreenOff = {
-        spaceViewModel.lockPhone()
+        spaceViewModel.lockLauncher()
       },
       onHomeIntent = { source ->
         spaceViewModel.onHomeIntentReceived(source)
@@ -65,13 +65,13 @@ class MainActivity : FragmentActivity() {
           modifier = Modifier.fillMaxSize(),
           color = androidx.compose.material3.MaterialTheme.colorScheme.background
         ) {
-          val isPhoneLocked by spaceViewModel.isPhoneLocked.collectAsState()
+          val isLauncherLocked by spaceViewModel.isLauncherLocked.collectAsState()
 
-          if (isPhoneLocked) {
+          if (isLauncherLocked) {
             MultiSpaceLockScreen(
               spaceViewModel = spaceViewModel,
               onUnlockSuccess = { _ ->
-                // Phone unlocked, reveal active Space home surface
+                // Launcher unlocked, reveal active Space home surface
               },
               modifier = Modifier.fillMaxSize()
             )

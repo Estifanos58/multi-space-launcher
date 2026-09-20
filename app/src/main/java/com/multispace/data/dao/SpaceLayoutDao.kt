@@ -147,4 +147,13 @@ interface SpaceLayoutDao {
 
   @Query("DELETE FROM space_dock_items WHERE package_name = :packageName")
   suspend fun deleteDockItemsForAllProfiles(packageName: String)
+
+  @Query("UPDATE space_item_placements SET component_name = :newComponent WHERE package_name = :packageName AND component_name = :oldComponent AND user_handle_id = :userHandleId")
+  suspend fun updatePlacementComponent(packageName: String, oldComponent: String, newComponent: String, userHandleId: Long): Int
+
+  @Query("UPDATE space_dock_items SET component_name = :newComponent WHERE package_name = :packageName AND component_name = :oldComponent AND user_handle_id = :userHandleId")
+  suspend fun updateDockItemComponent(packageName: String, oldComponent: String, newComponent: String, userHandleId: Long): Int
+
+  @Query("UPDATE space_folder_items SET component_name = :newComponent WHERE package_name = :packageName AND component_name = :oldComponent AND user_handle_id = :userHandleId")
+  suspend fun updateFolderItemComponent(packageName: String, oldComponent: String, newComponent: String, userHandleId: Long): Int
 }

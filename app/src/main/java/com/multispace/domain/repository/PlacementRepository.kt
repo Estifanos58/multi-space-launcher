@@ -39,4 +39,5 @@ interface PlacementRepository {
     spanY: Int,
     positionIndex: Int? = null
   ): Result<Unit>
+  suspend fun reconcilePlacements(spaceId: String, cols: Int = 4, rows: Int = 5): Result<Int>
 }

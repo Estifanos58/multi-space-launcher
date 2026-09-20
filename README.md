@@ -19,11 +19,13 @@ An open-source, context-driven Android Launcher built with **Jetpack Compose**, 
   - Toggleable application labels.
   - Per-space backgrounds (Solid color presets or custom wallpaper images via SAF).
   - Custom app ordering and one-tap alphabetical sorting.
-- **PIN-Secured Spaces**: Protect sensitive spaces using salted SHA-256 PIN authentication with session-based memory caching.
+  - Native Android system widgets via application-scoped `AppWidgetHost`.
+- **Launcher & Space Lock**: Protect the entire launcher home surface and individual sensitive spaces using salted SHA-256 PIN, Pattern, or Biometrics with session-based memory caching.
 - **Clean Architecture & Strict Separation of Concerns**:
+  - **Application Container**: Lightweight application-scoped service locator (`AppContainer`) hosting shared discovery, repositories, launch history, widget host, and session authentication without third-party DI bloat.
   - **Domain Layer**: Pure business logic with immutable models and repository interfaces.
   - **Data Layer**: Offline-first Room persistence and Android Jetpack DataStore preferences.
-  - **Platform Layer**: Hardware/OS adapters for `LauncherApps`, `UserManager`, and `RoleManager` default Home integration.
+  - **Platform Layer**: Hardware/OS adapters for `LauncherApps`, `UserManager`, `AppWidgetHost`, and `RoleManager` default Home integration.
   - **Presentation Layer**: Material 3 Jetpack Compose UI with reactive `StateFlow` streams.
 - **System Diagnostics & Intent Verification**:
   - Real-time logging console for lifecycle events.
