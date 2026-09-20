@@ -1082,11 +1082,11 @@ AnimatedContent(
 
 ### 8.2 Security Interception & Lock Screen Transition
 
-In `MainActivity.kt`, the root UI dynamically branches on `isPhoneLocked`:
+In `MainActivity.kt`, the root UI dynamically branches on `isLauncherLocked`:
 ```kotlin
-val isPhoneLocked by spaceViewModel.isPhoneLocked.collectAsState()
+val isLauncherLocked by spaceViewModel.isLauncherLocked.collectAsState()
 
-if (isPhoneLocked) {
+if (isLauncherLocked) {
   MultiSpaceLockScreen(
     spaceViewModel = spaceViewModel,
     onUnlockSuccess = { /* Reveal desktop */ }

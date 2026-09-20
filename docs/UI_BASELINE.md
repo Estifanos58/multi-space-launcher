@@ -36,7 +36,7 @@ Multi-Space Launcher is a specialized Android launcher featuring a **two-tier sp
 | **Accessibility Bridge** | `com.multispace.platform.MultiSpaceAccessibilityService` | `android.accessibilityservice` | System Bound Service | Non-intrusive invocation of Android's `GLOBAL_ACTION_RECENTS` (Native Recent Apps Overview) without screen scraping. |
 
 ### 2.2 Core State & ViewModel Architecture
-- **`SpaceViewModel`:** Controls active space selection, active layer index (1 vs 2), room database flows (`allSpaces`, `activeSpace`, `activeMemberships`, `activePlacements`, `activeFolders`, `activeDockItems`, `unlockedSpaceIds`), phone lock state (`isPhoneLocked`), PIN/Pattern verification, and layout preset transitions.
+- **`SpaceViewModel`:** Controls active space selection, active layer index (1 vs 2), room database flows (`allSpaces`, `activeSpace`, `activeMemberships`, `activePlacements`, `activeFolders`, `activeDockItems`, `unlockedSpaceIds`), launcher lock state (`isLauncherLocked`), PIN/Pattern verification, and layout preset transitions.
 - **`AppDiscoveryViewModel`:** Manages asynchronous package discovery via `LauncherApps` and `PackageManager`, real-time icon extraction into memory bitmaps, category grouping, search querying, and application intent launching.
 
 ---

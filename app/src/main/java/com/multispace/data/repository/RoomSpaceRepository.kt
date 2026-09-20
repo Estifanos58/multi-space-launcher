@@ -117,10 +117,10 @@ class RoomSpaceRepository(
 
   override suspend fun ensureDefaultSpaceInitialized(initialApps: List<DiscoveredApp>): Result<Space> = initMutex.withLock {
     return@withLock try {
-      val count = spaceDao.getSpaceCount()
-      if (count == 0) {
-        AppLogger.i(AppLogger.Category.LAUNCHER, "No Spaces found in database. Initializing Default Space with default apps.")
-        val defaultSpace = runInTransaction {
+      val (resolvedSpace, wasCreated) = runInTransaction {
+        val spaces = spaceDao.getAllSpaces()
+        if (spaces.isEmpty()) {
+          AppLogger.i(AppLogger.Category.LAUNCHER, "No Spaces found in database. Initializing Default Space atomically with default apps.")
           val space = Space(
             id = Space.DEFAULT_SPACE_ID,
             name = Space.DEFAULT_SPACE_NAME,
@@ -142,9 +142,7 @@ class RoomSpaceRepository(
             layer2DisplayMode = Space.DISPLAY_MODE_SCROLL
           )
           spaceDao.insertSpace(SpaceEntity.fromDomain(space))
-          preferences.setActiveSpaceId(Space.DEFAULT_SPACE_ID)
-
-          initializeNewSpaceDefaults(
+          initializeNewSpaceDefaultsInternal(
             spaceId = Space.DEFAULT_SPACE_ID,
             spaceName = Space.DEFAULT_SPACE_NAME,
             layoutPreset = Space.PRESET_DEFAULT,
@@ -152,17 +150,22 @@ class RoomSpaceRepository(
             gridColumns = 4,
             candidateApps = initialApps
           )
-          preferences.markSpaceInitialized(Space.DEFAULT_SPACE_ID)
-          space
+          Pair(space, true)
+        } else {
+          val defaultEntity = spaces.firstOrNull { it.id == Space.DEFAULT_SPACE_ID }
+          Pair(defaultEntity?.toDomain() ?: spaces.first().toDomain(), false)
         }
+      }
 
-        Result.success(defaultSpace)
+      if (wasCreated) {
+        preferences.setActiveSpaceId(resolvedSpace.id)
+        preferences.markSpaceInitialized(resolvedSpace.id)
       } else {
         val spaces = spaceDao.getAllSpaces()
         val currentActiveId = preferences.activeSpaceIdFlow.firstOrNull()
-        val resolvedSpace = spaces.firstOrNull { it.id == currentActiveId } ?: spaces.first()
-        if (currentActiveId != resolvedSpace.id) {
-          preferences.setActiveSpaceId(resolvedSpace.id)
+        val activeSpace = spaces.firstOrNull { it.id == currentActiveId } ?: spaces.first()
+        if (currentActiveId != activeSpace.id) {
+          preferences.setActiveSpaceId(activeSpace.id)
         }
 
         // Clean up any historical duplicate dock items and redundant placements in the default space
@@ -193,21 +196,23 @@ class RoomSpaceRepository(
             val dockItems = layoutDao.getDockItemsForSpace(Space.DEFAULT_SPACE_ID)
             if (placements.isEmpty() && dockItems.isEmpty()) {
               AppLogger.i(AppLogger.Category.LAUNCHER, "Default Space unconfigured: initializing default DockBar and Layer 1 apps")
-              initializeNewSpaceDefaults(
-                spaceId = Space.DEFAULT_SPACE_ID,
-                spaceName = Space.DEFAULT_SPACE_NAME,
-                layoutPreset = Space.PRESET_DEFAULT,
-                dockCapacity = defaultEntity.dockCapacity,
-                gridColumns = defaultEntity.gridColumns,
-                candidateApps = initialApps
-              )
+              runInTransaction {
+                initializeNewSpaceDefaultsInternal(
+                  spaceId = Space.DEFAULT_SPACE_ID,
+                  spaceName = Space.DEFAULT_SPACE_NAME,
+                  layoutPreset = Space.PRESET_DEFAULT,
+                  dockCapacity = defaultEntity.dockCapacity,
+                  gridColumns = defaultEntity.gridColumns,
+                  candidateApps = initialApps
+                )
+              }
             }
             preferences.markSpaceInitialized(Space.DEFAULT_SPACE_ID)
           }
         }
-
-        Result.success(resolvedSpace.toDomain())
       }
+
+      Result.success(resolvedSpace)
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to initialize default Space", e)
       Result.failure(e)
@@ -227,7 +232,7 @@ class RoomSpaceRepository(
    *
    * 3. Registers Space memberships for all placed apps without duplication.
    */
-  private suspend fun initializeNewSpaceDefaults(
+  private suspend fun initializeNewSpaceDefaultsInternal(
     spaceId: String,
     spaceName: String,
     layoutPreset: String,
@@ -293,7 +298,6 @@ class RoomSpaceRepository(
     }
 
     ensureMostUsedFolderExists(spaceId)
-    preferences.markSpaceInitialized(spaceId)
   }
 
   /**
@@ -581,7 +585,7 @@ class RoomSpaceRepository(
         )
         spaceDao.insertSpace(SpaceEntity.fromDomain(s))
 
-        initializeNewSpaceDefaults(
+        initializeNewSpaceDefaultsInternal(
           spaceId = newId,
           spaceName = trimmed,
           layoutPreset = Space.PRESET_DEFAULT,
@@ -592,6 +596,7 @@ class RoomSpaceRepository(
         s
       }
 
+      preferences.markSpaceInitialized(space.id)
       AppLogger.i(AppLogger.Category.LAUNCHER, "Created new Space: '$trimmed' (${space.id}) with default apps")
       Result.success(space)
     } catch (e: Exception) {
@@ -712,7 +717,7 @@ class RoomSpaceRepository(
         )
         spaceDao.insertSpace(SpaceEntity.fromDomain(s))
 
-        initializeNewSpaceDefaults(
+        initializeNewSpaceDefaultsInternal(
           spaceId = newId,
           spaceName = trimmed,
           layoutPreset = layoutPreset,
@@ -723,6 +728,7 @@ class RoomSpaceRepository(
         s
       }
 
+      preferences.markSpaceInitialized(space.id)
       AppLogger.i(AppLogger.Category.LAUNCHER, "Created configured Space: '$trimmed' (${space.id}) with preset '$layoutPreset' and default apps")
       Result.success(space)
     } catch (e: Exception) {
@@ -1075,17 +1081,18 @@ class RoomSpaceRepository(
       val target = allSpaces.firstOrNull { it.id == spaceId }
         ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
 
-      runInTransaction {
-        val currentActiveId = preferences.activeSpaceIdFlow.firstOrNull()
-        if (currentActiveId == spaceId) {
-          // Fall back active space to another valid space before deleting
-          val fallback = allSpaces.first { it.id != spaceId }
-          preferences.setActiveSpaceId(fallback.id)
-          AppLogger.i(AppLogger.Category.LAUNCHER, "Active Space fallback to '${fallback.name}' prior to deleting '$spaceId'")
-        }
+      val currentActiveId = preferences.activeSpaceIdFlow.firstOrNull()
+      val fallback = if (currentActiveId == spaceId) allSpaces.first { it.id != spaceId } else null
 
+      runInTransaction {
         spaceDao.deleteSpaceById(spaceId)
       }
+
+      if (fallback != null) {
+        preferences.setActiveSpaceId(fallback.id)
+        AppLogger.i(AppLogger.Category.LAUNCHER, "Active Space fallback to '${fallback.name}' after deleting '$spaceId'")
+      }
+
       AppLogger.i(AppLogger.Category.LAUNCHER, "Deleted Space '${target.name}' ($spaceId)")
       Result.success(Unit)
     } catch (e: Exception) {

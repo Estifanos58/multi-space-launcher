@@ -230,59 +230,59 @@ class AppLaunchManager(
    * 6. If caller or manager provides a CoroutineScope, asynchronously records successful launch to history.
    *    No unmanaged CoroutineScope is ever created.
    */
+  /**
+   * Suspending variant of [launchApp] where platform resolution and history recording are performed within
+   * the calling coroutine context via [ioDispatcher], ensuring caller lifecycle ownership and avoiding
+   * synchronous platform operations on the UI thread.
+   */
+  suspend fun launchAppSuspending(
+    app: DiscoveredApp,
+    spaceId: String = Space.DEFAULT_SPACE_ID,
+    sourceBounds: Rect? = null
+  ): LaunchResult = withContext(ioDispatcher) {
+    val (result, launchedApp) = performLaunch(app, sourceBounds)
+    if (result is LaunchResult.Success) {
+      recordSuccessfulLaunch(launchedApp ?: app, spaceId)
+      if (spaceRepository != null && launchedApp != null && launchedApp.activityName != app.activityName) {
+        try {
+          spaceRepository.repairAppIdentity(app.appIdentity, launchedApp.appIdentity)
+          AppLogger.i(AppLogger.Category.LAUNCH, "Persisted repaired component for ${app.label}: ${app.activityName} -> ${launchedApp.activityName}")
+        } catch (e: Exception) {
+          AppLogger.w(AppLogger.Category.LAUNCH, "Failed to persist repaired component for ${app.label}", e)
+        }
+      }
+    }
+    result
+  }
+
+  /**
+   * Attempts to launch an application using its discovered launcher identity within [spaceId].
+   * Delegates to [launchAppSuspending] within the provided lifecycle scope.
+   */
   fun launchApp(
     app: DiscoveredApp,
     spaceId: String = Space.DEFAULT_SPACE_ID,
     sourceBounds: Rect? = null,
     callerScope: CoroutineScope? = null
   ): LaunchResult {
-    val (result, launchedApp) = performLaunch(app, sourceBounds)
-    if (result is LaunchResult.Success) {
-      val targetScope = callerScope ?: applicationScope ?: coroutineScope
-      if (targetScope != null) {
-        targetScope.launch(ioDispatcher) {
-          recordSuccessfulLaunch(launchedApp ?: app, spaceId)
-          if (spaceRepository != null && launchedApp != null && launchedApp.activityName != app.activityName) {
-            try {
-              spaceRepository.repairAppIdentity(app.appIdentity, launchedApp.appIdentity)
-              AppLogger.i(AppLogger.Category.LAUNCH, "Persisted repaired component for ${app.label}: ${app.activityName} -> ${launchedApp.activityName}")
-            } catch (e: Exception) {
-              AppLogger.w(AppLogger.Category.LAUNCH, "Failed to persist repaired component for ${app.label}", e)
-            }
-          }
-        }
-      } else {
-        AppLogger.d(
-          AppLogger.Category.LAUNCH,
-          "No coroutine scope provided to record launch history for ${app.label}. Use launchAppSuspending or supply a callerScope."
-        )
+    val targetScope = callerScope ?: applicationScope ?: coroutineScope
+    if (targetScope != null) {
+      targetScope.launch(ioDispatcher) {
+        launchAppSuspending(app, spaceId, sourceBounds)
       }
+      return LaunchResult.Success(
+        packageName = app.packageName,
+        activityName = app.activityName,
+        method = "LauncherApps.startMainActivity"
+      )
     }
-    return result
-  }
 
-  /**
-   * Suspending variant of [launchApp] where history recording is performed within
-   * the calling coroutine context via [ioDispatcher], ensuring caller lifecycle ownership.
-   */
-  suspend fun launchAppSuspending(
-    app: DiscoveredApp,
-    spaceId: String = Space.DEFAULT_SPACE_ID,
-    sourceBounds: Rect? = null
-  ): LaunchResult {
     val (result, launchedApp) = performLaunch(app, sourceBounds)
     if (result is LaunchResult.Success) {
-      withContext(ioDispatcher) {
-        recordSuccessfulLaunch(launchedApp ?: app, spaceId)
-        if (spaceRepository != null && launchedApp != null && launchedApp.activityName != app.activityName) {
-          try {
-            spaceRepository.repairAppIdentity(app.appIdentity, launchedApp.appIdentity)
-            AppLogger.i(AppLogger.Category.LAUNCH, "Persisted repaired component for ${app.label}: ${app.activityName} -> ${launchedApp.activityName}")
-          } catch (e: Exception) {
-            AppLogger.w(AppLogger.Category.LAUNCH, "Failed to persist repaired component for ${app.label}", e)
-          }
-        }
-      }
+      AppLogger.d(
+        AppLogger.Category.LAUNCH,
+        "No coroutine scope provided to record launch history for ${app.label}. Use launchAppSuspending or supply a callerScope."
+      )
     }
     return result
   }

@@ -16,7 +16,7 @@ import javax.crypto.spec.PBEKeySpec
  */
 object PinSecurityManager {
 
-  private const val ITERATION_COUNT = 10_000
+  private const val ITERATION_COUNT = 120_000
   private const val KEY_LENGTH_BITS = 256
   private const val SALT_LENGTH_BYTES = 16
 

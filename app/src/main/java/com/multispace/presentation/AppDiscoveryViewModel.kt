@@ -106,6 +106,9 @@ class AppDiscoveryViewModel @JvmOverloads constructor(
   private val _uiState = MutableStateFlow(AppDiscoveryUiState())
   val uiState: StateFlow<AppDiscoveryUiState> = _uiState.asStateFlow()
 
+  private val _iconBitmaps = MutableStateFlow<Map<String, Bitmap>>(emptyMap())
+  val iconBitmaps: StateFlow<Map<String, Bitmap>> = _iconBitmaps.asStateFlow()
+
   val recentApps: StateFlow<List<DiscoveredApp>> = launchHistoryRepository
     .getRecentAppsFlow(Space.DEFAULT_SPACE_ID, _uiState.map { it.allApps })
     .stateIn(
@@ -189,6 +192,12 @@ class AppDiscoveryViewModel @JvmOverloads constructor(
           }
           if (newApps.isNotEmpty()) {
             discoveryManager.prewarmIconCache(newApps)
+            val prewarmed = newApps.mapNotNull { a ->
+              discoveryManager.getCachedAppIconBitmap(a)?.let { a.id to it }
+            }.toMap()
+            if (prewarmed.isNotEmpty()) {
+              _iconBitmaps.update { it + prewarmed }
+            }
           }
         }
         is AppDiscoveryManager.PackageEvent.Changed -> {
@@ -198,11 +207,20 @@ class AppDiscoveryViewModel @JvmOverloads constructor(
           }
           if (updatedApps.isNotEmpty()) {
             discoveryManager.prewarmIconCache(updatedApps)
+            val prewarmed = updatedApps.mapNotNull { a ->
+              discoveryManager.getCachedAppIconBitmap(a)?.let { a.id to it }
+            }.toMap()
+            if (prewarmed.isNotEmpty()) {
+              _iconBitmaps.update { it + prewarmed }
+            }
           }
         }
         is AppDiscoveryManager.PackageEvent.Removed -> {
           applyCatalogMutation { currentCatalog ->
             AppCatalogUpdater.applyPackageRemoval(currentCatalog, event.packageName, event.userHandleId)
+          }
+          _iconBitmaps.update { current ->
+            current.filterKeys { !it.startsWith("${event.packageName}/") }
           }
           // Profile-safe persistence reconciliation:
           // Placements, dock items, folders, and memberships for this uninstalled package and userHandleId
@@ -224,6 +242,12 @@ class AppDiscoveryViewModel @JvmOverloads constructor(
             }
             if (batchApps.isNotEmpty()) {
               discoveryManager.prewarmIconCache(batchApps)
+              val prewarmed = batchApps.mapNotNull { a ->
+                discoveryManager.getCachedAppIconBitmap(a)?.let { a.id to it }
+              }.toMap()
+              if (prewarmed.isNotEmpty()) {
+                _iconBitmaps.update { it + prewarmed }
+              }
             }
           } else {
             loadApps(isSilent = true, forceRefresh = true)
@@ -320,6 +344,12 @@ class AppDiscoveryViewModel @JvmOverloads constructor(
           if (apps.isNotEmpty()) {
             prewarmJob = viewModelScope.launch(Dispatchers.IO) {
               discoveryManager.prewarmIconCache(apps)
+              val prewarmed = apps.mapNotNull { a ->
+                discoveryManager.getCachedAppIconBitmap(a)?.let { a.id to it }
+              }.toMap()
+              if (prewarmed.isNotEmpty()) {
+                _iconBitmaps.update { it + prewarmed }
+              }
             }
           }
 
@@ -378,24 +408,33 @@ class AppDiscoveryViewModel @JvmOverloads constructor(
   }
 
   fun getAppIconBitmap(app: DiscoveredApp): Bitmap? {
+    val stateBitmap = _iconBitmaps.value[app.id]
+    if (stateBitmap != null) return stateBitmap
+
     val cached = discoveryManager.getCachedAppIconBitmap(app)
-    if (cached != null) return cached
+    if (cached != null) {
+      _iconBitmaps.update { it + (app.id to cached) }
+      return cached
+    }
     viewModelScope.launch(Dispatchers.IO) {
-      discoveryManager.loadAppIconBitmap(app)
+      val loaded = discoveryManager.loadAppIconBitmap(app)
+      if (loaded != null) {
+        _iconBitmaps.update { it + (app.id to loaded) }
+      }
     }
     return null
   }
 
   /**
-   * Dispatches application launch using launcher-aware platform APIs,
-   * handles failure gracefully, and records launch telemetry.
+   * Primary suspending launch implementation that dispatches application launch using launcher-aware platform APIs
+   * off the UI thread within the caller lifecycle scope, handles failure gracefully, and records launch telemetry.
    */
-  fun launchApp(
+  suspend fun launchAppSuspending(
     app: DiscoveredApp,
     spaceId: String = Space.DEFAULT_SPACE_ID,
     sourceBounds: Rect? = null
-  ) {
-    val result = launchManager.launchApp(app, spaceId, sourceBounds, callerScope = viewModelScope)
+  ): LaunchResult {
+    val result = launchManager.launchAppSuspending(app, spaceId, sourceBounds)
 
     val logEntry: String
     val feedbackMessage: String?
@@ -425,6 +464,21 @@ class AppDiscoveryViewModel @JvmOverloads constructor(
 
     if (feedbackMessage != null) {
       _userFeedback.tryEmit(feedbackMessage)
+    }
+    return result
+  }
+
+  /**
+   * Dispatches application launch using launcher-aware platform APIs,
+   * delegating to the lifecycle-owned suspending launch path.
+   */
+  fun launchApp(
+    app: DiscoveredApp,
+    spaceId: String = Space.DEFAULT_SPACE_ID,
+    sourceBounds: Rect? = null
+  ) {
+    viewModelScope.launch {
+      launchAppSuspending(app, spaceId, sourceBounds)
     }
   }
 

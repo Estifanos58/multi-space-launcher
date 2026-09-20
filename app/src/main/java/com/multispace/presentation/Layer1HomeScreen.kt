@@ -1420,7 +1420,7 @@ fun Layer1HomeScreen(
     if ((dragState.isDragging || dragState.isDropping) && dragState.draggedPlacement != null) {
       val dragged = dragState.draggedPlacement!!
       val app = appLookup[dragged]
-      val bitmap = remember(app?.id) { app?.let { getBitmap(it) } }
+      val bitmap = app?.let { getBitmap(it) }
 
       var lastPointerX by remember { mutableFloatStateOf(dragState.localPointerPos.x) }
       var targetTilt by remember { mutableFloatStateOf(0f) }
@@ -1977,7 +1977,7 @@ private fun Layer1ItemCell(
       }
     } else {
       // App Item - themed according to space.appTheme
-      val bitmap = remember(app?.id) { app?.let { getBitmap(it) } }
+      val bitmap = app?.let { getBitmap(it) }
       Box(contentAlignment = Alignment.Center) {
         ThemedAppIcon(
           app = app,
@@ -2021,7 +2021,7 @@ private fun MiniAppIcon(
   getBitmap: (DiscoveredApp) -> android.graphics.Bitmap?
 ) {
   val app = appLookup[item]
-  val bitmap = remember(app?.id) { app?.let { getBitmap(it) } }
+  val bitmap = app?.let { getBitmap(it) }
 
   ThemedMiniAppIcon(
     app = app,

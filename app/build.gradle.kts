@@ -61,6 +61,14 @@ android {
     includeInApk = false
     includeInBundle = true
   }
+
+  sourceSets {
+    getByName("test").assets.srcDir("$projectDir/schemas")
+  }
+}
+
+ksp {
+  arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files

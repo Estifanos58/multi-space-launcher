@@ -27,7 +27,7 @@ import com.multispace.diagnostics.AppLogger
     SpaceDockItemEntity::class
   ],
   version = 11,
-  exportSchema = false
+  exportSchema = true
 )
 abstract class LauncherDatabase : RoomDatabase() {
   abstract fun spaceDao(): SpaceDao
@@ -351,21 +351,17 @@ abstract class LauncherDatabase : RoomDatabase() {
 
     internal val MIGRATION_9_10 = object : Migration(9, 10) {
       override fun migrate(db: SupportSQLiteDatabase) {
-        try {
-          db.execSQL("""
-            DELETE FROM space_item_placements 
-            WHERE item_type = 'APP' 
-              AND package_name IS NOT NULL 
-              AND id NOT IN (
-                SELECT MIN(id) 
-                FROM space_item_placements 
-                WHERE item_type = 'APP' AND package_name IS NOT NULL 
-                GROUP BY space_id, layer, package_name, COALESCE(component_name, ''), user_handle_id
-              )
-          """.trimIndent())
-        } catch (_: Exception) {
-          // Fallback if table schema or temporary state conflicts
-        }
+        db.execSQL("""
+          DELETE FROM space_item_placements 
+          WHERE item_type = 'APP' 
+            AND package_name IS NOT NULL 
+            AND id NOT IN (
+              SELECT MIN(id) 
+              FROM space_item_placements 
+              WHERE item_type = 'APP' AND package_name IS NOT NULL 
+              GROUP BY space_id, layer, package_name, COALESCE(component_name, ''), user_handle_id
+            )
+        """.trimIndent())
       }
     }
 
@@ -446,6 +442,7 @@ abstract class LauncherDatabase : RoomDatabase() {
           }
         } catch (e: Exception) {
           AppLogger.e(AppLogger.Category.LAUNCHER, "Migration 10->11 failed", e)
+          throw e
         }
       }
     }

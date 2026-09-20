@@ -337,7 +337,7 @@ fun Layer2LibraryScreen(
                   .padding(vertical = AppDimens.Spacing4)
                   .testTag("layer2_recent_app_${app.packageName}")
               ) {
-                val bitmap = remember(app.id) { getBitmap(app) }
+                val bitmap = getBitmap(app)
                 ThemedAppIcon(
                   app = app,
                   bitmap = bitmap,
@@ -505,7 +505,7 @@ fun Layer2LibraryScreen(
                                 .padding(AppDimens.Spacing4)
                                 .testTag("layer2_app_${app.packageName}")
                             ) {
-                              val bitmap = remember(app.id) { getBitmap(app) }
+                              val bitmap = getBitmap(app)
                               ThemedAppIcon(
                                 app = app,
                                 bitmap = bitmap,
@@ -583,7 +583,7 @@ fun Layer2LibraryScreen(
                   .padding(AppDimens.Spacing4)
                   .testTag("layer2_app_${app.packageName}")
               ) {
-                val bitmap = remember(app.id) { getBitmap(app) }
+                val bitmap = getBitmap(app)
                 ThemedAppIcon(
                   app = app,
                   bitmap = bitmap,

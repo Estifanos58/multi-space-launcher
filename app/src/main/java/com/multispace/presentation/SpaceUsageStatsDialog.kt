@@ -270,7 +270,7 @@ fun SpaceUsageStatsDialog(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                   ) {
-                    val bitmap = remember(app.id) { getBitmap(app) }
+                    val bitmap = getBitmap(app)
                     ThemedAppIcon(
                       app = app,
                       bitmap = bitmap,

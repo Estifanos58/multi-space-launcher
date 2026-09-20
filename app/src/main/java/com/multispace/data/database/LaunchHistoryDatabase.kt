@@ -20,7 +20,7 @@ import com.multispace.domain.model.Space
 @Database(
   entities = [LaunchEventEntity::class],
   version = 2,
-  exportSchema = false
+  exportSchema = true
 )
 abstract class LaunchHistoryDatabase : RoomDatabase() {
   abstract fun launchHistoryDao(): LaunchHistoryDao

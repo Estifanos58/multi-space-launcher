@@ -102,6 +102,7 @@ import com.multispace.ui.theme.StatusGreen
 import com.multispace.ui.theme.TextMuted
 import com.multispace.ui.theme.TextPrimary
 import com.multispace.ui.theme.TextSecondary
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -114,6 +115,7 @@ fun AppCatalogScreen(
   modifier: Modifier = Modifier
 ) {
   val uiState by viewModel.uiState.collectAsState()
+  val iconBitmaps by viewModel.iconBitmaps.collectAsStateWithLifecycle()
   var selectedTab by remember { mutableIntStateOf(1) } // Default to "Apps" tab
   var showSortMenu by remember { mutableStateOf(false) }
   val focusManager = LocalFocusManager.current
@@ -379,13 +381,13 @@ fun AppCatalogScreen(
             if (uiState.viewMode == AppViewMode.GRID) {
               AppGridContent(
                 apps = uiState.filteredApps,
-                getBitmap = { viewModel.getAppIconBitmap(it) },
+                getBitmap = { iconBitmaps[it.id] ?: viewModel.getAppIconBitmap(it) },
                 onLaunchApp = { viewModel.launchApp(it) }
               )
             } else {
               AppListContent(
                 apps = uiState.filteredApps,
-                getBitmap = { viewModel.getAppIconBitmap(it) },
+                getBitmap = { iconBitmaps[it.id] ?: viewModel.getAppIconBitmap(it) },
                 onLaunchApp = { viewModel.launchApp(it) }
               )
             }
@@ -1052,18 +1054,7 @@ fun AsyncAppIcon(
   contentDescription: String,
   modifier: Modifier = Modifier
 ) {
-  var bitmap by remember(app.id) { mutableStateOf(getBitmap(app)) }
-
-  LaunchedEffect(app.id) {
-    if (bitmap == null) {
-      withContext(Dispatchers.IO) {
-        val loaded = getBitmap(app)
-        withContext(Dispatchers.Main) {
-          bitmap = loaded
-        }
-      }
-    }
-  }
+  val bitmap = getBitmap(app)
 
   AppIconImage(
     bitmap = bitmap,

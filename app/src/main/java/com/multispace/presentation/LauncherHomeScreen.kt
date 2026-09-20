@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.zIndex
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.multispace.domain.model.*
 import com.multispace.presentation.components.LauncherDialogsHost
 import com.multispace.presentation.components.LauncherEmptySpaceState
@@ -64,6 +65,11 @@ fun LauncherHomeScreen(
     spaceScopedApps = uiState.spaceScopedApps,
     activePlacements = uiState.activePlacements
   )
+
+  val iconBitmaps by discoveryViewModel.iconBitmaps.collectAsStateWithLifecycle()
+  val getAppBitmap: (DiscoveredApp) -> android.graphics.Bitmap? = { app ->
+    iconBitmaps[app.id] ?: discoveryViewModel.getAppIconBitmap(app)
+  }
 
   val handleAppLaunch: (DiscoveredApp) -> Unit = { app ->
     val spaceId = uiState.activeSpace?.id ?: Space.DEFAULT_SPACE_ID
@@ -185,7 +191,7 @@ fun LauncherHomeScreen(
                         allApps = uiState.allApps,
                         capacity = currentSpace.dockCapacity,
                         accessMode = currentSpace.layer2AccessMode,
-                        getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
+                        getBitmap = getAppBitmap,
                         onLaunchApp = handleAppLaunch,
                         onOpenLayer2 = { transitionController.animateToLayer(2) },
                         onRemoveFromDock = { item ->
@@ -216,7 +222,7 @@ fun LauncherHomeScreen(
                       placements = uiState.activePlacements,
                       folders = uiState.resolvedActiveFolders,
                       allApps = uiState.spaceScopedApps,
-                      getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
+                      getBitmap = getAppBitmap,
                       onLaunchApp = handleAppLaunch,
                       onOpenFolder = { folder ->
                         desktopController.openFolder(folder, uiState.resolvedActiveFolders)
@@ -277,7 +283,7 @@ fun LauncherHomeScreen(
                 Layer2LibraryScreen(
                   space = currentSpace,
                   spaceApps = uiState.spaceScopedApps,
-                  getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
+                  getBitmap = getAppBitmap,
                   onLaunchApp = handleAppLaunch,
                   onAddToHome = { app -> desktopController.addAppToHome(currentSpace.id, app) },
                   onAddToDock = { app -> spaceViewModel.addAppToDock(currentSpace.id, app) },
@@ -311,7 +317,7 @@ fun LauncherHomeScreen(
     LauncherFloatingDragOverlay(
       unifiedDragState = unifiedDragState,
       appTheme = uiState.currentSpace.appTheme,
-      getBitmap = { discoveryViewModel.getAppIconBitmap(it) }
+      getBitmap = getAppBitmap
     )
   }
 
@@ -320,7 +326,7 @@ fun LauncherHomeScreen(
     desktopController = desktopController,
     uiState = uiState,
     spaceViewModel = spaceViewModel,
-    getBitmap = { discoveryViewModel.getAppIconBitmap(it) },
+    getBitmap = getAppBitmap,
     onLaunchApp = handleAppLaunch
   )
 }
