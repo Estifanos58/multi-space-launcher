@@ -242,7 +242,7 @@ class LauncherRecentAppsTest {
       userHandleId = 0L
     )
 
-    val result = launchManager.launchApp(uninstalledApp, spaceId = defaultSpace)
+    val result = launchManager.launchAppSuspending(uninstalledApp, spaceId = defaultSpace)
     assertTrue(result !is LaunchResult.Success)
 
     // Verify nothing was recorded in launch history

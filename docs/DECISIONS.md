@@ -66,13 +66,13 @@
 
 ---
 
-### DECISION-006: Exclusion of Automated Application Test Suites
-* **Date:** 2026-08-28
+### DECISION-006: Dual-Tier Validation Strategy: Automated JVM Tests & Physical Device Testing
+* **Date:** 2026-08-28 (Updated 2026-09-20)
 * **Type:** `DECISION`
 * **Status:** `ACTIVE`
-* **Problem:** Determining the validation strategy for device-dependent launcher behavior.
-* **Chosen Approach:** Rely on Gradle compilation builds (`BUILDS`) and human-conducted physical device tests (`PHYSICAL_TEST_LOG.md`). Exclude Robolectric, Espresso, and UI automated suites.
-* **Reason:** Emulators and automated test harnesses cannot accurately validate OEM-specific launcher role acquisition, gesture interactions, or physical process death behavior.
+* **Problem:** Determining the validation strategy for device-dependent launcher behavior versus algorithmic logic.
+* **Chosen Approach:** Use automated JVM and Robolectric unit tests (`:app:testDebugUnitTest`) for pure algorithms, Room migrations, layout cascades, credential hashing, and state pipelines. Use structured human-conducted physical device tests (`PHYSICAL_TEST_LOG.md`) for real OEM launcher role acquisition, Home button intercept, gesture interactions, and process lifecycle behavior.
+* **Reason:** Emulators cannot substitute for physical hardware behavior, but JVM/Robolectric tests provide fast, regression-free verification of business logic, database migrations, and domain invariants without requiring hardware.
 
 ---
 

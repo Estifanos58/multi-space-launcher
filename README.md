@@ -57,7 +57,7 @@ com.multispace/
 │   │   └── LaunchHistoryDao.kt          # Room DAO for application launch telemetry
 │   ├── database/
 │   │   ├── LauncherDatabase.kt          # Primary Room Database (v11, schemas exported)
-│   │   └── LaunchHistoryDatabase.kt     # Telemetry Room Database (v1, schemas exported)
+│   │   └── LaunchHistoryDatabase.kt     # Telemetry Room Database (v2, schemas exported)
 │   ├── entity/                          # Room entities (SpaceEntity, SpaceMembershipEntity, etc.)
 │   ├── preferences/
 │   │   └── LauncherPreferences.kt       # Jetpack DataStore preferences (active space, lock flags)
@@ -122,20 +122,21 @@ Multi-Space Launcher utilizes two dedicated Room databases with SQLite WAL mode 
 1. **`LauncherDatabase` (Version 11)**:
    - Tables: `spaces`, `space_memberships`, `space_dock_items`, `space_item_placements`, `space_folders`, `space_folder_items`.
    - **Migration History (v1 → v11)**:
-     - `MIGRATION_1_2` through `MIGRATION_8_9`: Incremental additions for dock items, item placements, grid coordinates, and folders.
-     - `MIGRATION_9_10`: Added `appTheme` and `pageTurnEffect` configuration to `spaces` table.
-     - `MIGRATION_10_11`: Hardened migration with fail-fast validation creating `space_folders` and `space_folder_items` tables with indices and foreign keys.
+     - `MIGRATION_1_2` through `MIGRATION_8_9`: Incremental additions for dock items, item placements, grid coordinates, page turn configuration, and folders.
+     - `MIGRATION_9_10`: Deduplicated `space_item_placements` for application items by canonical package, component, and user handle identity.
+     - `MIGRATION_10_11`: Deduplicated and added canonical identity indices on `space_dock_items`, `space_folder_items`, and `space_item_placements`, and resolved position index collisions between distinct desktop placements without deleting records.
    - **Atomic Initialization**: Space initialization executes atomically inside Room SQLite transactions. The existence check verifies actual database presence within the transaction, and default layout seeding is fully decoupled from DataStore operations to guarantee consistent state across process restarts.
 
-2. **`LaunchHistoryDatabase` (Version 1)**:
-   - Table: `launch_events`.
-   - Records space ID, package name, activity name, user profile, and timestamp for telemetry and most-used app resolution.
+2. **`LaunchHistoryDatabase` (Version 2)**:
+   - Table: `launch_events` (indexed by space ID, canonical app identity, and timestamp).
+   - **Migration History (v1 → v2)**: `MIGRATION_1_2` safely migrates legacy global launch history from `launch_history` table into space-isolated `launch_events` scoped to the system default space, and drops the legacy un-scoped table.
+   - Records space ID, package name, activity name, user profile, and timestamp for telemetry and per-space most-used app resolution.
 
 ---
 
 ## App Launching & Icon Loading Architecture
 
-- **Primary Suspending Launch Path**: `AppLaunchManager.launchAppSuspending` is the primary entry point, executing platform activity resolution on `Dispatchers.IO` and respecting `LauncherApps.startMainActivity`. Non-suspending calls delegate to this lifecycle-owned path.
+- **Primary Suspending Launch Path**: `AppLaunchManager.launchAppSuspending` is the designated primary suspending launch API, executing platform activity resolution on `Dispatchers.IO`, respecting `LauncherApps.startMainActivity`, handling same-profile activity fallback, recording launch history, and persisting repaired component identities. The legacy non-suspending `launchApp` is deprecated and performs real synchronous launch checks without returning misleading speculative success states.
 - **Asynchronous Reactive Icon Loading**: Icons are prewarmed and loaded asynchronously in background coroutines. The `AppDiscoveryViewModel` exposes an observable `iconBitmaps: StateFlow<Map<String, Bitmap>>`. UI composables collect this state reactively, eliminating UI thread stalls and preventing permanent `null` caching in `remember` blocks.
 
 ---

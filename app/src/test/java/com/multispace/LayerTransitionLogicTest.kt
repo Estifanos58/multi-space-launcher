@@ -79,6 +79,32 @@ class LayerTransitionLogicTest {
   }
 
   @Test
+  fun testSlideUpTransitionCompletesAtFiftyPercent() {
+    val screenHeightPx = 2000f
+    val slideUpTravelDistancePx = screenHeightPx * com.multispace.presentation.gesture.LayerTransitionGestureHelper.SLIDE_UP_TRAVEL_FRACTION
+    assertEquals(1000f, slideUpTravelDistancePx, 0.001f)
+
+    var layerTransitionProgress = 0f
+
+    // User slides up by 500px (25% of screen height) -> progress should reach 0.50f (50%)
+    val dragAmount25Percent = -500f
+    val progressDelta1 = com.multispace.presentation.gesture.LayerTransitionGestureHelper.calculateProgressDelta(
+      dragDeltaY = dragAmount25Percent,
+      screenHeightPx = slideUpTravelDistancePx
+    )
+    layerTransitionProgress = (layerTransitionProgress + progressDelta1).coerceIn(0f, 1f)
+    assertEquals(0.50f, layerTransitionProgress, 0.001f)
+
+    // User slides up by another 500px (reaching 1000px total = 50% of screen height) -> progress reaches 1.0f (100%)
+    val progressDelta2 = com.multispace.presentation.gesture.LayerTransitionGestureHelper.calculateProgressDelta(
+      dragDeltaY = -500f,
+      screenHeightPx = slideUpTravelDistancePx
+    )
+    layerTransitionProgress = (layerTransitionProgress + progressDelta2).coerceIn(0f, 1f)
+    assertEquals(1.0f, layerTransitionProgress, 0.001f)
+  }
+
+  @Test
   fun testSettleTransitionFlingAndThresholdSettling() {
     val flingThresholdPx = 500f
 

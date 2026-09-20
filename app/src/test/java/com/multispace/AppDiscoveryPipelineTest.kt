@@ -346,7 +346,7 @@ class AppDiscoveryPipelineTest {
       userHandleId = 9999L
     )
 
-    val result = launchManager.launchApp(workApp)
+    val result = kotlinx.coroutines.runBlocking { launchManager.launchAppSuspending(workApp) }
     assertTrue("Launch on unresolved profile must return Unavailable", result is LaunchResult.Unavailable)
     val unavailable = result as LaunchResult.Unavailable
     assertEquals("com.work.app", unavailable.packageName)

@@ -937,7 +937,7 @@ Multi-Space Launcher strictly follows **Clean Architecture** and **MVVM** (Model
 3. **`com.multispace.data`**
    - `entity/`: Room SQLite table definitions (`SpaceEntity`, `SpaceItemPlacementEntity`, etc.).
    - `dao/`: SQLite Data Access Objects with reactive queries (`SpaceDao`, `SpaceLayoutDao`, `SpaceMembershipDao`).
-   - `database/`: `LauncherDatabase.kt` defining Room migrations (v1 through v8).
+   - `database/`: `LauncherDatabase.kt` defining Room migrations (v1 through v11) and `LaunchHistoryDatabase.kt` (v1 through v2).
    - `repository/`: `RoomSpaceRepository.kt` implementing the repository contract.
    - `preferences/`: `LauncherPreferences.kt` backed by Jetpack DataStore.
 4. **`com.multispace.presentation`**

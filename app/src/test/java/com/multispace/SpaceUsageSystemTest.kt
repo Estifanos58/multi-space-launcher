@@ -212,7 +212,7 @@ class SpaceUsageSystemTest {
       userHandleId = 0L
     )
 
-    val result = launchManager.launchApp(uninstalledApp, spaceId = spaceA)
+    val result = launchManager.launchAppSuspending(uninstalledApp, spaceId = spaceA)
     assertFalse("Launch should fail for uninstalled app", result is LaunchResult.Success)
 
     val recents = repository.resolveRecentApps(spaceA, allApps, limit = 10)

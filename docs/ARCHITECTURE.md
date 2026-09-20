@@ -95,17 +95,15 @@ com.multispace/
 │   └── DomainContract.kt         # Structural boundary contract
 ├── data/                         # Persistence implementation & local storage
 │   ├── database/
-│   │   └── LauncherDatabase.kt   # Room Database (v1) with Space & Membership DAOs
-│   ├── entity/
-│   │   ├── SpaceEntity.kt        # Room table 'spaces' definition
-│   │   └── SpaceMembershipEntity.kt # Room table 'space_memberships' definition
-│   ├── dao/
-│   │   ├── SpaceDao.kt           # SQLite queries for Spaces
-│   │   └── SpaceMembershipDao.kt # SQLite queries for Space Memberships
+│   │   ├── LauncherDatabase.kt   # Primary Room Database (v11) with Space, Layout & Membership DAOs
+│   │   └── LaunchHistoryDatabase.kt # Telemetry Room Database (v2) with LaunchHistoryDao
+│   ├── entity/                          # Room table definitions
+│   ├── dao/                             # SQLite queries for Spaces, Memberships, Layouts & History
 │   ├── preferences/
 │   │   └── LauncherPreferences.kt# Jetpack DataStore preference for single active_space_id
 │   ├── repository/
-│   │   └── RoomSpaceRepository.kt# SpaceRepository implementation backed by Room & DataStore
+│   │   ├── RoomSpaceRepository.kt# SpaceRepository implementation backed by Room & DataStore
+│   │   └── RoomLaunchHistoryRepository.kt # Launch history repository backed by LaunchHistoryDatabase
 │   └── DataContract.kt           # Structural boundary contract
 ├── platform/                     # Android OS & Launcher API adapters
 │   ├── HomePlatformManager.kt    # ROLE_HOME eligibility & system intent dispatching
@@ -129,7 +127,7 @@ com.multispace/
 | **App Discovery** | `LauncherApps.getActivityList()` | Implemented via `AppDiscoveryManager` (zero `QUERY_ALL_PACKAGES`) |
 | **App Launching** | `LauncherApps.startMainActivity()` | Implemented via `AppLaunchManager` with fallback |
 | **Space Domain** | Space entity, invariants, active state | Implemented via `Space`, `SpaceMembership`, `RoomSpaceRepository` |
-| **Persistence** | Room (Spaces/Membership) + DataStore | Implemented via `LauncherDatabase` (Room v1) and `LauncherPreferences` (DataStore) |
+| **Persistence** | Room (Spaces/Membership/Layouts/History) + DataStore | Implemented via `LauncherDatabase` (Room v11), `LaunchHistoryDatabase` (Room v2), and `LauncherPreferences` (DataStore) |
 | **Presentation** | Active Space projection & filtering | Implemented in `LauncherHomeScreen` with persisted ordering & unavailable handling |
 | **Authentication** | Local PIN with PBKDF2WithHmacSHA256 | Implemented in `PinSecurityManager`, `SpacePinDialogs`, and `SpaceViewModel` |
 | **Customization** | Wallpapers, Grid, Icons, Ordering | Implemented in `SpaceCustomizationDialog` and `LauncherHomeScreen` |

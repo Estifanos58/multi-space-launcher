@@ -21,7 +21,7 @@ Multi-Space Launcher is a specialized Android launcher featuring a **two-tier sp
    - **Layer 1 (Curated Home Surface):** Paged or vertical workspace with draggable app placements, folder creation, quick action bar, page indicator dots, and a persistent customizable dock.
    - **Layer 2 (Space Library / Drawer):** Full alphabetical or category-filtered catalog of all apps assigned to the active Space, with quick search and contextual management.
 3. **Dual-Activity Architecture:**
-   - `MainActivity`: Serves as the high-priority `CATEGORY_HOME` surface and phone lock container.
+   - `MainActivity`: Serves as the high-priority `CATEGORY_HOME` surface and launcher lock container.
    - `ConfigurationActivity`: Runs in an independent task affinity (`com.multispace.configuration`) for dedicated management, space creation, live wallpaper calibration, app discovery diagnostics, and system role acquisition.
 
 ---

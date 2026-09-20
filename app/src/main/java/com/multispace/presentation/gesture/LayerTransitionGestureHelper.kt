@@ -30,6 +30,13 @@ object LayerTransitionGestureHelper {
   const val TRANSITION_THRESHOLD_PROGRESS = 0.40f
 
   /**
+   * Fraction of screen height required for Layer 1 -> Layer 2 slide-up transition.
+   * At 0.50f (50%), the user finger slide-up reaches 100% transition progress when sliding up
+   * 50% of the screen height, making the transition faster and significantly more responsive.
+   */
+  const val SLIDE_UP_TRAVEL_FRACTION = 0.50f
+
+  /**
    * Computes the target layer progress (0.0f for Layer 1, 1.0f for Layer 2)
    * based on current progress and release fling velocity.
    */

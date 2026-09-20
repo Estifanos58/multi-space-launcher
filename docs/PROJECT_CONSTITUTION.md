@@ -17,7 +17,6 @@ The following are strictly outside the V1 product scope:
 * Accessibility Service or System Overlay based app restriction / simulation hacks.
 * Cloud backends, remote servers, user account sync, or telemetry/analytics infrastructure.
 * Custom external icon pack engines or proprietary third-party theme engines. Native Android AppWidget hosting (`AppWidgetHost`) is supported as an application-scoped platform service via `AppWidgetHostManager`.
-* Automated application test code (e.g. Robolectric, Espresso, UI tests).
 
 ## 4. Architecture Principles
 * **Single-Module Architecture:** The project is organized as a single application module (`app`) with explicit conceptual package boundaries: `presentation`, `domain`, `data`, `platform`, and `diagnostics`.
@@ -35,8 +34,8 @@ Repository evidence outranks AI memory and conversational assumptions.
 * Runtime behavior, launcher eligibility, Home button capture, and lifecycle stability require human-confirmed validation on physical Android hardware recorded in `PHYSICAL_TEST_LOG.md`.
 * Only a human tester may issue a `PASS` rating.
 
-## 7. No Automated Test-Code Rule
-Automated application test code (unit, integration, or UI test suites) is explicitly prohibited for V1. Verification relies on build compilation and structured human physical testing on real hardware.
+## 7. Automated Testing & Verification Rule
+Automated unit and Robolectric test suites (in `app/src/test/`) are actively maintained to verify deterministic business logic, spatial cascades, Room database migrations, security credential matching, and state pipelines on the JVM. However, automated tests do NOT replace physical device verification: runtime behavior, launcher role eligibility, Home button capture, gesture responsiveness, and lifecycle stability require human-confirmed validation on physical Android hardware recorded in `PHYSICAL_TEST_LOG.md`.
 
 ## 8. Security & Privacy Boundaries
 * The launcher makes zero claims of OS-level security or application hiding outside its own UI surface.
@@ -66,6 +65,6 @@ When information cannot be established from repository inspection or physical te
 ## 14. Definition-of-Done Principles
 A phase or task is done only when:
 1. Code complies with the architecture and scope boundary.
-2. The debug APK builds cleanly with zero errors.
+2. The debug APK builds cleanly with zero errors and all automated unit/Robolectric tests pass.
 3. Relevant continuity documents are updated.
 4. Physical testing status is accurately recorded (or marked `NOT PERFORMED` where hardware testing has not yet occurred).

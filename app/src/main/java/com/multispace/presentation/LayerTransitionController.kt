@@ -226,6 +226,7 @@ class LayerTransitionController(
   }
 
   fun createEmptySpaceSwipeCallbacks(screenHeightPx: Float): Layer1SwipeCallbacks {
+    val slideUpTravelDistancePx = screenHeightPx * LayerTransitionGestureHelper.SLIDE_UP_TRAVEL_FRACTION
     return Layer1SwipeCallbacks(
       onStart = {
         settleJob?.cancel()
@@ -239,17 +240,17 @@ class LayerTransitionController(
           isGestureActive = true
         }
         layer1VelocityTracker.addPosition(change.uptimeMillis, change.position)
-        val progressDelta = LayerTransitionGestureHelper.calculateProgressDelta(dragAmount, screenHeightPx)
+        val progressDelta = LayerTransitionGestureHelper.calculateProgressDelta(dragAmount, slideUpTravelDistancePx)
         layerTransitionProgress = (layerTransitionProgress + progressDelta).coerceIn(0f, 1f)
       },
       onEnd = {
         isGestureActive = false
         val velocityY = layer1VelocityTracker.calculateVelocity().y
-        settleTransition(layerTransitionProgress, velocityY, screenHeightPx)
+        settleTransition(layerTransitionProgress, velocityY, slideUpTravelDistancePx)
       },
       onCancel = {
         isGestureActive = false
-        settleTransition(layerTransitionProgress, 0f, screenHeightPx)
+        settleTransition(layerTransitionProgress, 0f, slideUpTravelDistancePx)
       }
     )
   }

@@ -27,7 +27,7 @@ Milestone: Seamless Cross-Page App Dragging & Edge Auto-Paging
 | App Catalog UI & Filtering | `IMPLEMENTED` | Search, filter (All / User / System), sort (A-Z / Z-A / Recent), and Grid / List views |
 | App Launching Integration | `IMPLEMENTED` | `AppLaunchManager` with `LauncherApps.startMainActivity`, multi-profile resolution, component verification, PackageManager fallback, zero-crash exception handling |
 | Launcher Home Surface | `IMPLEMENTED` | Clean `LauncherHomeScreen` with active Space chip, configurable grid (3-6 cols), icon sizing, tap-to-launch, empty state |
-| Space Domain & Room Persistence | `BUILDS` | Room Database (`LauncherDatabase` v1), `SpaceDao`, `SpaceMembershipDao`, `SpaceItemPlacementDao`, `SpaceFolderDao`, `SpaceEntity`, `SpaceMembershipEntity`, `RoomSpaceRepository`, default Space initialization, safe deletion, duplicate prevention |
+| Space Domain & Room Persistence | `BUILDS` | Room Database (`LauncherDatabase` v11, `LaunchHistoryDatabase` v2), `SpaceDao`, `SpaceMembershipDao`, `SpaceLayoutDao`, `LaunchHistoryDao`, `RoomSpaceRepository`, `RoomLaunchHistoryRepository`, default Space initialization, safe deletion, duplicate prevention |
 | Active Space State via DataStore | `BUILDS` | `LauncherPreferences` managing single authoritative `active_space_id` with self-healing invalid pointer fallback |
 | Multi-Space Configuration Surface | `IMPLEMENTED` | Dedicated `ConfigurationActivity` (separate task affinity `com.multispace.configuration`) for Space creation, rename, safe deletion, styling, and per-app membership assignment |
 | Space Switching Engine | `IMPLEMENTED` | Instantaneous Space switcher popover on Home header and radio selection in Configuration |
