@@ -2,11 +2,9 @@ package com.multispace.platform
 
 import android.content.Context
 import android.content.ContextWrapper
-import android.os.Build
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
-import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -14,7 +12,7 @@ import com.multispace.diagnostics.AppLogger
 
 /**
  * Platform helper for hardware biometric verification (Fingerprint, Face Unlock, Device Credential).
- * Handles capability probing, graceful fallback, and BiometricPrompt orchestration.
+ * Handles capability probing, graceful fallback, and BiometricPrompt orchestration with CryptoObject support.
  */
 object BiometricAuthManager {
 
@@ -28,23 +26,29 @@ object BiometricAuthManager {
   }
 
   /**
-   * Checks whether hardware biometric authentication (Strong/Weak) is supported and configured on device.
+   * Checks whether hardware biometric authentication is supported and configured on device.
    */
   fun checkBiometricStatus(context: Context): BiometricStatus {
     return try {
       val biometricManager = BiometricManager.from(context)
       val authenticators = BIOMETRIC_STRONG or BIOMETRIC_WEAK
-      when (biometricManager.canAuthenticate(authenticators)) {
-        BiometricManager.BIOMETRIC_SUCCESS -> BiometricStatus.AVAILABLE
-        BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> BiometricStatus.NOT_ENROLLED
-        BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> BiometricStatus.NO_HARDWARE
-        BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> BiometricStatus.HW_UNAVAILABLE
-        BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> BiometricStatus.SECURITY_UPDATE_REQUIRED
-        BiometricManager.BIOMETRIC_ERROR_UNSUPPORTED -> BiometricStatus.UNSUPPORTED
-        else -> BiometricStatus.UNSUPPORTED
-      }
+      mapBiometricResult(biometricManager.canAuthenticate(authenticators))
     } catch (e: Exception) {
       AppLogger.w(AppLogger.Category.AUTH, "Failed checking biometric status: ${e.message}")
+      BiometricStatus.UNSUPPORTED
+    }
+  }
+
+  /**
+   * Specifically probes whether STRONG hardware biometrics are enrolled and available.
+   * Required for securing sensitive Space operations and Keystore crypto keys.
+   */
+  fun checkStrongBiometricStatus(context: Context): BiometricStatus {
+    return try {
+      val biometricManager = BiometricManager.from(context)
+      mapBiometricResult(biometricManager.canAuthenticate(BIOMETRIC_STRONG))
+    } catch (e: Exception) {
+      AppLogger.w(AppLogger.Category.AUTH, "Failed checking strong biometric status: ${e.message}")
       BiometricStatus.UNSUPPORTED
     }
   }
@@ -53,10 +57,26 @@ object BiometricAuthManager {
     return checkBiometricStatus(context) == BiometricStatus.AVAILABLE
   }
 
+  fun isStrongBiometricAvailable(context: Context): Boolean {
+    return checkStrongBiometricStatus(context) == BiometricStatus.AVAILABLE
+  }
+
+  private fun mapBiometricResult(result: Int): BiometricStatus {
+    return when (result) {
+      BiometricManager.BIOMETRIC_SUCCESS -> BiometricStatus.AVAILABLE
+      BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> BiometricStatus.NOT_ENROLLED
+      BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> BiometricStatus.NO_HARDWARE
+      BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> BiometricStatus.HW_UNAVAILABLE
+      BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> BiometricStatus.SECURITY_UPDATE_REQUIRED
+      BiometricManager.BIOMETRIC_ERROR_UNSUPPORTED -> BiometricStatus.UNSUPPORTED
+      else -> BiometricStatus.UNSUPPORTED
+    }
+  }
+
   fun getStatusDescription(status: BiometricStatus): String {
     return when (status) {
       BiometricStatus.AVAILABLE -> "Biometric hardware ready & enrolled"
-      BiometricStatus.NOT_ENROLLED -> "Biometrics supported but no fingerprints/face registered"
+      BiometricStatus.NOT_ENROLLED -> "Biometrics supported but no fingerprints/face registered in device settings"
       BiometricStatus.NO_HARDWARE -> "No biometric hardware detected on this device"
       BiometricStatus.HW_UNAVAILABLE -> "Biometric hardware is currently unavailable"
       BiometricStatus.SECURITY_UPDATE_REQUIRED -> "Security update required for biometric sensors"
@@ -65,7 +85,7 @@ object BiometricAuthManager {
   }
 
   /**
-   * Displays the system biometric prompt with the specified parameters.
+   * Displays the system biometric prompt optionally bound to a [BiometricPrompt.CryptoObject].
    */
   fun authenticate(
     activity: FragmentActivity,
@@ -73,6 +93,7 @@ object BiometricAuthManager {
     subtitle: String = "Verify your identity to proceed",
     description: String = "",
     negativeButtonText: String = "Use PIN / Pattern",
+    cryptoObject: BiometricPrompt.CryptoObject? = null,
     onSuccess: (BiometricPrompt.AuthenticationResult) -> Unit,
     onError: (errorCode: Int, errString: CharSequence) -> Unit = { _, _ -> },
     onFailed: () -> Unit = {}
@@ -94,7 +115,7 @@ object BiometricAuthManager {
 
         override fun onAuthenticationFailed() {
           super.onAuthenticationFailed()
-          AppLogger.w(AppLogger.Category.AUTH, "Biometric authentication failed (fingerprint not recognized)")
+          AppLogger.w(AppLogger.Category.AUTH, "Biometric authentication failed (sensor not recognized)")
           onFailed()
         }
       }
@@ -110,10 +131,19 @@ object BiometricAuthManager {
       }
 
       promptInfoBuilder.setNegativeButtonText(negativeButtonText)
-      promptInfoBuilder.setAllowedAuthenticators(BIOMETRIC_STRONG or BIOMETRIC_WEAK)
+      if (cryptoObject != null) {
+        // CryptoObject requires BIOMETRIC_STRONG
+        promptInfoBuilder.setAllowedAuthenticators(BIOMETRIC_STRONG)
+      } else {
+        promptInfoBuilder.setAllowedAuthenticators(BIOMETRIC_STRONG or BIOMETRIC_WEAK)
+      }
 
       val promptInfo = promptInfoBuilder.build()
-      biometricPrompt.authenticate(promptInfo)
+      if (cryptoObject != null) {
+        biometricPrompt.authenticate(promptInfo, cryptoObject)
+      } else {
+        biometricPrompt.authenticate(promptInfo)
+      }
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.AUTH, "Failed launching BiometricPrompt: ${e.message}", e)
       onError(-1, e.message ?: "Biometric prompt error")

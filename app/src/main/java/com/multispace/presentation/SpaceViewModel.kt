@@ -15,6 +15,10 @@ import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceItemPlacement
 import com.multispace.domain.model.SpaceMembership
 import com.multispace.domain.repository.SpaceRepository
+import com.multispace.domain.security.AuthenticationMethod
+import com.multispace.domain.security.AuthenticationResult
+import com.multispace.domain.security.SensitiveOperation
+import com.multispace.domain.security.SpaceAuthorizationManager
 import com.multispace.platform.LauncherSessionManager
 import com.multispace.presentation.events.HomeTriggerSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -155,6 +159,14 @@ class SpaceViewModel @JvmOverloads constructor(
   init {
     AppLogger.i(AppLogger.Category.LAUNCHER, "SpaceViewModel initialized: ensuring default Space state")
     ensureDefaultSpaceInitialized()
+    viewModelScope.launch {
+      allSpaces.collect { spaces ->
+        val hasProtectedSpace = spaces.any { it.isProtected }
+        if (!hasProtectedSpace && sessionManager.isLauncherLocked.value) {
+          sessionManager.unlockLauncher()
+        }
+      }
+    }
   }
 
   fun ensureDefaultSpaceInitialized(apps: List<DiscoveredApp> = emptyList()) {
@@ -553,6 +565,23 @@ class SpaceViewModel @JvmOverloads constructor(
     }
   }
 
+  val authorizationManager: SpaceAuthorizationManager = SpaceAuthorizationManager(
+    isSpaceUnlockedProvider = { spaceId -> sessionManager.isSpaceUnlocked(spaceId) },
+    isLauncherLockedProvider = { sessionManager.isLauncherLocked.value }
+  )
+
+  fun canPerform(space: Space, operation: SensitiveOperation): Boolean {
+    return authorizationManager.canPerform(space, operation)
+  }
+
+  fun requiresExplicitAuthentication(space: Space, operation: SensitiveOperation): Boolean {
+    return authorizationManager.requiresExplicitAuthentication(space, operation)
+  }
+
+  fun getRemainingCooldownSeconds(spaceId: String): Long? {
+    return sessionManager.getRemainingCooldownSeconds(spaceId)
+  }
+
   fun isSpaceUnlocked(space: Space?): Boolean {
     if (space == null) return true
     if (!space.isProtected) return true
@@ -584,14 +613,59 @@ class SpaceViewModel @JvmOverloads constructor(
 
   fun unlockPhone() = unlockLauncher()
 
+  suspend fun verifyAndUnlockSpace(spaceId: String, credential: String): AuthenticationResult {
+    val cooldown = sessionManager.getRemainingCooldownSeconds(spaceId)
+    if (cooldown != null && cooldown > 0) {
+      _userFeedback.tryEmit("Too many attempts. Wait ${cooldown}s.")
+      return AuthenticationResult.TemporarilyLocked(spaceId, cooldown)
+    }
+
+    val result = spaceRepository.verifySpaceCredential(spaceId, credential)
+    when (result) {
+      is AuthenticationResult.Success -> {
+        sessionManager.recordSuccessfulAttempt(spaceId)
+        sessionManager.unlockSpace(spaceId)
+        sessionManager.unlockLauncher()
+        _userFeedback.tryEmit("Space unlocked successfully.")
+      }
+      is AuthenticationResult.InvalidCredential -> {
+        val newCooldown = sessionManager.recordFailedAttempt(spaceId)
+        if (newCooldown != null && newCooldown > 0) {
+          _userFeedback.tryEmit("Too many incorrect attempts. Locked for ${newCooldown}s.")
+          return AuthenticationResult.TemporarilyLocked(spaceId, newCooldown)
+        } else {
+          _userFeedback.tryEmit("Incorrect credential. Try again.")
+        }
+      }
+      is AuthenticationResult.NotConfigured -> {
+        _userFeedback.tryEmit("Security configuration error: ${result.reason}")
+      }
+      else -> {
+        _userFeedback.tryEmit("Authentication failed.")
+      }
+    }
+    return result
+  }
+
   suspend fun authenticateAndUnlockSpaceByCredential(credential: String): Space? {
+    // 1. Try currently active space first if it is protected
+    val current = activeSpace.value
+    if (current != null && current.isProtected) {
+      val res = verifyAndUnlockSpace(current.id, credential)
+      if (res is AuthenticationResult.Success) {
+        return current
+      }
+    }
+
+    // 2. Otherwise match across all spaces
     val matchedSpace = spaceRepository.findSpaceMatchingCredential(credential)
     if (matchedSpace != null) {
-      unlockSpace(matchedSpace.id)
-      selectActiveSpace(matchedSpace.id)
-      unlockLauncher()
-      _userFeedback.tryEmit("Unlocked into '${matchedSpace.name}'")
-      return matchedSpace
+      val res = verifyAndUnlockSpace(matchedSpace.id, credential)
+      if (res is AuthenticationResult.Success) {
+        selectActiveSpace(matchedSpace.id)
+        _userFeedback.tryEmit("Unlocked into '${matchedSpace.name}'")
+        return matchedSpace
+      }
     }
     return null
   }
@@ -612,14 +686,6 @@ class SpaceViewModel @JvmOverloads constructor(
       else "Device unlocked with biometrics"
     )
     return targetSpace
-  }
-
-  suspend fun verifyAndUnlockSpace(spaceId: String, pin: String): Boolean {
-    val isValid = spaceRepository.verifySpacePin(spaceId, pin)
-    if (isValid) {
-      unlockSpace(spaceId)
-    }
-    return isValid
   }
 
   fun setSpacePin(spaceId: String, pin: String, onResult: ((Boolean, String?) -> Unit)? = null) {
@@ -668,16 +734,24 @@ class SpaceViewModel @JvmOverloads constructor(
     currentPin: String,
     onResult: ((Boolean, String?) -> Unit)? = null
   ) {
+    disableSpaceProtection(spaceId, currentPin, onResult)
+  }
+
+  fun disableSpaceProtection(
+    spaceId: String,
+    currentCredential: String,
+    onResult: ((Boolean, String?) -> Unit)? = null
+  ) {
     viewModelScope.launch {
-      val result = spaceRepository.disableSpacePin(spaceId, currentPin)
+      val result = spaceRepository.disableSpaceProtection(spaceId, currentCredential)
       result.fold(
         onSuccess = {
-          lockSpace(spaceId)
-          _userFeedback.tryEmit("PIN protection disabled.")
+          sessionManager.lockSpace(spaceId)
+          _userFeedback.tryEmit("Space protection disabled.")
           onResult?.invoke(true, null)
         },
         onFailure = { error ->
-          val msg = error.message ?: "Failed to disable PIN."
+          val msg = error.message ?: "Failed to disable protection."
           _userFeedback.tryEmit("Error: $msg")
           onResult?.invoke(false, msg)
         }

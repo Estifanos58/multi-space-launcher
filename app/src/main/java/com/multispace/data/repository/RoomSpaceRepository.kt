@@ -37,7 +37,10 @@ import com.multispace.domain.repository.FolderRepository
 import com.multispace.domain.repository.PlacementRepository
 import com.multispace.domain.repository.SpaceMembershipRepository
 import com.multispace.domain.repository.SpaceRepository
+import com.multispace.domain.security.AuthenticationMethod
+import com.multispace.domain.security.AuthenticationResult
 import com.multispace.platform.AppDiscoveryManager
+import com.multispace.platform.BiometricKeyManager
 import com.multispace.platform.DefaultAppCapabilityResolver
 import com.multispace.platform.PinSecurityManager
 import java.util.UUID
@@ -1102,8 +1105,9 @@ class RoomSpaceRepository(
   }
 
   override suspend fun setSpacePin(spaceId: String, pin: String): Result<Unit> {
-    if (!PinSecurityManager.isValidPinFormat(pin)) {
-      return Result.failure(IllegalArgumentException("PIN must be 4 to 8 numeric digits"))
+    val strengthResult = PinSecurityManager.validatePinStrength(pin)
+    if (strengthResult.isFailure) {
+      return Result.failure(strengthResult.exceptionOrNull() ?: IllegalArgumentException("Invalid PIN"))
     }
     return try {
       val existing = spaceDao.getSpaceById(spaceId)
@@ -1113,7 +1117,7 @@ class RoomSpaceRepository(
       val hash = PinSecurityManager.hashPin(pin, salt)
 
       val updated = existing.copy(
-        authPolicy = "PIN",
+        authPolicy = Space.AUTH_PIN,
         pinSalt = salt,
         pinHash = hash,
         updatedAt = System.currentTimeMillis()
@@ -1128,8 +1132,9 @@ class RoomSpaceRepository(
   }
 
   override suspend fun changeSpacePin(spaceId: String, currentPin: String, newPin: String): Result<Unit> {
-    if (!PinSecurityManager.isValidPinFormat(newPin)) {
-      return Result.failure(IllegalArgumentException("New PIN must be 4 to 8 numeric digits"))
+    val strengthResult = PinSecurityManager.validatePinStrength(newPin)
+    if (strengthResult.isFailure) {
+      return Result.failure(strengthResult.exceptionOrNull() ?: IllegalArgumentException("Invalid new PIN"))
     }
     return try {
       val existing = spaceDao.getSpaceById(spaceId)
@@ -1149,7 +1154,7 @@ class RoomSpaceRepository(
       val newHash = PinSecurityManager.hashPin(newPin, newSalt)
 
       val updated = existing.copy(
-        authPolicy = "PIN",
+        authPolicy = Space.AUTH_PIN,
         pinSalt = newSalt,
         pinHash = newHash,
         updatedAt = System.currentTimeMillis()
@@ -1164,56 +1169,83 @@ class RoomSpaceRepository(
   }
 
   override suspend fun disableSpacePin(spaceId: String, currentPin: String): Result<Unit> {
+    return disableSpaceProtection(spaceId, currentPin)
+  }
+
+  override suspend fun disableSpaceProtection(spaceId: String, currentCredential: String): Result<Unit> {
     return try {
       val existing = spaceDao.getSpaceById(spaceId)
         ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
 
-      val isCurrentValid = PinSecurityManager.verifyPin(
-        currentPin,
-        existing.pinSalt,
-        existing.pinHash
-      )
-      if (!isCurrentValid) {
-        AppLogger.w(AppLogger.Category.LAUNCHER, "PIN disable failed: incorrect current PIN for Space ($spaceId)")
-        return Result.failure(IllegalArgumentException("Incorrect current PIN"))
+      val verifyResult = verifySpaceCredential(spaceId, currentCredential)
+      if (verifyResult !is AuthenticationResult.Success) {
+        AppLogger.w(AppLogger.Category.LAUNCHER, "Protection disable failed: invalid credential for Space ($spaceId)")
+        return Result.failure(IllegalArgumentException("Incorrect current credential"))
       }
 
       val updated = existing.copy(
-        authPolicy = "NONE",
+        authPolicy = Space.AUTH_NONE,
         pinSalt = null,
         pinHash = null,
         updatedAt = System.currentTimeMillis()
       )
       spaceDao.updateSpace(updated)
-      AppLogger.i(AppLogger.Category.LAUNCHER, "PIN protection disabled for Space '${existing.name}' ($spaceId)")
+      BiometricKeyManager.deleteSecretKey(spaceId)
+      AppLogger.i(AppLogger.Category.LAUNCHER, "Protection disabled for Space '${existing.name}' ($spaceId)")
       Result.success(Unit)
     } catch (e: Exception) {
-      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to disable PIN for Space ($spaceId)", e)
+      AppLogger.e(AppLogger.Category.LAUNCHER, "Failed to disable protection for Space ($spaceId)", e)
       Result.failure(e)
     }
   }
 
-  override suspend fun verifySpacePin(spaceId: String, pin: String): Boolean {
+  override suspend fun verifySpaceCredential(spaceId: String, credential: String): AuthenticationResult {
     return try {
-      val existing = spaceDao.getSpaceById(spaceId) ?: return false
-      if ((existing.authPolicy != Space.AUTH_PIN && existing.authPolicy != Space.AUTH_PATTERN) || existing.pinHash.isNullOrEmpty()) {
-        return true
+      val existing = spaceDao.getSpaceById(spaceId)
+        ?: return AuthenticationResult.Failure("Space with id '$spaceId' not found")
+
+      if (existing.authPolicy == Space.AUTH_NONE) {
+        return AuthenticationResult.Success(spaceId, AuthenticationMethod.NONE)
       }
-      val isValid = PinSecurityManager.verifyPin(
-        pin,
-        existing.pinSalt,
-        existing.pinHash
-      )
-      if (isValid) {
+
+      // FAIL CLOSED: if protected but credential parameters missing, never authenticate
+      if (existing.pinSalt.isNullOrEmpty() || existing.pinHash.isNullOrEmpty()) {
+        AppLogger.e(AppLogger.Category.AUTH, "Fail-closed: Space ($spaceId) policy ${existing.authPolicy} but missing salt/hash")
+        return AuthenticationResult.NotConfigured(spaceId, "Space security credentials are not properly configured")
+      }
+
+      val authMethod = AuthenticationMethod.fromAuthPolicy(existing.authPolicy)
+      val verifyRes = PinSecurityManager.verifyPinWithUpgradeCheck(credential, existing.pinSalt, existing.pinHash)
+
+      if (verifyRes.isValid) {
+        if (verifyRes.needsUpgrade && verifyRes.upgradedHash != null && verifyRes.upgradedSalt != null) {
+          val upgradedEntity = existing.copy(
+            pinSalt = verifyRes.upgradedSalt,
+            pinHash = verifyRes.upgradedHash,
+            updatedAt = System.currentTimeMillis()
+          )
+          spaceDao.updateSpace(upgradedEntity)
+          AppLogger.i(AppLogger.Category.AUTH, "Upgraded KDF parameters to V2 for Space ($spaceId)")
+        }
         AppLogger.i(AppLogger.Category.LAUNCHER, "Space authentication succeeded for Space ($spaceId)")
+        AuthenticationResult.Success(spaceId, authMethod, verifyRes.needsUpgrade)
       } else {
         AppLogger.w(AppLogger.Category.LAUNCHER, "Space authentication failed for Space ($spaceId)")
+        AuthenticationResult.InvalidCredential(spaceId)
       }
-      isValid
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Error during authentication verification for Space ($spaceId)", e)
-      false
+      AuthenticationResult.Failure(e.message ?: "Authentication error", e)
     }
+  }
+
+  override suspend fun verifySpaceRecoveryPin(spaceId: String, recoveryPin: String): AuthenticationResult {
+    return verifySpaceCredential(spaceId, recoveryPin)
+  }
+
+  override suspend fun verifySpacePin(spaceId: String, pin: String): Boolean {
+    val result = verifySpaceCredential(spaceId, pin)
+    return result is AuthenticationResult.Success
   }
 
   override suspend fun findSpaceMatchingCredential(credential: String): Space? {
@@ -1222,7 +1254,17 @@ class RoomSpaceRepository(
       for (entity in entities) {
         val domain = entity.toDomain()
         if (domain.isProtected && !domain.pinHash.isNullOrEmpty() && !domain.pinSalt.isNullOrEmpty()) {
-          if (PinSecurityManager.verifyPin(credential, domain.pinSalt, domain.pinHash)) {
+          val verifyRes = PinSecurityManager.verifyPinWithUpgradeCheck(credential, domain.pinSalt, domain.pinHash)
+          if (verifyRes.isValid) {
+            if (verifyRes.needsUpgrade && verifyRes.upgradedHash != null && verifyRes.upgradedSalt != null) {
+              spaceDao.updateSpace(
+                entity.copy(
+                  pinSalt = verifyRes.upgradedSalt,
+                  pinHash = verifyRes.upgradedHash,
+                  updatedAt = System.currentTimeMillis()
+                )
+              )
+            }
             AppLogger.i(AppLogger.Category.LAUNCHER, "Credential matched Space '${domain.name}' (${domain.id})")
             return domain
           }

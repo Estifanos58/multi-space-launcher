@@ -26,6 +26,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.multispace.domain.security.PatternSecurityHelper
 import com.multispace.ui.theme.PrimaryPurple
 import com.multispace.ui.theme.PrimaryPurpleDark
 import kotlin.math.sqrt
@@ -57,7 +58,7 @@ fun PatternLockCanvas(
   val lineColor = if (isError) Color(0xFFEF5350) else PrimaryPurpleDark
 
   fun encodePattern(nodes: List<Int>): String {
-    return "PATTERN:${rows}x${cols}:" + nodes.joinToString("-")
+    return PatternSecurityHelper.encodePattern(rows, cols, nodes)
   }
 
   fun getNodeOffset(index: Int, width: Float, height: Float): Offset {
@@ -142,7 +143,11 @@ fun PatternLockCanvas(
 
               val nearest = findClosestNode(touch, size.width.toFloat(), size.height.toFloat(), hitRadius)
               if (nearest != null && !selectedNodes.contains(nearest)) {
-                selectedNodes = selectedNodes + nearest
+                val lastNode = selectedNodes.lastOrNull()
+                val intermediates = if (lastNode != null) {
+                  PatternSecurityHelper.getIntermediateNodes(lastNode, nearest, rows, cols, selectedNodes.toSet())
+                } else emptyList()
+                selectedNodes = selectedNodes + intermediates + nearest
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
               }
             }

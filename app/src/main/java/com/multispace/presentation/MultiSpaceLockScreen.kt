@@ -64,20 +64,63 @@ fun MultiSpaceLockScreen(
   val fragmentActivity = remember(context) { BiometricAuthManager.findFragmentActivity(context) }
   val isBiometricAvailable = remember(context) { BiometricAuthManager.isBiometricAvailable(context) }
 
+  var selectedTargetSpaceId by remember { mutableStateOf<String?>(null) }
+  var cooldownSeconds by remember { mutableStateOf<Long?>(null) }
+  var isKeyInvalidated by remember { mutableStateOf(false) }
+
+  // Target space: either explicitly chosen, active space, or first protected space
+  val targetSpace = remember(allSpaces, activeSpace, selectedTargetSpaceId) {
+    if (selectedTargetSpaceId != null) {
+      allSpaces.firstOrNull { it.id == selectedTargetSpaceId }
+    } else {
+      activeSpace ?: allSpaces.firstOrNull { it.isProtected } ?: allSpaces.firstOrNull()
+    }
+  }
+
+  // Periodic cooldown check
+  LaunchedEffect(targetSpace?.id, isVerifying) {
+    while (true) {
+      val spaceId = targetSpace?.id
+      if (spaceId != null) {
+        val remaining = spaceViewModel.getRemainingCooldownSeconds(spaceId)
+        cooldownSeconds = remaining
+        if (remaining != null && remaining > 0) {
+          errorMessage = "Too many attempts. Cooldown: ${remaining}s"
+        }
+      }
+      delay(1000)
+    }
+  }
+
   fun triggerBiometricPrompt() {
     if (fragmentActivity == null || !isBiometricAvailable) return
+    val space = targetSpace ?: return
+
+    val cryptoResult = com.multispace.platform.BiometricKeyManager.createCryptoObject(space.id)
+    val cryptoObject = when (cryptoResult) {
+      is com.multispace.platform.BiometricKeyManager.CryptoInitResult.Success -> cryptoResult.cryptoObject
+      is com.multispace.platform.BiometricKeyManager.CryptoInitResult.KeyPermanentlyInvalidated -> {
+        isKeyInvalidated = true
+        errorMessage = "Biometrics changed on device. Enter Recovery PIN."
+        inputMode = "PIN"
+        return
+      }
+      else -> null
+    }
+
     BiometricAuthManager.authenticate(
       activity = fragmentActivity,
-      title = "Unlock Multi-Space",
-      subtitle = "Verify your fingerprint or face to access your Space",
-      negativeButtonText = "Use PIN / Pattern",
+      title = "Unlock Space: ${space.name}",
+      subtitle = "Verify your fingerprint or face to proceed",
+      negativeButtonText = "Use Recovery PIN / Pattern",
+      cryptoObject = cryptoObject,
       onSuccess = {
-        val targetSpace = spaceViewModel.authenticateAndUnlockWithBiometric()
-        if (targetSpace != null) {
-          successSpaceName = targetSpace.name
+        val unlockedSpace = spaceViewModel.authenticateAndUnlockWithBiometric(space.id)
+        if (unlockedSpace != null) {
+          successSpaceName = unlockedSpace.name
           coroutineScope.launch {
             delay(350)
-            onUnlockSuccess(targetSpace)
+            onUnlockSuccess(unlockedSpace)
           }
         }
       },
@@ -126,6 +169,16 @@ fun MultiSpaceLockScreen(
 
   fun attemptUnlock(credential: String) {
     if (isVerifying || credential.isBlank()) return
+
+    val spaceId = targetSpace?.id
+    if (spaceId != null) {
+      val cooldown = spaceViewModel.getRemainingCooldownSeconds(spaceId)
+      if (cooldown != null && cooldown > 0) {
+        errorMessage = "Temporarily locked. Cooldown: ${cooldown}s"
+        return
+      }
+    }
+
     isVerifying = true
     errorMessage = null
 
@@ -137,7 +190,12 @@ fun MultiSpaceLockScreen(
         delay(350)
         onUnlockSuccess(matchedSpace)
       } else {
-        errorMessage = if (inputMode == "PIN") "Incorrect PIN. No matching space found." else "Incorrect pattern. No matching space found."
+        val remainingCooldown = targetSpace?.let { spaceViewModel.getRemainingCooldownSeconds(it.id) }
+        errorMessage = if (remainingCooldown != null && remainingCooldown > 0) {
+          "Too many attempts. Cooldown: ${remainingCooldown}s"
+        } else {
+          if (inputMode == "PIN") "Incorrect PIN. Try again." else "Incorrect pattern. Try again."
+        }
         enteredPin = ""
         patternClearTrigger++
       }

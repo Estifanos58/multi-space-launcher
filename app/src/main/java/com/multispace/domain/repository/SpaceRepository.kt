@@ -136,7 +136,10 @@ interface SpaceRepository : SpaceMembershipRepository, PlacementRepository, Fold
   suspend fun setSpacePin(spaceId: String, pin: String): Result<Unit>
   suspend fun changeSpacePin(spaceId: String, currentPin: String, newPin: String): Result<Unit>
   suspend fun disableSpacePin(spaceId: String, currentPin: String): Result<Unit>
+  suspend fun disableSpaceProtection(spaceId: String, currentCredential: String): Result<Unit>
   suspend fun verifySpacePin(spaceId: String, pin: String): Boolean
+  suspend fun verifySpaceCredential(spaceId: String, credential: String): com.multispace.domain.security.AuthenticationResult
+  suspend fun verifySpaceRecoveryPin(spaceId: String, recoveryPin: String): com.multispace.domain.security.AuthenticationResult
   suspend fun findSpaceMatchingCredential(credential: String): Space?
 
   suspend fun updateSpaceCustomization(

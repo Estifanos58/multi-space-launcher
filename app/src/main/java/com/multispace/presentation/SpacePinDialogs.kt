@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.multispace.domain.model.Space
+import com.multispace.domain.security.AuthenticationResult
 import com.multispace.platform.BiometricAuthManager
 import com.multispace.platform.PinSecurityManager
 import com.multispace.ui.theme.*
@@ -635,13 +636,13 @@ fun SpaceCredentialVerificationDialog(
                 onPatternComplete = { _, patternStr ->
                   isVerifying = true
                   coroutineScope.launch {
-                    val isValid = if (mode == AuthDialogMode.DELETE) {
+                    val isSuccess = if (mode == AuthDialogMode.DELETE) {
                       spaceViewModel.spaceRepository.verifySpacePin(space.id, patternStr)
                     } else {
-                      spaceViewModel.verifyAndUnlockSpace(space.id, patternStr)
+                      spaceViewModel.verifyAndUnlockSpace(space.id, patternStr) is AuthenticationResult.Success
                     }
                     isVerifying = false
-                    if (isValid) {
+                    if (isSuccess) {
                       onSuccess()
                     } else {
                       isError = true
@@ -766,13 +767,13 @@ fun SpaceCredentialVerificationDialog(
             }
             isVerifying = true
             coroutineScope.launch {
-              val isValid = if (mode == AuthDialogMode.DELETE) {
+              val isSuccess = if (mode == AuthDialogMode.DELETE) {
                 spaceViewModel.spaceRepository.verifySpacePin(space.id, enteredPin)
               } else {
-                spaceViewModel.verifyAndUnlockSpace(space.id, enteredPin)
+                spaceViewModel.verifyAndUnlockSpace(space.id, enteredPin) is AuthenticationResult.Success
               }
               isVerifying = false
-              if (isValid) {
+              if (isSuccess) {
                 onSuccess()
               } else {
                 isError = true
