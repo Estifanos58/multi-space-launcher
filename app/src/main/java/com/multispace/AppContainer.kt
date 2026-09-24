@@ -30,7 +30,7 @@ class AppContainer(context: Context) {
   val database: LauncherDatabase = LauncherDatabase.getInstance(context)
   val launchHistoryDatabase: LaunchHistoryDatabase = LaunchHistoryDatabase.getInstance(context)
 
-  val sessionManager: LauncherSessionManager = LauncherSessionManager()
+  val sessionManager: LauncherSessionManager = LauncherSessionManager(context)
 
   val spaceMembershipRepository: SpaceMembershipRepository = RoomSpaceMembershipRepository(
     database.spaceMembershipDao(),

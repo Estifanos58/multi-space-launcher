@@ -423,6 +423,7 @@ fun SpaceCredentialVerificationDialog(
   var showPinText by remember { mutableStateOf(false) }
   var isError by remember { mutableStateOf(false) }
   var isVerifying by remember { mutableStateOf(false) }
+  var isUsingRecoveryPin by remember { mutableStateOf(false) }
   var clearTrigger by remember { mutableIntStateOf(0) }
   val coroutineScope = rememberCoroutineScope()
 
@@ -430,22 +431,43 @@ fun SpaceCredentialVerificationDialog(
     if (fragmentActivity == null || !isBiometricAvailable) return
     isVerifying = true
     isError = false
+
+    val cryptoResult = com.multispace.platform.BiometricKeyManager.createCryptoObject(space.id)
+    val cryptoObject = when (cryptoResult) {
+      is com.multispace.platform.BiometricKeyManager.CryptoInitResult.Success -> cryptoResult.cryptoObject
+      is com.multispace.platform.BiometricKeyManager.CryptoInitResult.KeyPermanentlyInvalidated -> {
+        isVerifying = false
+        isUsingRecoveryPin = true
+        isError = true
+        return
+      }
+      else -> null
+    }
+
     BiometricAuthManager.authenticate(
       activity = fragmentActivity,
       title = "Authorize '${space.name}'",
       subtitle = "Scan fingerprint or face to proceed",
-      negativeButtonText = if (isBiometricAuth) "Cancel" else "Use PIN / Pattern",
-      onSuccess = {
+      negativeButtonText = if (isBiometricAuth) "Use Recovery PIN" else "Use PIN / Pattern",
+      cryptoObject = cryptoObject,
+      onSuccess = { authResult ->
         isVerifying = false
-        if (mode == AuthDialogMode.UNLOCK) {
-          spaceViewModel.unlockSpace(space.id)
+        val unlocked = spaceViewModel.authenticateAndUnlockWithBiometric(space.id, authResult.cryptoObject)
+        if (unlocked != null) {
+          if (mode == AuthDialogMode.UNLOCK) {
+            spaceViewModel.unlockSpace(space.id)
+          }
+          onSuccess()
+        } else {
+          isError = true
+          isUsingRecoveryPin = true
         }
-        onSuccess()
       },
       onError = { errorCode, _ ->
         isVerifying = false
-        if (errorCode != androidx.biometric.BiometricPrompt.ERROR_USER_CANCELED &&
-          errorCode != androidx.biometric.BiometricPrompt.ERROR_NEGATIVE_BUTTON &&
+        if (errorCode == androidx.biometric.BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
+          isUsingRecoveryPin = true
+        } else if (errorCode != androidx.biometric.BiometricPrompt.ERROR_USER_CANCELED &&
           errorCode != androidx.biometric.BiometricPrompt.ERROR_CANCELED
         ) {
           isError = true
@@ -569,42 +591,97 @@ fun SpaceCredentialVerificationDialog(
         )
 
         if (isBiometricAuth) {
-          Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = LightSurfaceContainerLowest,
-            border = androidx.compose.foundation.BorderStroke(1.dp, LightSurfaceContainerHigh),
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(vertical = 8.dp)
-          ) {
-            Column(
+          if (!isUsingRecoveryPin) {
+            Surface(
+              shape = RoundedCornerShape(16.dp),
+              color = LightSurfaceContainerLowest,
+              border = androidx.compose.foundation.BorderStroke(1.dp, LightSurfaceContainerHigh),
               modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-              horizontalAlignment = Alignment.CenterHorizontally,
-              verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(vertical = 8.dp)
             ) {
-              Icon(
-                imageVector = Icons.Default.Fingerprint,
-                contentDescription = "Biometric Sensor",
-                tint = primaryButtonColor,
-                modifier = Modifier.size(48.dp)
-              )
-              Text(
-                text = "Biometric Lock Active",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
-                color = TextPrimary
-              )
-              Button(
-                onClick = { triggerBiometricPrompt() },
-                colors = ButtonDefaults.buttonColors(containerColor = primaryButtonColor),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.testTag("btn_verify_biometric")
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
               ) {
-                Icon(Icons.Default.Fingerprint, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Scan Fingerprint")
+                Icon(
+                  imageVector = Icons.Default.Fingerprint,
+                  contentDescription = "Biometric Sensor",
+                  tint = primaryButtonColor,
+                  modifier = Modifier.size(48.dp)
+                )
+                Text(
+                  text = "Biometric Lock Active",
+                  fontWeight = FontWeight.SemiBold,
+                  fontSize = 14.sp,
+                  color = TextPrimary
+                )
+                Button(
+                  onClick = { triggerBiometricPrompt() },
+                  colors = ButtonDefaults.buttonColors(containerColor = primaryButtonColor),
+                  shape = RoundedCornerShape(10.dp),
+                  modifier = Modifier.testTag("btn_verify_biometric")
+                ) {
+                  Icon(Icons.Default.Fingerprint, contentDescription = null, modifier = Modifier.size(18.dp))
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text("Scan Fingerprint")
+                }
+                TextButton(
+                  onClick = {
+                    isUsingRecoveryPin = true
+                    isError = false
+                  },
+                  modifier = Modifier.testTag("btn_use_recovery_pin_dialog")
+                ) {
+                  Text("Use Recovery PIN instead", color = primaryButtonColor, fontSize = 12.sp)
+                }
+              }
+            }
+          } else {
+            Column(
+              modifier = Modifier.fillMaxWidth(),
+              verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+              OutlinedTextField(
+                value = enteredPin,
+                onValueChange = { input ->
+                  if (input.all { it.isDigit() } && input.length <= 8) {
+                    enteredPin = input
+                    isError = false
+                  }
+                },
+                label = { Text("Recovery PIN (4-8 digits)") },
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
+                shape = RoundedCornerShape(12.dp),
+                colors = dialogTextFieldColors,
+                visualTransformation = if (showPinText) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                singleLine = true,
+                isError = isError,
+                trailingIcon = {
+                  IconButton(onClick = { showPinText = !showPinText }) {
+                    Icon(
+                      imageVector = if (showPinText) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                      contentDescription = "Toggle PIN visibility",
+                      tint = TextSecondary
+                    )
+                  }
+                },
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .testTag("input_dialog_recovery_pin")
+              )
+              TextButton(
+                onClick = {
+                  isUsingRecoveryPin = false
+                  isError = false
+                },
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+              ) {
+                Text("Switch back to Biometrics", fontSize = 12.sp)
               }
             }
           }
@@ -758,7 +835,36 @@ fun SpaceCredentialVerificationDialog(
       }
     },
     confirmButton = {
-      if (!isPatternAuth && !isBiometricAuth) {
+      if (isBiometricAuth && isUsingRecoveryPin) {
+        Button(
+          onClick = {
+            if (enteredPin.isBlank()) {
+              isError = true
+              return@Button
+            }
+            isVerifying = true
+            coroutineScope.launch {
+              val unlocked = spaceViewModel.authenticateAndUnlockWithRecoveryPin(space.id, enteredPin)
+              isVerifying = false
+              if (unlocked != null) {
+                if (mode == AuthDialogMode.UNLOCK) {
+                  spaceViewModel.unlockSpace(space.id)
+                }
+                onSuccess()
+              } else {
+                isError = true
+                enteredPin = ""
+              }
+            }
+          },
+          enabled = !isVerifying && enteredPin.length >= 4,
+          shape = RoundedCornerShape(10.dp),
+          colors = ButtonDefaults.buttonColors(containerColor = primaryButtonColor),
+          modifier = Modifier.testTag("btn_confirm_dialog_recovery_pin")
+        ) {
+          Text(confirmButtonText, fontWeight = FontWeight.Bold)
+        }
+      } else if (!isPatternAuth && !isBiometricAuth) {
         Button(
           onClick = {
             if (enteredPin.isBlank()) {

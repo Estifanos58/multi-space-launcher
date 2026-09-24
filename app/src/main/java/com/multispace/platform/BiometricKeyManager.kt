@@ -95,6 +95,30 @@ object BiometricKeyManager {
   }
 
   /**
+   * Cryptographically verifies that the cipher returned in [BiometricPrompt.CryptoObject]
+   * is truly unlocked and operational after hardware biometric authentication.
+   */
+  fun verifyUnlockedCryptoObject(cryptoObject: BiometricPrompt.CryptoObject?): Boolean {
+    val cipher = cryptoObject?.cipher ?: return false
+    return try {
+      val testPlaintext = "multispace_verified_${System.currentTimeMillis()}".toByteArray(Charsets.UTF_8)
+      val ciphertext = cipher.doFinal(testPlaintext)
+      ciphertext != null && ciphertext.isNotEmpty()
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.AUTH, "Failed cryptographic verification on unlocked cipher", e)
+      false
+    }
+  }
+
+  /**
+   * Re-enrolls a new hardware Keystore key for [spaceId] after key invalidation.
+   */
+  fun reenrollKey(spaceId: String): Result<SecretKey> {
+    deleteSecretKey(spaceId)
+    return getOrCreateSecretKey(spaceId)
+  }
+
+  /**
    * Deletes the Keystore key for the given space (e.g. when space is deleted or security disabled).
    */
   fun deleteSecretKey(spaceId: String) {

@@ -28,6 +28,8 @@ interface SpaceRepository : SpaceMembershipRepository, PlacementRepository, Fold
     authPolicy: String = Space.AUTH_NONE,
     pinSalt: String? = null,
     pinHash: String? = null,
+    recoveryPinSalt: String? = null,
+    recoveryPinHash: String? = null,
     patternRows: Int = Space.DEFAULT_PATTERN_ROWS,
     patternCols: Int = Space.DEFAULT_PATTERN_COLS,
     backgroundType: String = Space.BACKGROUND_DEFAULT,
@@ -79,6 +81,8 @@ interface SpaceRepository : SpaceMembershipRepository, PlacementRepository, Fold
     authPolicy: String = Space.AUTH_NONE,
     pinSalt: String? = null,
     pinHash: String? = null,
+    recoveryPinSalt: String? = null,
+    recoveryPinHash: String? = null,
     keepExistingCredentials: Boolean = false,
     patternRows: Int = Space.DEFAULT_PATTERN_ROWS,
     patternCols: Int = Space.DEFAULT_PATTERN_COLS,
@@ -134,6 +138,7 @@ interface SpaceRepository : SpaceMembershipRepository, PlacementRepository, Fold
   ): Result<Unit>
 
   suspend fun setSpacePin(spaceId: String, pin: String): Result<Unit>
+  suspend fun setSpaceRecoveryPin(spaceId: String, recoveryPin: String): Result<Unit>
   suspend fun changeSpacePin(spaceId: String, currentPin: String, newPin: String): Result<Unit>
   suspend fun disableSpacePin(spaceId: String, currentPin: String): Result<Unit>
   suspend fun disableSpaceProtection(spaceId: String, currentCredential: String): Result<Unit>

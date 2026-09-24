@@ -58,6 +58,7 @@ import com.multispace.domain.model.PageTurnEffect
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.WallpaperCatalog
 import com.multispace.domain.model.WallpaperImagePreset
+import com.multispace.platform.BiometricAuthManager
 import com.multispace.platform.PinSecurityManager
 import androidx.compose.foundation.BorderStroke
 import com.multispace.presentation.components.PageTurnEffectSection
@@ -258,6 +259,11 @@ fun CreateSpaceScreen(
   var confirmPinValue by rememberSaveable { mutableStateOf("") }
   var pinError by rememberSaveable { mutableStateOf<String?>(null) }
   var showPinText by rememberSaveable { mutableStateOf(false) }
+
+  // Recovery PIN state (mandated for biometric spaces)
+  var recoveryPinValue by rememberSaveable { mutableStateOf("") }
+  var confirmRecoveryPinValue by rememberSaveable { mutableStateOf("") }
+  var showRecoveryPinText by rememberSaveable { mutableStateOf(false) }
 
   // Pattern state
   var patternRows by rememberSaveable { mutableIntStateOf(editingSpace?.patternRows ?: 3) }
@@ -734,7 +740,7 @@ fun CreateSpaceScreen(
               Tab(
                 selected = currentTab == 1,
                 onClick = {
-                  if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, editingSpace, { spaceNameError = it }, { pinError = it })) {
+                  if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, recoveryPinValue, confirmRecoveryPinValue, editingSpace, { spaceNameError = it }, { pinError = it })) {
                     currentTab = 1
                   }
                 },
@@ -758,7 +764,7 @@ fun CreateSpaceScreen(
               Tab(
                 selected = currentTab == 2,
                 onClick = {
-                  if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, editingSpace, { spaceNameError = it }, { pinError = it })) {
+                  if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, recoveryPinValue, confirmRecoveryPinValue, editingSpace, { spaceNameError = it }, { pinError = it })) {
                     currentTab = 2
                   }
                 },
@@ -782,7 +788,7 @@ fun CreateSpaceScreen(
               Tab(
                 selected = currentTab == 3,
                 onClick = {
-                  if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, editingSpace, { spaceNameError = it }, { pinError = it })) {
+                  if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, recoveryPinValue, confirmRecoveryPinValue, editingSpace, { spaceNameError = it }, { pinError = it })) {
                     currentTab = 3
                   }
                 },
@@ -830,7 +836,7 @@ fun CreateSpaceScreen(
                 }
                 Button(
                   onClick = {
-                    if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, editingSpace, { spaceNameError = it }, { pinError = it })) {
+                    if (validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, recoveryPinValue, confirmRecoveryPinValue, editingSpace, { spaceNameError = it }, { pinError = it })) {
                       currentTab = 1
                     }
                   },
@@ -924,13 +930,26 @@ fun CreateSpaceScreen(
                 }
                 Button(
                   onClick = {
-                    if (!isCreating && validateTab1(spaceName, credentialOption, pinValue, confirmPinValue, confirmedPatternString, editingSpace, { spaceNameError = it }, { pinError = it })) {
+                    if (!isCreating && validateTab1(
+                      name = spaceName,
+                      credential = credentialOption,
+                      pin = pinValue,
+                      confirmPin = confirmPinValue,
+                      pattern = confirmedPatternString,
+                      recoveryPin = recoveryPinValue,
+                      confirmRecoveryPin = confirmRecoveryPinValue,
+                      editingSpace = editingSpace,
+                      onErrorName = { spaceNameError = it },
+                      onErrorPin = { pinError = it }
+                    )) {
                       isCreating = true
 
                       // Process credential hashing
                       var authPolicy = Space.AUTH_NONE
                       var salt: String? = null
                       var hash: String? = null
+                      var recoverySalt: String? = null
+                      var recoveryHash: String? = null
 
                       if (isEditMode) {
                         authPolicy = when (credentialOption) {
@@ -956,10 +975,22 @@ fun CreateSpaceScreen(
                             salt = editingSpace?.pinSalt
                             hash = editingSpace?.pinHash
                           }
+                        } else if (credentialOption == CredentialOption.BIOMETRIC) {
+                          if (recoveryPinValue.isNotBlank()) {
+                            recoverySalt = PinSecurityManager.generateSalt()
+                            recoveryHash = PinSecurityManager.hashPin(recoveryPinValue, recoverySalt)
+                          } else {
+                            recoverySalt = editingSpace?.recoveryPinSalt
+                            recoveryHash = editingSpace?.recoveryPinHash
+                          }
                         }
                       } else {
                         if (credentialOption == CredentialOption.BIOMETRIC) {
                           authPolicy = Space.AUTH_BIOMETRIC
+                          if (recoveryPinValue.isNotBlank()) {
+                            recoverySalt = PinSecurityManager.generateSalt()
+                            recoveryHash = PinSecurityManager.hashPin(recoveryPinValue, recoverySalt)
+                          }
                         } else if (credentialOption == CredentialOption.PIN && pinValue.isNotBlank()) {
                           authPolicy = Space.AUTH_PIN
                           salt = PinSecurityManager.generateSalt()
@@ -1028,6 +1059,8 @@ fun CreateSpaceScreen(
                           authPolicy = authPolicy,
                           pinSalt = salt,
                           pinHash = hash,
+                          recoveryPinSalt = recoverySalt,
+                          recoveryPinHash = recoveryHash,
                           patternRows = patternRows,
                           patternCols = patternCols,
                           backgroundType = homeBgType,
@@ -1085,6 +1118,8 @@ fun CreateSpaceScreen(
                           authPolicy = authPolicy,
                           pinSalt = salt,
                           pinHash = hash,
+                          recoveryPinSalt = recoverySalt,
+                          recoveryPinHash = recoveryHash,
                           patternRows = patternRows,
                           patternCols = patternCols,
                           backgroundType = homeBgType,
@@ -1201,6 +1236,22 @@ fun CreateSpaceScreen(
                     pinError = null
                   }
                 },
+                recoveryPinValue = recoveryPinValue,
+                onRecoveryPinValueChange = {
+                  if (it.all { ch -> ch.isDigit() } && it.length <= 8) {
+                    recoveryPinValue = it
+                    pinError = null
+                  }
+                },
+                confirmRecoveryPinValue = confirmRecoveryPinValue,
+                onConfirmRecoveryPinValueChange = {
+                  if (it.all { ch -> ch.isDigit() } && it.length <= 8) {
+                    confirmRecoveryPinValue = it
+                    pinError = null
+                  }
+                },
+                showRecoveryPinText = showRecoveryPinText,
+                onToggleShowRecoveryPin = { showRecoveryPinText = !showRecoveryPinText },
                 pinError = pinError,
                 showPinText = showPinText,
                 onToggleShowPin = { showPinText = !showPinText },
@@ -1504,6 +1555,8 @@ private fun validateTab1(
   pin: String,
   confirmPin: String,
   pattern: String?,
+  recoveryPin: String,
+  confirmRecoveryPin: String,
   editingSpace: Space?,
   onErrorName: (String) -> Unit,
   onErrorPin: (String) -> Unit
@@ -1511,6 +1564,20 @@ private fun validateTab1(
   if (name.trim().isBlank()) {
     onErrorName("Space name is required.")
     return false
+  }
+  if (credential == CredentialOption.BIOMETRIC) {
+    val keepExistingRecovery = editingSpace != null && editingSpace.isBiometricProtected &&
+      recoveryPin.isEmpty() && confirmRecoveryPin.isEmpty() && !editingSpace.recoveryPinHash.isNullOrEmpty()
+    if (!keepExistingRecovery) {
+      if (recoveryPin.length < 4) {
+        onErrorPin("A fallback Recovery PIN of at least 4 digits is required for Biometric security.")
+        return false
+      }
+      if (recoveryPin != confirmRecoveryPin) {
+        onErrorPin("Recovery PINs do not match. Please re-enter.")
+        return false
+      }
+    }
   }
   if (credential == CredentialOption.PIN) {
     val keepExistingPin = editingSpace != null && editingSpace.isPinProtected && pin.isEmpty() && confirmPin.isEmpty()
@@ -1551,6 +1618,12 @@ private fun Tab1BasicsAndSecurity(
   onPinValueChange: (String) -> Unit,
   confirmPinValue: String,
   onConfirmPinValueChange: (String) -> Unit,
+  recoveryPinValue: String,
+  onRecoveryPinValueChange: (String) -> Unit,
+  confirmRecoveryPinValue: String,
+  onConfirmRecoveryPinValueChange: (String) -> Unit,
+  showRecoveryPinText: Boolean,
+  onToggleShowRecoveryPin: () -> Unit,
   pinError: String?,
   showPinText: Boolean,
   onToggleShowPin: () -> Unit,
@@ -1737,37 +1810,142 @@ private fun Tab1BasicsAndSecurity(
             }
 
             CredentialOption.BIOMETRIC -> {
-              Surface(
-                shape = ShapeRoundMd,
-                color = QuantumViolet.copy(alpha = 0.08f),
-                border = BorderStroke(1.dp, QuantumViolet.copy(alpha = 0.3f)),
-                modifier = Modifier.fillMaxWidth().testTag("card_biometric_security_info")
-              ) {
-                Row(
-                  modifier = Modifier.padding(14.dp),
-                  verticalAlignment = Alignment.CenterVertically,
-                  horizontalArrangement = Arrangement.spacedBy(12.dp)
+              val context = LocalContext.current
+              val isStrongAvailable = remember(context) { BiometricAuthManager.isStrongBiometricAvailable(context) }
+
+              Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(
+                  shape = ShapeRoundMd,
+                  color = QuantumViolet.copy(alpha = 0.08f),
+                  border = BorderStroke(1.dp, QuantumViolet.copy(alpha = 0.3f)),
+                  modifier = Modifier.fillMaxWidth().testTag("card_biometric_security_info")
                 ) {
-                  Icon(
-                    imageVector = Icons.Default.Fingerprint,
-                    contentDescription = null,
-                    tint = QuantumViolet,
-                    modifier = Modifier.size(36.dp)
-                  )
-                  Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                  Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                  ) {
+                    Icon(
+                      imageVector = Icons.Default.Fingerprint,
+                      contentDescription = null,
+                      tint = QuantumViolet,
+                      modifier = Modifier.size(36.dp)
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                      Text(
+                        text = "Biometric Protection Enabled",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                      )
+                      Text(
+                        text = "Cryptographically bound to Android Keystore hardware authenticators.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                      )
+                    }
+                  }
+                }
+
+                val warningAmber = Color(0xFFFFB300)
+                if (!isStrongAvailable) {
+                  Surface(
+                    shape = ShapeRoundSm,
+                    color = warningAmber.copy(alpha = 0.12f),
+                    border = BorderStroke(AppDimens.BorderThin, warningAmber.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                  ) {
+                    Row(
+                      modifier = Modifier.padding(10.dp),
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                      Icon(Icons.Default.WarningAmber, contentDescription = null, tint = warningAmber, modifier = Modifier.size(20.dp))
+                      Text(
+                        text = "Hardware note: Strong Biometrics (BIOMETRIC_STRONG) are not detected on device. The mandatory Recovery PIN will serve as primary authenticator.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                      )
+                    }
+                  }
+                }
+
+                Surface(
+                  shape = ShapeRoundSm,
+                  color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                  modifier = Modifier.fillMaxWidth()
+                ) {
+                  Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                      text = "Biometric Protection Enabled",
-                      fontWeight = FontWeight.Bold,
-                      fontSize = 14.sp,
+                      text = "Mandatory Fallback Recovery PIN",
+                      fontWeight = FontWeight.SemiBold,
+                      fontSize = 13.sp,
                       color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                      text = "This space is protected by your device's biometric sensor (fingerprint or face unlock).",
+                      text = "Biometric spaces mandate a Recovery PIN in case biometrics change, sensor fails, or Keystore keys are invalidated.",
                       fontSize = 12.sp,
                       color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                   }
                 }
+
+                if (editingSpace != null && editingSpace.isBiometricProtected && !editingSpace.recoveryPinHash.isNullOrEmpty()) {
+                  Surface(
+                    shape = ShapeRoundSm,
+                    color = EmeraldCore.copy(alpha = 0.12f),
+                    border = BorderStroke(AppDimens.BorderThin, EmeraldCore.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
+                  ) {
+                    Text(
+                      text = "🔒 Existing Recovery PIN configured. Enter new digits below to change, or leave blank to keep.",
+                      fontSize = 12.sp,
+                      color = EmeraldCore,
+                      modifier = Modifier.padding(10.dp)
+                    )
+                  }
+                }
+
+                OutlinedTextField(
+                  value = recoveryPinValue,
+                  onValueChange = onRecoveryPinValueChange,
+                  label = { Text("Recovery PIN (4-8 digits)") },
+                  visualTransformation = if (showRecoveryPinText) VisualTransformation.None else PasswordVisualTransformation(),
+                  keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                  singleLine = true,
+                  textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold),
+                  shape = ShapeRoundMd,
+                  trailingIcon = {
+                    IconButton(onClick = onToggleShowRecoveryPin) {
+                      Icon(
+                        imageVector = if (showRecoveryPinText) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = "Toggle PIN visibility",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                      )
+                    }
+                  },
+                  colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = QuantumViolet,
+                    focusedLabelColor = QuantumViolet
+                  ),
+                  modifier = Modifier.fillMaxWidth().testTag("input_recovery_pin")
+                )
+
+                OutlinedTextField(
+                  value = confirmRecoveryPinValue,
+                  onValueChange = onConfirmRecoveryPinValueChange,
+                  label = { Text("Confirm Recovery PIN") },
+                  visualTransformation = if (showRecoveryPinText) VisualTransformation.None else PasswordVisualTransformation(),
+                  keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                  singleLine = true,
+                  textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold),
+                  shape = ShapeRoundMd,
+                  colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = QuantumViolet,
+                    focusedLabelColor = QuantumViolet
+                  ),
+                  modifier = Modifier.fillMaxWidth().testTag("input_confirm_recovery_pin")
+                )
               }
             }
 

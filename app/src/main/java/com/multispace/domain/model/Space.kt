@@ -20,6 +20,8 @@ data class Space(
   val authPolicy: String = AUTH_NONE,
   val pinSalt: String? = null,
   val pinHash: String? = null,
+  val recoveryPinSalt: String? = null,
+  val recoveryPinHash: String? = null,
   val layoutType: String = "GRID_4",
   val patternRows: Int = DEFAULT_PATTERN_ROWS,
   val patternCols: Int = DEFAULT_PATTERN_COLS,
@@ -75,16 +77,24 @@ data class Space(
   val launcherLockWallpaperOffsetY: Float get() = phoneLockWallpaperOffsetY
 
   val isProtected: Boolean
-    get() = if (authPolicy == AUTH_BIOMETRIC) true else ((authPolicy == AUTH_PIN || authPolicy == AUTH_PATTERN) && !pinHash.isNullOrEmpty() && !pinSalt.isNullOrEmpty())
+    get() = authPolicy != AUTH_NONE
 
   val isBiometricProtected: Boolean
     get() = authPolicy == AUTH_BIOMETRIC
 
   val isPatternProtected: Boolean
-    get() = authPolicy == AUTH_PATTERN && !pinHash.isNullOrEmpty() && !pinSalt.isNullOrEmpty()
+    get() = authPolicy == AUTH_PATTERN
 
   val isPinProtected: Boolean
-    get() = authPolicy == AUTH_PIN && !pinHash.isNullOrEmpty() && !pinSalt.isNullOrEmpty()
+    get() = authPolicy == AUTH_PIN
+
+  val isSecurityConfigured: Boolean
+    get() = when (authPolicy) {
+      AUTH_NONE -> true
+      AUTH_PIN, AUTH_PATTERN -> !pinHash.isNullOrEmpty() && !pinSalt.isNullOrEmpty()
+      AUTH_BIOMETRIC -> !recoveryPinHash.isNullOrEmpty() && !recoveryPinSalt.isNullOrEmpty()
+      else -> false
+    }
 
   companion object {
     const val DEFAULT_SPACE_ID = "space_default"

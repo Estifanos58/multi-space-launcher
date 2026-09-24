@@ -9,15 +9,18 @@ enum class AuthenticationMethod {
   NONE,
   PIN,
   PATTERN,
-  BIOMETRIC;
+  BIOMETRIC,
+  RECOVERY_PIN,
+  UNKNOWN;
 
   companion object {
     fun fromAuthPolicy(policy: String): AuthenticationMethod {
       return when (policy.uppercase()) {
+        Space.AUTH_NONE -> NONE
         Space.AUTH_PIN -> PIN
         Space.AUTH_PATTERN -> PATTERN
         Space.AUTH_BIOMETRIC -> BIOMETRIC
-        else -> NONE
+        else -> UNKNOWN
       }
     }
   }

@@ -26,7 +26,7 @@ import com.multispace.diagnostics.AppLogger
     SpaceFolderItemEntity::class,
     SpaceDockItemEntity::class
   ],
-  version = 11,
+  version = 12,
   exportSchema = true
 )
 abstract class LauncherDatabase : RoomDatabase() {
@@ -196,6 +196,8 @@ abstract class LauncherDatabase : RoomDatabase() {
           `auth_policy` TEXT NOT NULL,
           `pin_salt` TEXT,
           `pin_hash` TEXT,
+          `recovery_pin_salt` TEXT,
+          `recovery_pin_hash` TEXT,
           `layout_type` TEXT NOT NULL,
           `pattern_rows` INTEGER NOT NULL,
           `pattern_cols` INTEGER NOT NULL,
@@ -251,9 +253,13 @@ abstract class LauncherDatabase : RoomDatabase() {
       }
       val pageCountSelect = if (hasColumn(db, "spaces", "page_count")) "`page_count`" else "1"
 
+      val recoverySaltSelect = if (hasColumn(db, "spaces", "recovery_pin_salt")) "`recovery_pin_salt`" else "NULL"
+      val recoveryHashSelect = if (hasColumn(db, "spaces", "recovery_pin_hash")) "`recovery_pin_hash`" else "NULL"
+
       db.execSQL("""
         INSERT INTO `spaces_migration_temp` (
           `id`, `name`, `order_index`, `created_at`, `updated_at`, `auth_policy`, `pin_salt`, `pin_hash`,
+          `recovery_pin_salt`, `recovery_pin_hash`,
           `layout_type`, `pattern_rows`, `pattern_cols`, `background_type`, `background_color`,
           `background_image_uri`, `home_wallpaper_type`, `home_wallpaper_color`, `home_wallpaper_image_uri`,
           `phone_lock_wallpaper_type`, `phone_lock_wallpaper_color`, `phone_lock_wallpaper_image_uri`,
@@ -271,6 +277,7 @@ abstract class LauncherDatabase : RoomDatabase() {
         )
         SELECT
           `id`, `name`, `order_index`, `created_at`, `updated_at`, `auth_policy`, `pin_salt`, `pin_hash`,
+          $recoverySaltSelect, $recoveryHashSelect,
           `layout_type`, `pattern_rows`, `pattern_cols`, `background_type`, `background_color`,
           `background_image_uri`, `home_wallpaper_type`, `home_wallpaper_color`, `home_wallpaper_image_uri`,
           `phone_lock_wallpaper_type`, `phone_lock_wallpaper_color`, `phone_lock_wallpaper_image_uri`,
@@ -447,6 +454,13 @@ abstract class LauncherDatabase : RoomDatabase() {
       }
     }
 
+    private val MIGRATION_11_12 = object : Migration(11, 12) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        addColumnIfNotExists(db, "spaces", "recovery_pin_salt", "TEXT DEFAULT NULL")
+        addColumnIfNotExists(db, "spaces", "recovery_pin_hash", "TEXT DEFAULT NULL")
+      }
+    }
+
     fun getInstance(context: Context): LauncherDatabase {
       return INSTANCE ?: synchronized(this) {
         val instance = Room.databaseBuilder(
@@ -465,7 +479,8 @@ abstract class LauncherDatabase : RoomDatabase() {
           MIGRATION_8_9,
           MIGRATION_7_9,
           MIGRATION_9_10,
-          MIGRATION_10_11
+          MIGRATION_10_11,
+          MIGRATION_11_12
         )
         .build()
         INSTANCE = instance

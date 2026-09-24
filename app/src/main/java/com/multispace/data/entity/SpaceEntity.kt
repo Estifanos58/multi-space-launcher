@@ -33,6 +33,12 @@ data class SpaceEntity(
   @ColumnInfo(name = "pin_hash")
   val pinHash: String? = null,
 
+  @ColumnInfo(name = "recovery_pin_salt")
+  val recoveryPinSalt: String? = null,
+
+  @ColumnInfo(name = "recovery_pin_hash")
+  val recoveryPinHash: String? = null,
+
   @ColumnInfo(name = "layout_type")
   val layoutType: String = "GRID_4",
 
@@ -174,6 +180,8 @@ data class SpaceEntity(
     authPolicy = authPolicy,
     pinSalt = pinSalt,
     pinHash = pinHash,
+    recoveryPinSalt = recoveryPinSalt,
+    recoveryPinHash = recoveryPinHash,
     layoutType = layoutType,
     patternRows = patternRows,
     patternCols = patternCols,
@@ -230,6 +238,8 @@ data class SpaceEntity(
       authPolicy = domain.authPolicy,
       pinSalt = domain.pinSalt,
       pinHash = domain.pinHash,
+      recoveryPinSalt = domain.recoveryPinSalt,
+      recoveryPinHash = domain.recoveryPinHash,
       layoutType = domain.layoutType,
       patternRows = domain.patternRows,
       patternCols = domain.patternCols,

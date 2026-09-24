@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.update
  * Shared across MainActivity, ConfigurationActivity, and ViewModels.
  */
 class LauncherSessionManager(
+  private val context: android.content.Context? = null,
   private val timeProvider: () -> Long = {
     try {
       android.os.SystemClock.elapsedRealtime()
@@ -27,6 +28,9 @@ class LauncherSessionManager(
   companion object {
     const val DEFAULT_SESSION_TIMEOUT_MS = 15 * 60 * 1000L // 15 minutes
     const val THROTTLE_ATTEMPT_THRESHOLD = 5
+    private const val PREFS_NAME = "multispace_session_lockout"
+    private const val PREF_PREFIX_ATTEMPTS = "attempts_"
+    private const val PREF_PREFIX_LOCKOUT_MS = "lockout_ms_"
   }
 
   // Launcher lock starts locked to prevent unauthorized access at launch
@@ -43,7 +47,36 @@ class LauncherSessionManager(
 
   // Brute-force rate limiting per Space ID
   private val failedAttempts = mutableMapOf<String, Int>()
-  private val lockoutUntilMs = mutableMapOf<String, Long>()
+  private val lockoutUntilWallClockMs = mutableMapOf<String, Long>()
+
+  private val prefs by lazy {
+    context?.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+  }
+
+  init {
+    loadPersistedLockoutState()
+  }
+
+  @Synchronized
+  private fun loadPersistedLockoutState() {
+    val sp = prefs ?: return
+    try {
+      val now = System.currentTimeMillis()
+      sp.all.forEach { (key, value) ->
+        if (key.startsWith(PREF_PREFIX_ATTEMPTS) && value is Int) {
+          val spaceId = key.removePrefix(PREF_PREFIX_ATTEMPTS)
+          failedAttempts[spaceId] = value
+        } else if (key.startsWith(PREF_PREFIX_LOCKOUT_MS) && value is Long) {
+          val spaceId = key.removePrefix(PREF_PREFIX_LOCKOUT_MS)
+          if (value > now) {
+            lockoutUntilWallClockMs[spaceId] = value
+          }
+        }
+      }
+    } catch (e: Exception) {
+      AppLogger.e(AppLogger.Category.AUTH, "Failed loading persisted lockout state", e)
+    }
+  }
 
   /**
    * Checks whether authentication for this space is currently throttled due to repeated failures.
@@ -51,15 +84,22 @@ class LauncherSessionManager(
    */
   @Synchronized
   fun getRemainingCooldownSeconds(spaceId: String): Long? {
-    val now = timeProvider()
-    val lockedUntil = lockoutUntilMs[spaceId] ?: return null
+    val now = System.currentTimeMillis()
+    val lockedUntil = lockoutUntilWallClockMs[spaceId] ?: return null
     val remainingMs = lockedUntil - now
     return if (remainingMs > 0) {
       (remainingMs + 999) / 1000
     } else {
-      lockoutUntilMs.remove(spaceId)
+      lockoutUntilWallClockMs.remove(spaceId)
+      prefs?.edit()?.remove(PREF_PREFIX_LOCKOUT_MS + spaceId)?.apply()
       null
     }
+  }
+
+  @Synchronized
+  fun isLockedOut(spaceId: String): Boolean {
+    val remaining = getRemainingCooldownSeconds(spaceId)
+    return remaining != null && remaining > 0
   }
 
   /**
@@ -70,19 +110,21 @@ class LauncherSessionManager(
   fun recordFailedAttempt(spaceId: String): Long? {
     val count = (failedAttempts[spaceId] ?: 0) + 1
     failedAttempts[spaceId] = count
-    val now = timeProvider()
+    prefs?.edit()?.putInt(PREF_PREFIX_ATTEMPTS + spaceId, count)?.apply()
 
     val cooldownSeconds: Long = when {
-      count >= 8 -> 60L
-      count == 7 -> 30L
-      count == 6 -> 10L
-      count == 5 -> 5L
+      count >= 10 -> 300L // 5 min lockout
+      count >= 8 -> 60L   // 1 min lockout
+      count >= 6 -> 30L   // 30s lockout
+      count >= 5 -> 10L   // 10s lockout
       else -> 0L
     }
 
     return if (cooldownSeconds > 0) {
+      val now = System.currentTimeMillis()
       val lockoutEnd = now + (cooldownSeconds * 1000L)
-      lockoutUntilMs[spaceId] = lockoutEnd
+      lockoutUntilWallClockMs[spaceId] = lockoutEnd
+      prefs?.edit()?.putLong(PREF_PREFIX_LOCKOUT_MS + spaceId, lockoutEnd)?.apply()
       AppLogger.w(AppLogger.Category.AUTH, "Space ($spaceId) throttled for ${cooldownSeconds}s after $count failed attempts")
       cooldownSeconds
     } else {
@@ -96,7 +138,11 @@ class LauncherSessionManager(
   @Synchronized
   fun recordSuccessfulAttempt(spaceId: String) {
     failedAttempts.remove(spaceId)
-    lockoutUntilMs.remove(spaceId)
+    lockoutUntilWallClockMs.remove(spaceId)
+    prefs?.edit()
+      ?.remove(PREF_PREFIX_ATTEMPTS + spaceId)
+      ?.remove(PREF_PREFIX_LOCKOUT_MS + spaceId)
+      ?.apply()
   }
 
   /**
@@ -104,11 +150,13 @@ class LauncherSessionManager(
    */
   fun isSpaceUnlocked(space: Space?): Boolean {
     if (space == null) return false
+    if (_isLauncherLocked.value) return false
     if (!space.isProtected) return true
     return isSpaceUnlocked(space.id)
   }
 
   fun isSpaceUnlocked(spaceId: String): Boolean {
+    if (_isLauncherLocked.value) return false
     val now = timeProvider()
     val session = _activeSessions.value[spaceId] ?: return false
     if (session.isExpired(now)) {

@@ -19,6 +19,7 @@ import com.multispace.domain.security.AuthenticationMethod
 import com.multispace.domain.security.AuthenticationResult
 import com.multispace.domain.security.SensitiveOperation
 import com.multispace.domain.security.SpaceAuthorizationManager
+import com.multispace.platform.BiometricKeyManager
 import com.multispace.platform.LauncherSessionManager
 import com.multispace.presentation.events.HomeTriggerSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -218,6 +219,8 @@ class SpaceViewModel @JvmOverloads constructor(
     authPolicy: String = Space.AUTH_NONE,
     pinSalt: String? = null,
     pinHash: String? = null,
+    recoveryPinSalt: String? = null,
+    recoveryPinHash: String? = null,
     patternRows: Int = Space.DEFAULT_PATTERN_ROWS,
     patternCols: Int = Space.DEFAULT_PATTERN_COLS,
     backgroundType: String = Space.BACKGROUND_DEFAULT,
@@ -269,6 +272,8 @@ class SpaceViewModel @JvmOverloads constructor(
         authPolicy = authPolicy,
         pinSalt = pinSalt,
         pinHash = pinHash,
+        recoveryPinSalt = recoveryPinSalt,
+        recoveryPinHash = recoveryPinHash,
         patternRows = patternRows,
         patternCols = patternCols,
         backgroundType = backgroundType,
@@ -344,6 +349,8 @@ class SpaceViewModel @JvmOverloads constructor(
     authPolicy: String = Space.AUTH_NONE,
     pinSalt: String? = null,
     pinHash: String? = null,
+    recoveryPinSalt: String? = null,
+    recoveryPinHash: String? = null,
     keepExistingCredentials: Boolean = false,
     patternRows: Int = Space.DEFAULT_PATTERN_ROWS,
     patternCols: Int = Space.DEFAULT_PATTERN_COLS,
@@ -391,12 +398,17 @@ class SpaceViewModel @JvmOverloads constructor(
     onResult: ((Boolean, String?) -> Unit)? = null
   ) {
     viewModelScope.launch {
+      if (authPolicy != Space.AUTH_BIOMETRIC) {
+        BiometricKeyManager.deleteSecretKey(spaceId)
+      }
       val result = spaceRepository.updateFullSpace(
         spaceId = spaceId,
         name = name,
         authPolicy = authPolicy,
         pinSalt = pinSalt,
         pinHash = pinHash,
+        recoveryPinSalt = recoveryPinSalt,
+        recoveryPinHash = recoveryPinHash,
         keepExistingCredentials = keepExistingCredentials,
         patternRows = patternRows,
         patternCols = patternCols,
@@ -495,6 +507,7 @@ class SpaceViewModel @JvmOverloads constructor(
 
   fun deleteSpace(spaceId: String) {
     viewModelScope.launch {
+      BiometricKeyManager.deleteSecretKey(spaceId)
       val result = spaceRepository.deleteSpace(spaceId)
       result.fold(
         onSuccess = {
@@ -647,44 +660,98 @@ class SpaceViewModel @JvmOverloads constructor(
     return result
   }
 
-  suspend fun authenticateAndUnlockSpaceByCredential(credential: String): Space? {
-    // 1. Try currently active space first if it is protected
-    val current = activeSpace.value
-    if (current != null && current.isProtected) {
-      val res = verifyAndUnlockSpace(current.id, credential)
-      if (res is AuthenticationResult.Success) {
-        return current
+  suspend fun authenticateAndUnlockTargetSpace(spaceId: String, credential: String): Space? {
+    val res = verifyAndUnlockSpace(spaceId, credential)
+    return if (res is AuthenticationResult.Success) {
+      val target = allSpaces.value.firstOrNull { it.id == spaceId } ?: spaceRepository.getSpaceById(spaceId)
+      if (target != null) {
+        selectActiveSpace(target.id)
+        _userFeedback.tryEmit("Unlocked into '${target.name}'")
       }
+      target
+    } else {
+      null
     }
-
-    // 2. Otherwise match across all spaces
-    val matchedSpace = spaceRepository.findSpaceMatchingCredential(credential)
-    if (matchedSpace != null) {
-      val res = verifyAndUnlockSpace(matchedSpace.id, credential)
-      if (res is AuthenticationResult.Success) {
-        selectActiveSpace(matchedSpace.id)
-        _userFeedback.tryEmit("Unlocked into '${matchedSpace.name}'")
-        return matchedSpace
-      }
-    }
-    return null
   }
 
-  fun authenticateAndUnlockWithBiometric(spaceId: String? = null): Space? {
-    val targetSpace = if (spaceId != null) {
-      allSpaces.value.firstOrNull { it.id == spaceId }
+  suspend fun authenticateAndUnlockSpaceByCredential(credential: String): Space? {
+    // Only verify against activeSpace (fail-closed, no cross-space global leakage)
+    val current = activeSpace.value ?: allSpaces.value.firstOrNull { it.isProtected } ?: return null
+    return authenticateAndUnlockTargetSpace(current.id, credential)
+  }
+
+  suspend fun authenticateAndUnlockWithRecoveryPin(spaceId: String, recoveryPin: String): Space? {
+    val cooldown = sessionManager.getRemainingCooldownSeconds(spaceId)
+    if (cooldown != null && cooldown > 0) {
+      _userFeedback.tryEmit("Too many attempts. Wait ${cooldown}s.")
+      return null
+    }
+
+    val res = spaceRepository.verifySpaceRecoveryPin(spaceId, recoveryPin)
+    return when (res) {
+      is AuthenticationResult.Success -> {
+        sessionManager.recordSuccessfulAttempt(spaceId)
+        sessionManager.unlockSpace(spaceId)
+        sessionManager.unlockLauncher()
+        val target = allSpaces.value.firstOrNull { it.id == spaceId } ?: spaceRepository.getSpaceById(spaceId)
+        if (target != null) {
+          selectActiveSpace(target.id)
+        }
+        _userFeedback.tryEmit("Space unlocked with Recovery PIN.")
+        target
+      }
+      is AuthenticationResult.InvalidCredential -> {
+        val newCooldown = sessionManager.recordFailedAttempt(spaceId)
+        if (newCooldown != null && newCooldown > 0) {
+          _userFeedback.tryEmit("Too many incorrect attempts. Locked for ${newCooldown}s.")
+        } else {
+          _userFeedback.tryEmit("Incorrect Recovery PIN. Try again.")
+        }
+        null
+      }
+      else -> {
+        _userFeedback.tryEmit("Recovery authentication failed.")
+        null
+      }
+    }
+  }
+
+  suspend fun reenrollBiometrics(spaceId: String, recoveryPin: String): Result<Unit> {
+    val verifyRes = spaceRepository.verifySpaceRecoveryPin(spaceId, recoveryPin)
+    if (verifyRes !is AuthenticationResult.Success) {
+      sessionManager.recordFailedAttempt(spaceId)
+      return Result.failure(SecurityException("Incorrect Recovery PIN. Cannot re-enroll biometrics."))
+    }
+    sessionManager.recordSuccessfulAttempt(spaceId)
+    val reenrollResult = BiometricKeyManager.reenrollKey(spaceId)
+    return if (reenrollResult.isSuccess) {
+      sessionManager.unlockSpace(spaceId)
+      sessionManager.unlockLauncher()
+      _userFeedback.tryEmit("Biometrics successfully re-enrolled.")
+      Result.success(Unit)
     } else {
-      activeSpace.value ?: allSpaces.value.firstOrNull()
+      Result.failure(reenrollResult.exceptionOrNull() ?: IllegalStateException("Failed to generate new Keystore key."))
     }
-    if (targetSpace != null) {
-      unlockSpace(targetSpace.id)
-      selectActiveSpace(targetSpace.id)
+  }
+
+  fun authenticateAndUnlockWithBiometric(spaceId: String, cryptoObject: androidx.biometric.BiometricPrompt.CryptoObject? = null): Space? {
+    val targetSpace = allSpaces.value.firstOrNull { it.id == spaceId } ?: return null
+    if (!targetSpace.isBiometricProtected && targetSpace.authPolicy != Space.AUTH_BIOMETRIC) {
+      AppLogger.w(AppLogger.Category.AUTH, "Attempted biometric unlock on non-biometric space (${targetSpace.name})")
+      return null
     }
+    // Verify hardware cryptoObject if provided
+    if (cryptoObject != null && !BiometricKeyManager.verifyUnlockedCryptoObject(cryptoObject)) {
+      AppLogger.e(AppLogger.Category.AUTH, "Biometric cryptoObject verification failed for space (${targetSpace.name})")
+      _userFeedback.tryEmit("Cryptographic verification failed.")
+      return null
+    }
+
+    sessionManager.recordSuccessfulAttempt(targetSpace.id)
+    unlockSpace(targetSpace.id)
+    selectActiveSpace(targetSpace.id)
     unlockLauncher()
-    _userFeedback.tryEmit(
-      if (targetSpace != null) "Biometric unlocked into '${targetSpace.name}'"
-      else "Device unlocked with biometrics"
-    )
+    _userFeedback.tryEmit("Biometric unlocked into '${targetSpace.name}'")
     return targetSpace
   }
 
