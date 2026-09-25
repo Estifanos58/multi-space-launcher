@@ -66,9 +66,35 @@ fun LauncherHomeScreen(
     activePlacements = uiState.activePlacements
   )
 
-  val iconBitmaps by discoveryViewModel.iconBitmaps.collectAsStateWithLifecycle()
-  val getAppBitmap: (DiscoveredApp) -> android.graphics.Bitmap? = { app ->
-    iconBitmaps[app.id] ?: discoveryViewModel.getAppIconBitmap(app)
+  val getAppBitmap: (DiscoveredApp) -> android.graphics.Bitmap? = remember(discoveryViewModel) {
+    { app -> discoveryViewModel.getCachedAppIconBitmap(app) }
+  }
+  val asyncAppIconLoader: suspend (DiscoveredApp) -> android.graphics.Bitmap? = remember(discoveryViewModel) {
+    { app -> discoveryViewModel.loadAppIconBitmapAsync(app) }
+  }
+
+  // Prioritize prewarming active desktop, dock, and top Layer 2 apps
+  LaunchedEffect(uiState.activeSpace?.id, uiState.activePlacements.size, uiState.activeDockItems.size, uiState.spaceScopedApps.size) {
+    if (uiState.allApps.isNotEmpty()) {
+      val desktopPkg = uiState.activePlacements.mapNotNull { it.packageName }.toSet()
+      val dockPkg = uiState.activeDockItems.map { it.packageName }.toSet()
+      val priority = mutableListOf<DiscoveredApp>()
+      val remaining = mutableListOf<DiscoveredApp>()
+
+      for (app in uiState.allApps) {
+        if (app.packageName in desktopPkg || app.packageName in dockPkg) {
+          priority.add(app)
+        } else {
+          remaining.add(app)
+        }
+      }
+      for (app in uiState.spaceScopedApps.take(20)) {
+        if (!priority.any { it.id == app.id }) {
+          priority.add(app)
+        }
+      }
+      discoveryViewModel.prioritizeIconPrewarm(priority, remaining)
+    }
   }
 
   val handleAppLaunch: (DiscoveredApp) -> Unit = { app ->
@@ -106,9 +132,12 @@ fun LauncherHomeScreen(
     }
   }
 
-  BoxWithConstraints(
-    modifier = modifier.fillMaxSize()
+  CompositionLocalProvider(
+    LocalAsyncAppIconLoader provides asyncAppIconLoader
   ) {
+    BoxWithConstraints(
+      modifier = modifier.fillMaxSize()
+    ) {
     val screenHeightPx = with(LocalDensity.current) { maxHeight.toPx() }
     val emptySwipeCallbacks = remember(screenHeightPx) {
       transitionController.createEmptySpaceSwipeCallbacks(screenHeightPx)
@@ -321,12 +350,13 @@ fun LauncherHomeScreen(
     )
   }
 
-  // Dialogs and modal sheets
-  LauncherDialogsHost(
-    desktopController = desktopController,
-    uiState = uiState,
-    spaceViewModel = spaceViewModel,
-    getBitmap = getAppBitmap,
-    onLaunchApp = handleAppLaunch
-  )
+    // Dialogs and modal sheets
+    LauncherDialogsHost(
+      desktopController = desktopController,
+      uiState = uiState,
+      spaceViewModel = spaceViewModel,
+      getBitmap = getAppBitmap,
+      onLaunchApp = handleAppLaunch
+    )
+  }
 }

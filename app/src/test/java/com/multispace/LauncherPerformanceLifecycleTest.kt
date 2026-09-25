@@ -96,4 +96,56 @@ class LauncherPerformanceLifecycleTest {
 
     assertEquals(2, totalCompletedScans)
   }
+
+  @Test
+  fun testLayer2CatalogCachingInLauncherStateHolder() {
+    val stateHolder = com.multispace.presentation.LauncherStateHolder()
+    val apps = listOf(
+      DiscoveredApp(id = "com.app.a/.Main#0", packageName = "com.app.a", activityName = ".Main", label = "App A"),
+      DiscoveredApp(id = "com.app.b/.Main#0", packageName = "com.app.b", activityName = ".Main", label = "App B")
+    )
+    val discoveryState = com.multispace.presentation.AppDiscoveryUiState(allApps = apps)
+    val space = com.multispace.domain.model.Space.createDefault()
+
+    // 1. Initial derivation builds Layer 2 catalog
+    val state1 = stateHolder.deriveState(
+      discoveryUiState = discoveryState,
+      activeSpace = space,
+      allSpaces = listOf(space),
+      activeMemberships = emptyList(),
+      unlockedSpaceIds = emptySet(),
+      activeLayerIndex = 1,
+      activePlacements = emptyList(),
+      activeFolders = emptyList(),
+      activeDockItems = emptyList(),
+      spaceMostUsedApps = emptyList(),
+      spaceRecentApps = emptyList(),
+      spaceUsageStats = null,
+      wallpaperStyle = com.multispace.presentation.LauncherWallpaperStyle()
+    )
+
+    // 2. Second derivation with changed wallpaper/usage stats but same apps
+    val state2 = stateHolder.deriveState(
+      discoveryUiState = discoveryState,
+      activeSpace = space,
+      allSpaces = listOf(space),
+      activeMemberships = emptyList(),
+      unlockedSpaceIds = emptySet(),
+      activeLayerIndex = 1,
+      activePlacements = emptyList(),
+      activeFolders = emptyList(),
+      activeDockItems = emptyList(),
+      spaceMostUsedApps = emptyList(),
+      spaceRecentApps = emptyList(),
+      spaceUsageStats = null,
+      wallpaperStyle = com.multispace.presentation.LauncherWallpaperStyle(bgType = com.multispace.domain.model.Space.BACKGROUND_COLOR)
+    )
+
+    // Must reuse the exact same Layer 2 cached catalog instance without re-sorting or re-grouping
+    org.junit.Assert.assertSame(
+      "Layer 2 catalog must be reused without recomputing when apps are unchanged",
+      state1.layer2CachedCatalog,
+      state2.layer2CachedCatalog
+    )
+  }
 }

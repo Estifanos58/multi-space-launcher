@@ -12,6 +12,7 @@ import com.multispace.platform.PackageEventDeduplicator
 import com.multispace.platform.PackageMetadata
 import com.multispace.platform.PackageMetadataCache
 import com.multispace.platform.UserHandleHelper
+import kotlinx.coroutines.async
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -358,5 +359,46 @@ class AppDiscoveryPipelineTest {
     val manager = AppDiscoveryManager(context)
     val apps = manager.loadPackageApps("com.android.chrome", userHandleId = 9999L)
     assertTrue("loadPackageApps for non-existent profile must return empty list without cross-profile leak", apps.isEmpty())
+  }
+
+  // --- 6. Single-Flight Icon Loading & Byte-based Cache Tests ---
+
+  @Test
+  fun testSingleFlightIconLoadingDeduplicatesConcurrentRequests() = kotlinx.coroutines.runBlocking {
+    val manager = AppDiscoveryManager(context)
+    val testApp = DiscoveredApp(
+      id = "com.test.singleflight/.MainActivity#0",
+      packageName = "com.test.singleflight",
+      activityName = ".MainActivity",
+      label = "SingleFlight App",
+      userHandleId = 0L
+    )
+
+    // Launch 5 concurrent icon requests for the exact same app.id
+    val deferred1 = async { manager.loadAppIconBitmapSingleFlight(testApp) }
+    val deferred2 = async { manager.loadAppIconBitmapSingleFlight(testApp) }
+    val deferred3 = async { manager.loadAppIconBitmapSingleFlight(testApp) }
+    val deferred4 = async { manager.loadAppIconBitmapSingleFlight(testApp) }
+    val deferred5 = async { manager.loadAppIconBitmapSingleFlight(testApp) }
+
+    val b1 = deferred1.await()
+    val b2 = deferred2.await()
+    val b3 = deferred3.await()
+    val b4 = deferred4.await()
+    val b5 = deferred5.await()
+
+    // All concurrent requests must resolve to the identical decoded bitmap instance without redundant decoding
+    assertNotNull(b1)
+    assertEquals(b1, b2)
+    assertEquals(b1, b3)
+    assertEquals(b1, b4)
+    assertEquals(b1, b5)
+
+    // Fast non-blocking lookup must now hit the in-memory byte-bounded cache immediately
+    val cached = manager.getCachedAppIconBitmap(testApp)
+    assertNotNull(cached)
+    assertEquals(b1, cached)
+
+    manager.clearIconCache()
   }
 }

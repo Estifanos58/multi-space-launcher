@@ -104,8 +104,16 @@ fun rememberLauncherUiState(
     discoveryViewModel.getRecentAppsFlow(currentSpaceId)
   }.collectAsStateWithLifecycle(initialValue = emptyList())
 
-  val spaceUsageStats by remember(currentSpaceId) {
-    discoveryViewModel.getSpaceUsageStatsFlow(currentSpaceId)
+  val hasUsageStatsWidget = remember(activePlacements) {
+    activePlacements.any { it.customWidgetType == SpaceItemPlacement.WIDGET_USAGE_STATS }
+  }
+
+  val spaceUsageStats by remember(currentSpaceId, hasUsageStatsWidget) {
+    if (hasUsageStatsWidget) {
+      discoveryViewModel.getSpaceUsageStatsFlow(currentSpaceId)
+    } else {
+      kotlinx.coroutines.flow.flowOf(null)
+    }
   }.collectAsStateWithLifecycle(initialValue = null)
 
   return remember(

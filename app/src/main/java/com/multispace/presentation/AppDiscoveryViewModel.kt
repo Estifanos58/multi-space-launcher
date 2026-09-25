@@ -29,6 +29,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -346,15 +347,10 @@ class AppDiscoveryViewModel @JvmOverloads constructor(
           // Cancel any previous prewarm job to prevent accumulation
           prewarmJob?.cancel()
           if (apps.isNotEmpty()) {
-            prewarmJob = viewModelScope.launch(Dispatchers.IO) {
-              discoveryManager.prewarmIconCache(apps)
-              val prewarmed = apps.mapNotNull { a ->
-                discoveryManager.getCachedAppIconBitmap(a)?.let { a.id to it }
-              }.toMap()
-              if (prewarmed.isNotEmpty()) {
-                _iconBitmaps.update { it + prewarmed }
-              }
-            }
+            // Prioritize initial visible apps (e.g. top 24), then stream remaining apps in background without blocking startup
+            val priority = apps.take(24)
+            val remaining = apps.drop(24)
+            prioritizeIconPrewarm(priority, remaining)
           }
 
           runNext = hasPendingScan
@@ -407,8 +403,33 @@ class AppDiscoveryViewModel @JvmOverloads constructor(
     return discoveryManager.getCachedAppIconBitmap(app)
   }
 
+  suspend fun loadAppIconBitmapAsync(app: DiscoveredApp): Bitmap? {
+    val cached = discoveryManager.getCachedAppIconBitmap(app)
+    if (cached != null) return cached
+    val loaded = discoveryManager.loadAppIconBitmapAsync(app)
+    if (loaded != null) {
+      _iconBitmaps.update { it + (app.id to loaded) }
+    }
+    return loaded
+  }
+
   suspend fun getAppIconBitmapAsync(app: DiscoveredApp): Bitmap? {
-    return discoveryManager.loadAppIconBitmapAsync(app)
+    return loadAppIconBitmapAsync(app)
+  }
+
+  /**
+   * Flow that yields the cached bitmap immediately if present, and updates once loaded
+   * without requiring launcher-wide map recomposition.
+   */
+  fun getAppIconFlow(app: DiscoveredApp): kotlinx.coroutines.flow.Flow<Bitmap?> = kotlinx.coroutines.flow.flow {
+    val cached = discoveryManager.getCachedAppIconBitmap(app)
+    if (cached != null) {
+      emit(cached)
+    } else {
+      emit(null)
+      val loaded = loadAppIconBitmapAsync(app)
+      emit(loaded)
+    }
   }
 
   fun getAppIconBitmap(app: DiscoveredApp): Bitmap? {
@@ -421,12 +442,49 @@ class AppDiscoveryViewModel @JvmOverloads constructor(
       return cached
     }
     viewModelScope.launch(Dispatchers.IO) {
-      val loaded = discoveryManager.loadAppIconBitmap(app)
+      val loaded = discoveryManager.loadAppIconBitmapAsync(app)
       if (loaded != null) {
         _iconBitmaps.update { it + (app.id to loaded) }
       }
     }
     return null
+  }
+
+  /**
+   * Prioritized icon prewarming: decodes high-priority apps (desktop, dock, recents, visible)
+   * immediately, then yields to background coroutines to process the remaining apps.
+   */
+  fun prioritizeIconPrewarm(
+    priorityApps: List<DiscoveredApp>,
+    remainingApps: List<DiscoveredApp> = emptyList()
+  ) {
+    prewarmJob?.cancel()
+    prewarmJob = viewModelScope.launch(Dispatchers.IO) {
+      if (priorityApps.isNotEmpty()) {
+        discoveryManager.prewarmIconCache(priorityApps)
+        val prewarmed = priorityApps.mapNotNull { a ->
+          discoveryManager.getCachedAppIconBitmap(a)?.let { a.id to it }
+        }.toMap()
+        if (prewarmed.isNotEmpty()) {
+          _iconBitmaps.update { it + prewarmed }
+        }
+      }
+
+      if (remainingApps.isNotEmpty()) {
+        val nonPriority = remainingApps.filterNot { rem -> priorityApps.any { it.id == rem.id } }
+        for (batch in nonPriority.chunked(12)) {
+          ensureActive()
+          discoveryManager.prewarmIconCache(batch)
+          val batchBitmaps = batch.mapNotNull { a ->
+            discoveryManager.getCachedAppIconBitmap(a)?.let { a.id to it }
+          }.toMap()
+          if (batchBitmaps.isNotEmpty()) {
+            _iconBitmaps.update { it + batchBitmaps }
+          }
+          kotlinx.coroutines.yield()
+        }
+      }
+    }
   }
 
   /**

@@ -80,7 +80,22 @@ class AppDiscoveryManager(private val context: Context) {
   // In-memory caches to prevent scrolling stutter and redundant bitmap decoding
   // Key format: "$packageName/$activityName#$userHandleId"
   private val iconCache = object : LruCache<String, Drawable>(250) {}
-  private val bitmapCache = object : LruCache<String, Bitmap>(250) {}
+
+  // Memory/byte-based bounded LRU cache (1/8th of available runtime memory, safely bounded between 8MB and 32MB)
+  private val maxBitmapMemoryBytes: Int by lazy {
+    val maxMemory = Runtime.getRuntime().maxMemory()
+    (maxMemory / 8).toInt().coerceIn(8 * 1024 * 1024, 32 * 1024 * 1024)
+  }
+
+  private val bitmapCache = object : LruCache<String, Bitmap>(maxBitmapMemoryBytes) {
+    override fun sizeOf(key: String, value: Bitmap): Int {
+      return value.byteCount.coerceAtLeast(1)
+    }
+  }
+
+  private val inFlightRequests = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<Bitmap?>>()
+  private val inFlightLock = Any()
+
   private val metadataCache = PackageMetadataCache(300)
   private val deduplicator = PackageEventDeduplicator(windowMillis = 400L)
 
@@ -489,11 +504,52 @@ class AppDiscoveryManager(private val context: Context) {
   }
 
   /**
-   * Safe asynchronous icon resolution on cache misses.
+   * Safe asynchronous icon resolution on cache misses with single-flight request deduplication.
    * Executes decoding, LauncherApps queries, and badging off the UI thread on Dispatchers.IO.
+   * If an icon is already loading, reuses the existing in-flight request instead of re-resolving.
    */
   suspend fun loadAppIconBitmapAsync(app: DiscoveredApp): Bitmap? = withContext(Dispatchers.IO) {
-    loadAppIconBitmap(app)
+    loadAppIconBitmapSingleFlight(app)
+  }
+
+  /**
+   * Single-flight in-flight request handling keyed by app.id.
+   * Reuses the existing request if one is in-flight to prevent duplicate decoding and IPC.
+   */
+  suspend fun loadAppIconBitmapSingleFlight(app: DiscoveredApp): Bitmap? = withContext(Dispatchers.IO) {
+    // Fast path: cached in memory
+    val cached = bitmapCache.get(app.id)
+    if (cached != null) return@withContext cached
+
+    var shouldLoad = false
+    val deferred = synchronized(inFlightLock) {
+      val existing = inFlightRequests[app.id]
+      if (existing != null) {
+        existing
+      } else {
+        val newDeferred = kotlinx.coroutines.CompletableDeferred<Bitmap?>()
+        inFlightRequests[app.id] = newDeferred
+        shouldLoad = true
+        newDeferred
+      }
+    }
+
+    if (shouldLoad) {
+      try {
+        val result = loadAppIconBitmap(app)
+        deferred.complete(result)
+        result
+      } catch (t: Throwable) {
+        deferred.complete(null)
+        null
+      } finally {
+        synchronized(inFlightLock) {
+          inFlightRequests.remove(app.id)
+        }
+      }
+    } else {
+      deferred.await()
+    }
   }
 
   /**
@@ -623,6 +679,10 @@ class AppDiscoveryManager(private val context: Context) {
   }
 
   fun clearIconCache() {
+    synchronized(inFlightLock) {
+      inFlightRequests.values.forEach { it.cancel() }
+      inFlightRequests.clear()
+    }
     iconCache.evictAll()
     bitmapCache.evictAll()
     metadataCache.clear()

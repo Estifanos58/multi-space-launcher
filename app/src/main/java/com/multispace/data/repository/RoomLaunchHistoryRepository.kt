@@ -32,6 +32,10 @@ class RoomLaunchHistoryRepository(
   private val maxEventsPerSpace: Int = 5000
 ) : LaunchHistoryRepository {
 
+  private val launchCounter = java.util.concurrent.atomic.AtomicInteger(0)
+  // Prune periodically instead of on every launch to keep the launch hot path fast and responsive
+  private val pruneInterval = (maxEventsPerSpace / 5).coerceIn(5, 50)
+
   override suspend fun recordLaunch(
     spaceId: String,
     identity: AppIdentity,
@@ -45,7 +49,13 @@ class RoomLaunchHistoryRepository(
       timestamp = timestamp
     )
     launchHistoryDao.insertEvent(event)
-    // Keep space events bounded
+    // Keep space events bounded without triggering an expensive delete query on every single launch
+    if (launchCounter.incrementAndGet() % pruneInterval == 0) {
+      launchHistoryDao.pruneOldEvents(spaceId, maxEventsPerSpace)
+    }
+  }
+
+  suspend fun pruneOldEvents(spaceId: String) {
     launchHistoryDao.pruneOldEvents(spaceId, maxEventsPerSpace)
   }
 
@@ -322,12 +332,10 @@ class RoomLaunchHistoryRepository(
       val activeInstalledSummaries = summaries.filter { it.appIdentity in installedIdentities }
       val effectiveUnique = if (installed.isNotEmpty()) activeInstalledSummaries.size else launchHistoryDao.getUniqueAppsCount(spaceId)
 
-      val launchesToday = launchHistoryDao.getLaunchCountSince(spaceId, todayStart)
-      val launchesLast7Days = launchHistoryDao.getLaunchCountSince(spaceId, sevenDaysAgo)
+      // Derive today and 7-day launch counts directly from existing timestamps7Days (0 redundant DAO queries)
+      val launchesToday = timestamps7Days.count { it >= todayStart }
+      val launchesLast7Days = timestamps7Days.count { it >= sevenDaysAgo }
       val launchesLast30Days = launchHistoryDao.getLaunchCountSince(spaceId, thirtyDaysAgo)
-
-      val mostRecent = resolveRecentApps(spaceId, installed, 1).firstOrNull()
-      val mostUsed = resolveMostUsedApps(spaceId, installed, 1).firstOrNull()
 
       val seen = mutableSetOf<AppIdentity>()
       val resolvedTop = mutableListOf<AppLaunchCount>()
@@ -348,6 +356,10 @@ class RoomLaunchHistoryRepository(
           .thenByDescending { it.lastLaunched }
           .thenBy(String.CASE_INSENSITIVE_ORDER) { it.app.label }
       ).take(3)
+
+      // Derive mostUsed directly from the pre-sorted top apps without an extra DAO query
+      val mostUsed = top3.firstOrNull()?.app
+      val mostRecent = resolveRecentApps(spaceId, installed, 1).firstOrNull()
 
       val weekly = calculate7CalendarDaysUsage(timestamps7Days, currentNow)
 

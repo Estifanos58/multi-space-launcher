@@ -115,7 +115,9 @@ fun AppCatalogScreen(
   modifier: Modifier = Modifier
 ) {
   val uiState by viewModel.uiState.collectAsState()
-  val iconBitmaps by viewModel.iconBitmaps.collectAsStateWithLifecycle()
+  val getAppBitmap: (com.multispace.domain.model.DiscoveredApp) -> Bitmap? = remember(viewModel) {
+    { app -> viewModel.getCachedAppIconBitmap(app) }
+  }
   var selectedTab by remember { mutableIntStateOf(1) } // Default to "Apps" tab
   var showSortMenu by remember { mutableStateOf(false) }
   val focusManager = LocalFocusManager.current
@@ -127,7 +129,10 @@ fun AppCatalogScreen(
     }
   }
 
-  Scaffold(
+  androidx.compose.runtime.CompositionLocalProvider(
+    LocalAsyncAppIconLoader provides { app -> viewModel.loadAppIconBitmapAsync(app) }
+  ) {
+    Scaffold(
     modifier = modifier
       .fillMaxSize()
       .background(LightBackground)
@@ -381,13 +386,13 @@ fun AppCatalogScreen(
             if (uiState.viewMode == AppViewMode.GRID) {
               AppGridContent(
                 apps = uiState.filteredApps,
-                getBitmap = { iconBitmaps[it.id] ?: viewModel.getAppIconBitmap(it) },
+                getBitmap = getAppBitmap,
                 onLaunchApp = { viewModel.launchApp(it) }
               )
             } else {
               AppListContent(
                 apps = uiState.filteredApps,
-                getBitmap = { iconBitmaps[it.id] ?: viewModel.getAppIconBitmap(it) },
+                getBitmap = getAppBitmap,
                 onLaunchApp = { viewModel.launchApp(it) }
               )
             }
@@ -395,6 +400,7 @@ fun AppCatalogScreen(
         }
       }
     }
+  }
   }
 }
 

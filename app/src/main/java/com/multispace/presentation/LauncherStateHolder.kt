@@ -78,6 +78,9 @@ class LauncherStateHolder(
   val appResolver: SpaceAppResolver = SpaceAppResolver
 ) {
 
+  private var lastSpaceScopedApps: List<DiscoveredApp>? = null
+  private var cachedLayer2Catalog: Layer2CachedCatalog? = null
+
   fun deriveState(
     discoveryUiState: AppDiscoveryUiState,
     activeSpace: Space?,
@@ -146,7 +149,17 @@ class LauncherStateHolder(
       resolvedActiveFolders.filterNot { it.isMostUsedFolder }
     }
 
-    val layer2CachedCatalog = appResolver.buildLayer2Catalog(spaceScopedApps)
+    val layer2CachedCatalog = if (lastSpaceScopedApps === spaceScopedApps || lastSpaceScopedApps == spaceScopedApps) {
+      cachedLayer2Catalog ?: appResolver.buildLayer2Catalog(spaceScopedApps).also {
+        cachedLayer2Catalog = it
+        lastSpaceScopedApps = spaceScopedApps
+      }
+    } else {
+      appResolver.buildLayer2Catalog(spaceScopedApps).also {
+        cachedLayer2Catalog = it
+        lastSpaceScopedApps = spaceScopedApps
+      }
+    }
 
     return LauncherUiState(
       activeSpace = activeSpace,

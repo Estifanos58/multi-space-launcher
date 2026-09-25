@@ -12,7 +12,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -133,6 +138,12 @@ object AppThemeHelper {
 }
 
 /**
+ * CompositionLocal providing an asynchronous icon loader scoped to individual app items.
+ * Allows icons to resolve asynchronously without triggering launcher-wide map recompositions.
+ */
+val LocalAsyncAppIconLoader = staticCompositionLocalOf<(suspend (DiscoveredApp) -> Bitmap?)?> { null }
+
+/**
  * Dynamic theming app icon composable that applies the space's theme palette
  * to app icons across desktop, dock, and app drawer.
  */
@@ -144,10 +155,23 @@ fun ThemedAppIcon(
   modifier: Modifier = Modifier,
   fallbackText: String? = null
 ) {
+  val asyncLoader = LocalAsyncAppIconLoader.current
+  var localBitmap by remember(app?.id) { mutableStateOf<Bitmap?>(null) }
+
+  LaunchedEffect(app?.id, bitmap) {
+    if (bitmap == null && app != null && asyncLoader != null) {
+      val loaded = asyncLoader(app)
+      if (loaded != null) {
+        localBitmap = loaded
+      }
+    }
+  }
+
+  val effectiveBitmap = bitmap ?: localBitmap
   val isThemed = !appTheme.equals(Space.THEME_DEFAULT, ignoreCase = true)
   val palette = AppThemeHelper.getPalette(appTheme)
   val colorFilter = remember(appTheme) { AppThemeHelper.getThemedColorFilter(appTheme) }
-  val imageBitmap = remember(bitmap) { bitmap?.asImageBitmap() }
+  val imageBitmap = remember(effectiveBitmap) { effectiveBitmap?.asImageBitmap() }
 
   if (isThemed) {
     Box(
@@ -216,28 +240,50 @@ fun ThemedMiniAppIcon(
   modifier: Modifier = Modifier.size(16.dp),
   fallbackText: String? = null
 ) {
+  val asyncLoader = LocalAsyncAppIconLoader.current
+  var localBitmap by remember(app?.id) { mutableStateOf<Bitmap?>(null) }
+
+  LaunchedEffect(app?.id, bitmap) {
+    if (bitmap == null && app != null && asyncLoader != null) {
+      val loaded = asyncLoader(app)
+      if (loaded != null) {
+        localBitmap = loaded
+      }
+    }
+  }
+
+  val effectiveBitmap = bitmap ?: localBitmap
   val isThemed = !appTheme.equals(Space.THEME_DEFAULT, ignoreCase = true)
   val palette = AppThemeHelper.getPalette(appTheme)
   val colorFilter = remember(appTheme) { AppThemeHelper.getThemedColorFilter(appTheme) }
 
   if (isThemed) {
-    Box(
-      modifier = modifier
-        .clip(RoundedCornerShape(4.dp))
-        .background(palette.iconBackgroundColor)
-        .border(0.5.dp, palette.primaryColor.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
-      contentAlignment = Alignment.Center
-    ) {
-      if (bitmap != null) {
+    val imageBitmap = remember(effectiveBitmap) { effectiveBitmap?.asImageBitmap() }
+    if (imageBitmap != null) {
+      Box(
+        modifier = modifier
+          .clip(RoundedCornerShape(4.dp))
+          .background(palette.iconBackgroundColor)
+          .border(0.5.dp, palette.primaryColor.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
+        contentAlignment = Alignment.Center
+      ) {
         Image(
-          bitmap = bitmap.asImageBitmap(),
+          bitmap = imageBitmap,
           contentDescription = app?.label,
           colorFilter = colorFilter,
           modifier = Modifier
             .fillMaxSize()
             .padding(2.dp)
         )
-      } else {
+      }
+    } else {
+      Box(
+        modifier = modifier
+          .clip(RoundedCornerShape(4.dp))
+          .background(palette.iconBackgroundColor)
+          .border(0.5.dp, palette.primaryColor.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
+        contentAlignment = Alignment.Center
+      ) {
         Text(
           text = fallbackText ?: app?.label?.take(1) ?: "?",
           fontSize = 8.sp,
@@ -247,9 +293,10 @@ fun ThemedMiniAppIcon(
       }
     }
   } else {
-    if (bitmap != null) {
+    val imageBitmap = remember(effectiveBitmap) { effectiveBitmap?.asImageBitmap() }
+    if (imageBitmap != null) {
       Image(
-        bitmap = bitmap.asImageBitmap(),
+        bitmap = imageBitmap,
         contentDescription = app?.label,
         modifier = modifier.clip(RoundedCornerShape(4.dp))
       )
