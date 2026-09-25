@@ -154,8 +154,9 @@ fun SetSpacePinDialog(
     confirmButton = {
       Button(
         onClick = {
-          if (!PinSecurityManager.isValidPinFormat(pin)) {
-            errorMessage = "PIN must be between 4 and 8 digits."
+          val strengthResult = PinSecurityManager.validatePinStrength(pin)
+          if (strengthResult.isFailure) {
+            errorMessage = strengthResult.exceptionOrNull()?.message ?: "Weak PIN."
           } else if (pin != confirmPin) {
             errorMessage = "PINs do not match. Please re-enter."
           } else {
@@ -284,10 +285,11 @@ fun ChangeSpacePinDialog(
     confirmButton = {
       Button(
         onClick = {
+          val strengthResult = PinSecurityManager.validatePinStrength(newPin)
           if (currentPin.isBlank()) {
             errorMessage = "Please enter your current PIN."
-          } else if (!PinSecurityManager.isValidPinFormat(newPin)) {
-            errorMessage = "New PIN must be between 4 and 8 digits."
+          } else if (strengthResult.isFailure) {
+            errorMessage = strengthResult.exceptionOrNull()?.message ?: "Weak new PIN."
           } else if (newPin != confirmNewPin) {
             errorMessage = "New PINs do not match."
           } else {
@@ -441,7 +443,12 @@ fun SpaceCredentialVerificationDialog(
         isError = true
         return
       }
-      else -> null
+      is com.multispace.platform.BiometricKeyManager.CryptoInitResult.Error -> {
+        isVerifying = false
+        isUsingRecoveryPin = true
+        isError = true
+        return
+      }
     }
 
     BiometricAuthManager.authenticate(
@@ -454,6 +461,7 @@ fun SpaceCredentialVerificationDialog(
         isVerifying = false
         val unlocked = spaceViewModel.authenticateAndUnlockWithBiometric(space.id, authResult.cryptoObject)
         if (unlocked != null) {
+          spaceViewModel.sessionManager.grantExplicitAuthorization(space.id)
           if (mode == AuthDialogMode.UNLOCK) {
             spaceViewModel.unlockSpace(space.id)
           }
@@ -713,13 +721,15 @@ fun SpaceCredentialVerificationDialog(
                 onPatternComplete = { _, patternStr ->
                   isVerifying = true
                   coroutineScope.launch {
-                    val isSuccess = if (mode == AuthDialogMode.DELETE) {
-                      spaceViewModel.spaceRepository.verifySpacePin(space.id, patternStr)
+                    val result = if (mode == AuthDialogMode.DELETE || mode == AuthDialogMode.EDIT) {
+                      spaceViewModel.verifyCredentialWithThrottling(space.id, patternStr, unlockOnSuccess = false)
                     } else {
-                      spaceViewModel.verifyAndUnlockSpace(space.id, patternStr) is AuthenticationResult.Success
+                      spaceViewModel.verifyAndUnlockSpace(space.id, patternStr)
                     }
+                    val isSuccess = result is AuthenticationResult.Success
                     isVerifying = false
                     if (isSuccess) {
+                      spaceViewModel.sessionManager.grantExplicitAuthorization(space.id)
                       onSuccess()
                     } else {
                       isError = true
@@ -844,16 +854,21 @@ fun SpaceCredentialVerificationDialog(
             }
             isVerifying = true
             coroutineScope.launch {
-              val unlocked = spaceViewModel.authenticateAndUnlockWithRecoveryPin(space.id, enteredPin)
+              val authResult = spaceViewModel.verifyRecoveryPinWithThrottling(
+                space.id,
+                enteredPin,
+                unlockOnSuccess = (mode == AuthDialogMode.UNLOCK)
+              )
               isVerifying = false
-              if (unlocked != null) {
+              enteredPin = ""
+              if (authResult is AuthenticationResult.Success) {
+                spaceViewModel.sessionManager.grantExplicitAuthorization(space.id)
                 if (mode == AuthDialogMode.UNLOCK) {
                   spaceViewModel.unlockSpace(space.id)
                 }
                 onSuccess()
               } else {
                 isError = true
-                enteredPin = ""
               }
             }
           },
@@ -873,17 +888,19 @@ fun SpaceCredentialVerificationDialog(
             }
             isVerifying = true
             coroutineScope.launch {
-              val isSuccess = if (mode == AuthDialogMode.DELETE) {
-                spaceViewModel.spaceRepository.verifySpacePin(space.id, enteredPin)
+              val authResult = if (mode == AuthDialogMode.DELETE || mode == AuthDialogMode.EDIT) {
+                spaceViewModel.verifyCredentialWithThrottling(space.id, enteredPin, unlockOnSuccess = false)
               } else {
-                spaceViewModel.verifyAndUnlockSpace(space.id, enteredPin) is AuthenticationResult.Success
+                spaceViewModel.verifyAndUnlockSpace(space.id, enteredPin)
               }
+              val isSuccess = authResult is AuthenticationResult.Success
               isVerifying = false
+              enteredPin = ""
               if (isSuccess) {
+                spaceViewModel.sessionManager.grantExplicitAuthorization(space.id)
                 onSuccess()
               } else {
                 isError = true
-                enteredPin = ""
               }
             }
           },

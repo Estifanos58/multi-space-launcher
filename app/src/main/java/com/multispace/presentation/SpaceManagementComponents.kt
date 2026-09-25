@@ -205,15 +205,27 @@ fun SpaceManagementSection(
   }
 
   spaceToDelete?.let { space ->
-    DeleteSpaceDialog(
-      spaceName = space.name,
-      isOnlySpace = spaces.size <= 1,
-      onDismiss = { spaceToDelete = null },
-      onConfirm = {
-        spaceViewModel.deleteSpace(space.id)
-        spaceToDelete = null
-      }
-    )
+    if (space.isProtected) {
+      DeleteSpaceCredentialDialog(
+        space = space,
+        onDismiss = { spaceToDelete = null },
+        onConfirmDelete = {
+          spaceViewModel.deleteSpace(space.id)
+          spaceToDelete = null
+        },
+        spaceViewModel = spaceViewModel
+      )
+    } else {
+      DeleteSpaceDialog(
+        spaceName = space.name,
+        isOnlySpace = spaces.size <= 1,
+        onDismiss = { spaceToDelete = null },
+        onConfirm = {
+          spaceViewModel.deleteSpace(space.id)
+          spaceToDelete = null
+        }
+      )
+    }
   }
 
   spaceForMemberships?.let { space ->

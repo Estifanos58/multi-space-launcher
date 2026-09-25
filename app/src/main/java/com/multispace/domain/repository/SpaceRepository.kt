@@ -84,6 +84,7 @@ interface SpaceRepository : SpaceMembershipRepository, PlacementRepository, Fold
     recoveryPinSalt: String? = null,
     recoveryPinHash: String? = null,
     keepExistingCredentials: Boolean = false,
+    currentCredential: String? = null,
     patternRows: Int = Space.DEFAULT_PATTERN_ROWS,
     patternCols: Int = Space.DEFAULT_PATTERN_COLS,
     backgroundType: String = Space.BACKGROUND_DEFAULT,
@@ -129,7 +130,7 @@ interface SpaceRepository : SpaceMembershipRepository, PlacementRepository, Fold
     updatedApps: List<DiscoveredApp> = emptyList()
   ): Result<Space>
   suspend fun renameSpace(spaceId: String, newName: String): Result<Unit>
-  suspend fun deleteSpace(spaceId: String): Result<Unit>
+  suspend fun deleteSpace(spaceId: String, credential: String? = null): Result<Unit>
   suspend fun updatePageTurnSettings(
     spaceId: String,
     effect: PageTurnEffect,

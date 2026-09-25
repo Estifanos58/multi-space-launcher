@@ -42,6 +42,7 @@ import com.multispace.domain.security.AuthenticationResult
 import com.multispace.platform.AppDiscoveryManager
 import com.multispace.platform.BiometricKeyManager
 import com.multispace.platform.DefaultAppCapabilityResolver
+import com.multispace.platform.LauncherSessionManager
 import com.multispace.platform.PinSecurityManager
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
@@ -63,7 +64,8 @@ class RoomSpaceRepository(
   private val membershipRepository: SpaceMembershipRepository = RoomSpaceMembershipRepository(membershipDao, database),
   private val placementRepository: PlacementRepository = RoomPlacementRepository(spaceDao, layoutDao, membershipDao, context, database),
   private val folderRepository: FolderRepository = RoomFolderRepository(layoutDao, database),
-  private val dockRepository: DockRepository = RoomDockRepository(spaceDao, layoutDao, placementRepository, database)
+  private val dockRepository: DockRepository = RoomDockRepository(spaceDao, layoutDao, placementRepository, database),
+  private val sessionManager: LauncherSessionManager? = null
 ) : SpaceRepository,
     SpaceMembershipRepository by membershipRepository,
     PlacementRepository by placementRepository,
@@ -663,6 +665,15 @@ class RoomSpaceRepository(
     if (trimmed.isEmpty()) {
       return Result.failure(IllegalArgumentException("Space name cannot be empty"))
     }
+    if (authPolicy == Space.AUTH_BIOMETRIC) {
+      if (recoveryPinSalt.isNullOrEmpty() || recoveryPinHash.isNullOrEmpty()) {
+        return Result.failure(IllegalArgumentException("Biometric spaces require a valid Recovery PIN."))
+      }
+    } else if (authPolicy == Space.AUTH_PIN || authPolicy == Space.AUTH_PATTERN) {
+      if (pinSalt.isNullOrEmpty() || pinHash.isNullOrEmpty()) {
+        return Result.failure(IllegalArgumentException("Protected spaces require valid security credentials."))
+      }
+    }
     return try {
       val space = runInTransaction {
         val newId = "space_" + UUID.randomUUID().toString().replace("-", "").take(12)
@@ -753,6 +764,7 @@ class RoomSpaceRepository(
     recoveryPinSalt: String?,
     recoveryPinHash: String?,
     keepExistingCredentials: Boolean,
+    currentCredential: String?,
     patternRows: Int,
     patternCols: Int,
     backgroundType: String,
@@ -821,22 +833,56 @@ class RoomSpaceRepository(
         resolvedRecoveryHash = existing.recoveryPinHash
         resolvedPatternRows = if (patternRows != Space.DEFAULT_PATTERN_ROWS) patternRows else existing.patternRows
         resolvedPatternCols = if (patternCols != Space.DEFAULT_PATTERN_COLS) patternCols else existing.patternCols
-      } else if (authPolicy == Space.AUTH_NONE) {
-        resolvedAuthPolicy = Space.AUTH_NONE
-        resolvedSalt = null
-        resolvedHash = null
-        resolvedRecoverySalt = null
-        resolvedRecoveryHash = null
-        resolvedPatternRows = patternRows
-        resolvedPatternCols = patternCols
       } else {
-        resolvedAuthPolicy = authPolicy
-        resolvedSalt = pinSalt
-        resolvedHash = pinHash
-        resolvedRecoverySalt = recoveryPinSalt
-        resolvedRecoveryHash = recoveryPinHash
-        resolvedPatternRows = patternRows
-        resolvedPatternCols = patternCols
+        // Changing authentication or disabling protection on an already protected space requires explicit re-authentication
+        val isChangingSecurity = existing.toDomain().isProtected && (
+          authPolicy != existing.authPolicy ||
+          pinHash != existing.pinHash ||
+          recoveryPinHash != existing.recoveryPinHash
+        )
+        if (isChangingSecurity) {
+          val isExplicitlyAuthorized = sessionManager?.consumeExplicitAuthorization(spaceId) == true
+          if (!isExplicitlyAuthorized) {
+            if (currentCredential == null) {
+              return Result.failure(SecurityException("Changing authentication or disabling protection on a protected Space requires explicit re-authentication."))
+            }
+            val verifyResult = if (existing.authPolicy == Space.AUTH_BIOMETRIC) {
+              verifySpaceRecoveryPin(spaceId, currentCredential)
+            } else {
+              verifySpaceCredential(spaceId, currentCredential)
+            }
+            if (verifyResult !is AuthenticationResult.Success) {
+              return Result.failure(SecurityException("Incorrect current credential for authentication change."))
+            }
+          }
+        }
+
+        if (authPolicy == Space.AUTH_NONE) {
+          resolvedAuthPolicy = Space.AUTH_NONE
+          resolvedSalt = null
+          resolvedHash = null
+          resolvedRecoverySalt = null
+          resolvedRecoveryHash = null
+          resolvedPatternRows = patternRows
+          resolvedPatternCols = patternCols
+        } else {
+          if (authPolicy == Space.AUTH_BIOMETRIC) {
+            if (recoveryPinSalt.isNullOrEmpty() || recoveryPinHash.isNullOrEmpty()) {
+              return Result.failure(IllegalArgumentException("Biometric spaces require a valid Recovery PIN."))
+            }
+          } else if (authPolicy == Space.AUTH_PIN || authPolicy == Space.AUTH_PATTERN) {
+            if (pinSalt.isNullOrEmpty() || pinHash.isNullOrEmpty()) {
+              return Result.failure(IllegalArgumentException("Protected spaces require valid security credentials."))
+            }
+          }
+          resolvedAuthPolicy = authPolicy
+          resolvedSalt = pinSalt
+          resolvedHash = pinHash
+          resolvedRecoverySalt = recoveryPinSalt
+          resolvedRecoveryHash = recoveryPinHash
+          resolvedPatternRows = patternRows
+          resolvedPatternCols = patternCols
+        }
       }
 
       val updated = existing.copy(
@@ -1089,7 +1135,7 @@ class RoomSpaceRepository(
     }
   }
 
-  override suspend fun deleteSpace(spaceId: String): Result<Unit> {
+  override suspend fun deleteSpace(spaceId: String, credential: String?): Result<Unit> {
     return try {
       val count = spaceDao.getSpaceCount()
       if (count <= 1) {
@@ -1099,6 +1145,23 @@ class RoomSpaceRepository(
       val allSpaces = spaceDao.getAllSpaces()
       val target = allSpaces.firstOrNull { it.id == spaceId }
         ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      if (target.toDomain().isProtected) {
+        val isExplicitlyAuthorized = sessionManager?.consumeExplicitAuthorization(spaceId) == true
+        if (!isExplicitlyAuthorized) {
+          if (credential == null) {
+            return Result.failure(SecurityException("Deleting protected Space requires explicit authentication."))
+          }
+          val verifyResult = if (target.authPolicy == Space.AUTH_BIOMETRIC) {
+            verifySpaceRecoveryPin(spaceId, credential)
+          } else {
+            verifySpaceCredential(spaceId, credential)
+          }
+          if (verifyResult !is AuthenticationResult.Success) {
+            return Result.failure(SecurityException("Invalid credential to delete space."))
+          }
+        }
+      }
 
       val currentActiveId = preferences.activeSpaceIdFlow.firstOrNull()
       val fallback = if (currentActiveId == spaceId) allSpaces.first { it.id != spaceId } else null
@@ -1130,6 +1193,10 @@ class RoomSpaceRepository(
       val existing = spaceDao.getSpaceById(spaceId)
         ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
 
+      if (existing.toDomain().isProtected) {
+        return Result.failure(SecurityException("Space is already protected. Changing PIN requires explicit re-authentication via changeSpacePin."))
+      }
+
       val salt = PinSecurityManager.generateSalt()
       val hash = PinSecurityManager.hashPin(pin, salt)
 
@@ -1157,6 +1224,10 @@ class RoomSpaceRepository(
     return try {
       val existing = spaceDao.getSpaceById(spaceId)
         ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
+
+      if (existing.toDomain().isProtected && !existing.recoveryPinHash.isNullOrEmpty()) {
+        return Result.failure(SecurityException("Space already has a Recovery PIN. Changing Recovery PIN requires explicit re-authentication."))
+      }
 
       val salt = PinSecurityManager.generateSalt()
       val hash = PinSecurityManager.hashPin(recoveryPin, salt)

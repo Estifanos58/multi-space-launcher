@@ -67,7 +67,8 @@ class AppContainer(context: Context) {
     membershipRepository = spaceMembershipRepository,
     placementRepository = placementRepository,
     folderRepository = folderRepository,
-    dockRepository = dockRepository
+    dockRepository = dockRepository,
+    sessionManager = sessionManager
   )
 
   val launchHistoryRepository: LaunchHistoryRepository = RoomLaunchHistoryRepository(

@@ -102,10 +102,14 @@ class SpaceCredentialMatchingTest {
       isLauncherLockedProvider = { isLauncherLocked }
     )
 
+    val salt = PinSecurityManager.generateSalt()
+    val hash = PinSecurityManager.hashPin("1357", salt)
     val protectedSpace = Space(
       id = "protected_space",
       name = "Protected Space",
-      authPolicy = Space.AUTH_PIN
+      authPolicy = Space.AUTH_PIN,
+      pinSalt = salt,
+      pinHash = hash
     )
 
     val publicSpace = Space(

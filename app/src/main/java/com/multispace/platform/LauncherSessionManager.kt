@@ -210,4 +210,34 @@ class LauncherSessionManager(
 
   @Deprecated("Renamed to unlockLauncher()", ReplaceWith("unlockLauncher()"))
   fun unlockPhone() = unlockLauncher()
+
+  // Explicit re-authorization grants for sensitive operations (e.g. delete space, change security)
+  private val explicitAuthGrants = mutableMapOf<String, Long>()
+
+  @Synchronized
+  fun grantExplicitAuthorization(spaceId: String, durationMs: Long = 60_000L) {
+    explicitAuthGrants[spaceId] = System.currentTimeMillis() + durationMs
+    AppLogger.d(AppLogger.Category.AUTH, "Granted explicit authorization for Space '$spaceId' for ${durationMs}ms")
+  }
+
+  @Synchronized
+  fun hasExplicitAuthorization(spaceId: String): Boolean {
+    val expiry = explicitAuthGrants[spaceId] ?: return false
+    val now = System.currentTimeMillis()
+    return if (now <= expiry) {
+      true
+    } else {
+      explicitAuthGrants.remove(spaceId)
+      false
+    }
+  }
+
+  @Synchronized
+  fun consumeExplicitAuthorization(spaceId: String): Boolean {
+    val hasAuth = hasExplicitAuthorization(spaceId)
+    if (hasAuth) {
+      explicitAuthGrants.remove(spaceId)
+    }
+    return hasAuth
+  }
 }

@@ -130,7 +130,11 @@ fun MultiSpaceLockScreen(
         errorMessage = "Biometrics changed on device. Enter Recovery PIN to re-enroll."
         return
       }
-      else -> null
+      is BiometricKeyManager.CryptoInitResult.Error -> {
+        inputMode = "RECOVERY_PIN"
+        errorMessage = "Biometric security error. Enter Recovery PIN."
+        return
+      }
     }
 
     BiometricAuthManager.authenticate(

@@ -254,15 +254,15 @@ fun CreateSpaceScreen(
   }
   var credentialOption by rememberSaveable { mutableStateOf(initialCredentialOption) }
 
-  // PIN state
-  var pinValue by rememberSaveable { mutableStateOf("") }
-  var confirmPinValue by rememberSaveable { mutableStateOf("") }
+  // PIN state (avoid rememberSaveable for plaintext credentials)
+  var pinValue by remember { mutableStateOf("") }
+  var confirmPinValue by remember { mutableStateOf("") }
   var pinError by rememberSaveable { mutableStateOf<String?>(null) }
   var showPinText by rememberSaveable { mutableStateOf(false) }
 
   // Recovery PIN state (mandated for biometric spaces)
-  var recoveryPinValue by rememberSaveable { mutableStateOf("") }
-  var confirmRecoveryPinValue by rememberSaveable { mutableStateOf("") }
+  var recoveryPinValue by remember { mutableStateOf("") }
+  var confirmRecoveryPinValue by remember { mutableStateOf("") }
   var showRecoveryPinText by rememberSaveable { mutableStateOf(false) }
 
   // Pattern state
@@ -278,7 +278,7 @@ fun CreateSpaceScreen(
   }
   var patternCustomOption by rememberSaveable { mutableStateOf(initialPatternOption) }
   var drawnFirstPattern by remember { mutableStateOf<String?>(null) }
-  var confirmedPatternString by rememberSaveable { mutableStateOf<String?>(null) }
+  var confirmedPatternString by remember { mutableStateOf<String?>(null) }
   var patternDrawingStep by rememberSaveable { mutableIntStateOf(1) } // 1: Record, 2: Confirm
   var patternCanvasError by remember { mutableStateOf(false) }
   var patternCanvasFeedback by remember { mutableStateOf<String?>(null) }
@@ -1166,6 +1166,12 @@ fun CreateSpaceScreen(
                           onResult = { success, newId ->
                             isCreating = false
                             if (success) {
+                              pinValue = ""
+                              confirmPinValue = ""
+                              recoveryPinValue = ""
+                              confirmRecoveryPinValue = ""
+                              confirmedPatternString = null
+                              drawnFirstPattern = null
                               onSpaceCreated(newId ?: "")
                               onNavigateBack()
                             }
@@ -1569,8 +1575,9 @@ private fun validateTab1(
     val keepExistingRecovery = editingSpace != null && editingSpace.isBiometricProtected &&
       recoveryPin.isEmpty() && confirmRecoveryPin.isEmpty() && !editingSpace.recoveryPinHash.isNullOrEmpty()
     if (!keepExistingRecovery) {
-      if (recoveryPin.length < 4) {
-        onErrorPin("A fallback Recovery PIN of at least 4 digits is required for Biometric security.")
+      val strengthResult = PinSecurityManager.validatePinStrength(recoveryPin)
+      if (strengthResult.isFailure) {
+        onErrorPin(strengthResult.exceptionOrNull()?.message ?: "Invalid Recovery PIN format.")
         return false
       }
       if (recoveryPin != confirmRecoveryPin) {
@@ -1582,8 +1589,9 @@ private fun validateTab1(
   if (credential == CredentialOption.PIN) {
     val keepExistingPin = editingSpace != null && editingSpace.isPinProtected && pin.isEmpty() && confirmPin.isEmpty()
     if (!keepExistingPin) {
-      if (pin.length < 4) {
-        onErrorPin("PIN must be at least 4 numeric digits.")
+      val strengthResult = PinSecurityManager.validatePinStrength(pin)
+      if (strengthResult.isFailure) {
+        onErrorPin(strengthResult.exceptionOrNull()?.message ?: "Invalid PIN format.")
         return false
       }
       if (pin != confirmPin) {

@@ -1,0 +1,816 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 12,
+    "identityHash": "49427156c0e29f3e605e5d7c809f5fd9",
+    "entities": [
+      {
+        "tableName": "spaces",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `order_index` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `auth_policy` TEXT NOT NULL, `pin_salt` TEXT, `pin_hash` TEXT, `recovery_pin_salt` TEXT, `recovery_pin_hash` TEXT, `layout_type` TEXT NOT NULL, `pattern_rows` INTEGER NOT NULL, `pattern_cols` INTEGER NOT NULL, `background_type` TEXT NOT NULL, `background_color` INTEGER, `background_image_uri` TEXT, `home_wallpaper_type` TEXT NOT NULL, `home_wallpaper_color` INTEGER, `home_wallpaper_image_uri` TEXT, `phone_lock_wallpaper_type` TEXT NOT NULL, `phone_lock_wallpaper_color` INTEGER, `phone_lock_wallpaper_image_uri` TEXT, `space_lock_wallpaper_type` TEXT NOT NULL, `space_lock_wallpaper_color` INTEGER, `space_lock_wallpaper_image_uri` TEXT, `app_theme` TEXT NOT NULL, `grid_columns` INTEGER NOT NULL, `icon_size` TEXT NOT NULL, `label_visibility` INTEGER NOT NULL, `layer1_display_mode` TEXT NOT NULL, `layer2_display_mode` TEXT NOT NULL, `layer2_access_mode` TEXT NOT NULL, `dock_capacity` INTEGER NOT NULL, `layout_preset` TEXT NOT NULL, `use_layer2` INTEGER NOT NULL, `home_wallpaper_scale_mode` TEXT NOT NULL, `home_wallpaper_zoom_level` REAL NOT NULL, `home_wallpaper_dim_level` REAL NOT NULL, `home_wallpaper_offset_x` REAL NOT NULL, `home_wallpaper_offset_y` REAL NOT NULL, `phone_lock_wallpaper_scale_mode` TEXT NOT NULL, `phone_lock_wallpaper_zoom_level` REAL NOT NULL, `phone_lock_wallpaper_dim_level` REAL NOT NULL, `phone_lock_wallpaper_offset_x` REAL NOT NULL, `phone_lock_wallpaper_offset_y` REAL NOT NULL, `space_lock_wallpaper_scale_mode` TEXT NOT NULL, `space_lock_wallpaper_zoom_level` REAL NOT NULL, `space_lock_wallpaper_dim_level` REAL NOT NULL, `space_lock_wallpaper_offset_x` REAL NOT NULL, `space_lock_wallpaper_offset_y` REAL NOT NULL, `page_turn_effect` TEXT NOT NULL, `page_turn_duration_ms` INTEGER NOT NULL, `page_turn_intensity` REAL NOT NULL, `page_count` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "orderIndex",
+            "columnName": "order_index",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authPolicy",
+            "columnName": "auth_policy",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pinSalt",
+            "columnName": "pin_salt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pinHash",
+            "columnName": "pin_hash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "recoveryPinSalt",
+            "columnName": "recovery_pin_salt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "recoveryPinHash",
+            "columnName": "recovery_pin_hash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "layoutType",
+            "columnName": "layout_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "patternRows",
+            "columnName": "pattern_rows",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "patternCols",
+            "columnName": "pattern_cols",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "backgroundType",
+            "columnName": "background_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "backgroundColor",
+            "columnName": "background_color",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "backgroundImageUri",
+            "columnName": "background_image_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "homeWallpaperType",
+            "columnName": "home_wallpaper_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "homeWallpaperColor",
+            "columnName": "home_wallpaper_color",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "homeWallpaperImageUri",
+            "columnName": "home_wallpaper_image_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "phoneLockWallpaperType",
+            "columnName": "phone_lock_wallpaper_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "phoneLockWallpaperColor",
+            "columnName": "phone_lock_wallpaper_color",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "phoneLockWallpaperImageUri",
+            "columnName": "phone_lock_wallpaper_image_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "spaceLockWallpaperType",
+            "columnName": "space_lock_wallpaper_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "spaceLockWallpaperColor",
+            "columnName": "space_lock_wallpaper_color",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "spaceLockWallpaperImageUri",
+            "columnName": "space_lock_wallpaper_image_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "appTheme",
+            "columnName": "app_theme",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gridColumns",
+            "columnName": "grid_columns",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "iconSize",
+            "columnName": "icon_size",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "labelVisibility",
+            "columnName": "label_visibility",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "layer1DisplayMode",
+            "columnName": "layer1_display_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "layer2DisplayMode",
+            "columnName": "layer2_display_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "layer2AccessMode",
+            "columnName": "layer2_access_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dockCapacity",
+            "columnName": "dock_capacity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "layoutPreset",
+            "columnName": "layout_preset",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "useLayer2",
+            "columnName": "use_layer2",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "homeWallpaperScaleMode",
+            "columnName": "home_wallpaper_scale_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "homeWallpaperZoomLevel",
+            "columnName": "home_wallpaper_zoom_level",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "homeWallpaperDimLevel",
+            "columnName": "home_wallpaper_dim_level",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "homeWallpaperOffsetX",
+            "columnName": "home_wallpaper_offset_x",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "homeWallpaperOffsetY",
+            "columnName": "home_wallpaper_offset_y",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "phoneLockWallpaperScaleMode",
+            "columnName": "phone_lock_wallpaper_scale_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "phoneLockWallpaperZoomLevel",
+            "columnName": "phone_lock_wallpaper_zoom_level",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "phoneLockWallpaperDimLevel",
+            "columnName": "phone_lock_wallpaper_dim_level",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "phoneLockWallpaperOffsetX",
+            "columnName": "phone_lock_wallpaper_offset_x",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "phoneLockWallpaperOffsetY",
+            "columnName": "phone_lock_wallpaper_offset_y",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "spaceLockWallpaperScaleMode",
+            "columnName": "space_lock_wallpaper_scale_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "spaceLockWallpaperZoomLevel",
+            "columnName": "space_lock_wallpaper_zoom_level",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "spaceLockWallpaperDimLevel",
+            "columnName": "space_lock_wallpaper_dim_level",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "spaceLockWallpaperOffsetX",
+            "columnName": "space_lock_wallpaper_offset_x",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "spaceLockWallpaperOffsetY",
+            "columnName": "space_lock_wallpaper_offset_y",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pageTurnEffect",
+            "columnName": "page_turn_effect",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pageTurnDurationMs",
+            "columnName": "page_turn_duration_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pageTurnIntensity",
+            "columnName": "page_turn_intensity",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pageCount",
+            "columnName": "page_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "space_memberships",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`space_id` TEXT NOT NULL, `package_name` TEXT NOT NULL, `component_name` TEXT NOT NULL, `user_handle_id` INTEGER NOT NULL, `order_index` INTEGER NOT NULL, `added_at` INTEGER NOT NULL, PRIMARY KEY(`space_id`, `package_name`, `component_name`, `user_handle_id`), FOREIGN KEY(`space_id`) REFERENCES `spaces`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "spaceId",
+            "columnName": "space_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "packageName",
+            "columnName": "package_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "componentName",
+            "columnName": "component_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userHandleId",
+            "columnName": "user_handle_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "orderIndex",
+            "columnName": "order_index",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "added_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "space_id",
+            "package_name",
+            "component_name",
+            "user_handle_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_space_memberships_space_id",
+            "unique": false,
+            "columnNames": [
+              "space_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_space_memberships_space_id` ON `${TABLE_NAME}` (`space_id`)"
+          },
+          {
+            "name": "index_space_memberships_space_id_order_index",
+            "unique": false,
+            "columnNames": [
+              "space_id",
+              "order_index"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_space_memberships_space_id_order_index` ON `${TABLE_NAME}` (`space_id`, `order_index`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "spaces",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "space_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "space_item_placements",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `space_id` TEXT NOT NULL, `layer` INTEGER NOT NULL, `page_index` INTEGER NOT NULL, `position_index` INTEGER NOT NULL, `item_type` TEXT NOT NULL, `package_name` TEXT, `component_name` TEXT, `user_handle_id` INTEGER NOT NULL, `folder_id` TEXT, `span_x` INTEGER NOT NULL, `span_y` INTEGER NOT NULL, `app_widget_id` INTEGER NOT NULL, `custom_widget_type` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`space_id`) REFERENCES `spaces`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "spaceId",
+            "columnName": "space_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "layer",
+            "columnName": "layer",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pageIndex",
+            "columnName": "page_index",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "positionIndex",
+            "columnName": "position_index",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemType",
+            "columnName": "item_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "packageName",
+            "columnName": "package_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "componentName",
+            "columnName": "component_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "userHandleId",
+            "columnName": "user_handle_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "folderId",
+            "columnName": "folder_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "spanX",
+            "columnName": "span_x",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "spanY",
+            "columnName": "span_y",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "appWidgetId",
+            "columnName": "app_widget_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "customWidgetType",
+            "columnName": "custom_widget_type",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_space_item_placements_space_id",
+            "unique": false,
+            "columnNames": [
+              "space_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_space_item_placements_space_id` ON `${TABLE_NAME}` (`space_id`)"
+          },
+          {
+            "name": "index_space_item_placements_space_id_layer_page_index",
+            "unique": false,
+            "columnNames": [
+              "space_id",
+              "layer",
+              "page_index"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_space_item_placements_space_id_layer_page_index` ON `${TABLE_NAME}` (`space_id`, `layer`, `page_index`)"
+          },
+          {
+            "name": "index_space_item_placements_space_id_layer_package_name_component_name_user_handle_id",
+            "unique": false,
+            "columnNames": [
+              "space_id",
+              "layer",
+              "package_name",
+              "component_name",
+              "user_handle_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_space_item_placements_space_id_layer_package_name_component_name_user_handle_id` ON `${TABLE_NAME}` (`space_id`, `layer`, `package_name`, `component_name`, `user_handle_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "spaces",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "space_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "space_folders",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `space_id` TEXT NOT NULL, `name` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`space_id`) REFERENCES `spaces`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "spaceId",
+            "columnName": "space_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_space_folders_space_id",
+            "unique": false,
+            "columnNames": [
+              "space_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_space_folders_space_id` ON `${TABLE_NAME}` (`space_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "spaces",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "space_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "space_folder_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `folder_id` TEXT NOT NULL, `package_name` TEXT NOT NULL, `component_name` TEXT NOT NULL, `user_handle_id` INTEGER NOT NULL, `order_index` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`folder_id`) REFERENCES `space_folders`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "folderId",
+            "columnName": "folder_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "packageName",
+            "columnName": "package_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "componentName",
+            "columnName": "component_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userHandleId",
+            "columnName": "user_handle_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "orderIndex",
+            "columnName": "order_index",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_space_folder_items_folder_id",
+            "unique": false,
+            "columnNames": [
+              "folder_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_space_folder_items_folder_id` ON `${TABLE_NAME}` (`folder_id`)"
+          },
+          {
+            "name": "index_space_folder_items_folder_id_order_index",
+            "unique": false,
+            "columnNames": [
+              "folder_id",
+              "order_index"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_space_folder_items_folder_id_order_index` ON `${TABLE_NAME}` (`folder_id`, `order_index`)"
+          },
+          {
+            "name": "index_space_folder_items_folder_id_package_name_component_name_user_handle_id",
+            "unique": true,
+            "columnNames": [
+              "folder_id",
+              "package_name",
+              "component_name",
+              "user_handle_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_space_folder_items_folder_id_package_name_component_name_user_handle_id` ON `${TABLE_NAME}` (`folder_id`, `package_name`, `component_name`, `user_handle_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "space_folders",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "folder_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "space_dock_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `space_id` TEXT NOT NULL, `order_index` INTEGER NOT NULL, `package_name` TEXT NOT NULL, `component_name` TEXT NOT NULL, `user_handle_id` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`space_id`) REFERENCES `spaces`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "spaceId",
+            "columnName": "space_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "orderIndex",
+            "columnName": "order_index",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "packageName",
+            "columnName": "package_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "componentName",
+            "columnName": "component_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userHandleId",
+            "columnName": "user_handle_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_space_dock_items_space_id",
+            "unique": false,
+            "columnNames": [
+              "space_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_space_dock_items_space_id` ON `${TABLE_NAME}` (`space_id`)"
+          },
+          {
+            "name": "index_space_dock_items_space_id_order_index",
+            "unique": false,
+            "columnNames": [
+              "space_id",
+              "order_index"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_space_dock_items_space_id_order_index` ON `${TABLE_NAME}` (`space_id`, `order_index`)"
+          },
+          {
+            "name": "index_space_dock_items_space_id_package_name_component_name_user_handle_id",
+            "unique": true,
+            "columnNames": [
+              "space_id",
+              "package_name",
+              "component_name",
+              "user_handle_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_space_dock_items_space_id_package_name_component_name_user_handle_id` ON `${TABLE_NAME}` (`space_id`, `package_name`, `component_name`, `user_handle_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "spaces",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "space_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '49427156c0e29f3e605e5d7c809f5fd9')"
+    ]
+  }
+}

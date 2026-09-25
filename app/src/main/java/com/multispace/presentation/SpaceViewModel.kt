@@ -49,7 +49,7 @@ class SpaceViewModel @JvmOverloads constructor(
       database = database
     )
   },
-  private val sessionManager: LauncherSessionManager = (application as? MultiSpaceApplication)?.container?.sessionManager
+  val sessionManager: LauncherSessionManager = (application as? MultiSpaceApplication)?.container?.sessionManager
     ?: LauncherSessionManager()
 ) : AndroidViewModel(application) {
 
@@ -505,17 +505,40 @@ class SpaceViewModel @JvmOverloads constructor(
     }
   }
 
-  fun deleteSpace(spaceId: String) {
+  fun deleteSpace(spaceId: String, credential: String? = null, onResult: ((Boolean, String?) -> Unit)? = null) {
     viewModelScope.launch {
+      val target = allSpaces.value.firstOrNull { it.id == spaceId } ?: spaceRepository.getSpaceById(spaceId)
+      if (target != null && target.isProtected) {
+        if (credential == null) {
+          val msg = "Authentication required to delete protected Space."
+          _userFeedback.tryEmit(msg)
+          onResult?.invoke(false, msg)
+          return@launch
+        }
+        val authResult = if (target.authPolicy == Space.AUTH_BIOMETRIC) {
+          verifyRecoveryPinWithThrottling(spaceId, credential, unlockOnSuccess = false)
+        } else {
+          verifyCredentialWithThrottling(spaceId, credential, unlockOnSuccess = false)
+        }
+        if (authResult !is AuthenticationResult.Success) {
+          val err = (authResult as? AuthenticationResult.TemporarilyLocked)?.let { "Too many attempts. Cooldown: ${it.remainingSeconds}s" }
+            ?: "Incorrect credential to delete Space."
+          _userFeedback.tryEmit(err)
+          onResult?.invoke(false, err)
+          return@launch
+        }
+      }
       BiometricKeyManager.deleteSecretKey(spaceId)
-      val result = spaceRepository.deleteSpace(spaceId)
+      val result = spaceRepository.deleteSpace(spaceId, credential)
       result.fold(
         onSuccess = {
           _userFeedback.tryEmit("Space deleted successfully.")
+          onResult?.invoke(true, null)
         },
         onFailure = { error ->
           val msg = error.message ?: "Failed to delete Space."
           _userFeedback.tryEmit("Error: $msg")
+          onResult?.invoke(false, msg)
         }
       )
     }
@@ -717,10 +740,19 @@ class SpaceViewModel @JvmOverloads constructor(
   }
 
   suspend fun reenrollBiometrics(spaceId: String, recoveryPin: String): Result<Unit> {
+    val cooldown = sessionManager.getRemainingCooldownSeconds(spaceId)
+    if (cooldown != null && cooldown > 0) {
+      return Result.failure(SecurityException("Too many failed attempts. Cooldown: ${cooldown}s"))
+    }
     val verifyRes = spaceRepository.verifySpaceRecoveryPin(spaceId, recoveryPin)
     if (verifyRes !is AuthenticationResult.Success) {
-      sessionManager.recordFailedAttempt(spaceId)
-      return Result.failure(SecurityException("Incorrect Recovery PIN. Cannot re-enroll biometrics."))
+      val newCooldown = sessionManager.recordFailedAttempt(spaceId)
+      val msg = if (newCooldown != null && newCooldown > 0) {
+        "Too many failed attempts. Locked for ${newCooldown}s."
+      } else {
+        "Incorrect Recovery PIN. Cannot re-enroll biometrics."
+      }
+      return Result.failure(SecurityException(msg))
     }
     sessionManager.recordSuccessfulAttempt(spaceId)
     val reenrollResult = BiometricKeyManager.reenrollKey(spaceId)
@@ -734,16 +766,90 @@ class SpaceViewModel @JvmOverloads constructor(
     }
   }
 
-  fun authenticateAndUnlockWithBiometric(spaceId: String, cryptoObject: androidx.biometric.BiometricPrompt.CryptoObject? = null): Space? {
+  suspend fun verifyCredentialWithThrottling(
+    spaceId: String,
+    credential: String,
+    unlockOnSuccess: Boolean = false
+  ): AuthenticationResult {
+    val cooldown = sessionManager.getRemainingCooldownSeconds(spaceId)
+    if (cooldown != null && cooldown > 0) {
+      _userFeedback.tryEmit("Too many attempts. Wait ${cooldown}s.")
+      return AuthenticationResult.TemporarilyLocked(spaceId, cooldown)
+    }
+
+    val result = spaceRepository.verifySpaceCredential(spaceId, credential)
+    when (result) {
+      is AuthenticationResult.Success -> {
+        sessionManager.recordSuccessfulAttempt(spaceId)
+        if (unlockOnSuccess) {
+          sessionManager.unlockSpace(spaceId)
+          sessionManager.unlockLauncher()
+        }
+      }
+      is AuthenticationResult.InvalidCredential -> {
+        val newCooldown = sessionManager.recordFailedAttempt(spaceId)
+        if (newCooldown != null && newCooldown > 0) {
+          _userFeedback.tryEmit("Too many incorrect attempts. Locked for ${newCooldown}s.")
+          return AuthenticationResult.TemporarilyLocked(spaceId, newCooldown)
+        }
+      }
+      else -> {}
+    }
+    return result
+  }
+
+  suspend fun verifyRecoveryPinWithThrottling(
+    spaceId: String,
+    recoveryPin: String,
+    unlockOnSuccess: Boolean = false
+  ): AuthenticationResult {
+    val cooldown = sessionManager.getRemainingCooldownSeconds(spaceId)
+    if (cooldown != null && cooldown > 0) {
+      _userFeedback.tryEmit("Too many attempts. Wait ${cooldown}s.")
+      return AuthenticationResult.TemporarilyLocked(spaceId, cooldown)
+    }
+
+    val result = spaceRepository.verifySpaceRecoveryPin(spaceId, recoveryPin)
+    when (result) {
+      is AuthenticationResult.Success -> {
+        sessionManager.recordSuccessfulAttempt(spaceId)
+        if (unlockOnSuccess) {
+          sessionManager.unlockSpace(spaceId)
+          sessionManager.unlockLauncher()
+        }
+      }
+      is AuthenticationResult.InvalidCredential -> {
+        val newCooldown = sessionManager.recordFailedAttempt(spaceId)
+        if (newCooldown != null && newCooldown > 0) {
+          _userFeedback.tryEmit("Too many incorrect attempts. Locked for ${newCooldown}s.")
+          return AuthenticationResult.TemporarilyLocked(spaceId, newCooldown)
+        }
+      }
+      else -> {}
+    }
+    return result
+  }
+
+  fun authenticateAndUnlockWithBiometric(
+    spaceId: String,
+    cryptoObject: androidx.biometric.BiometricPrompt.CryptoObject?
+  ): Space? {
     val targetSpace = allSpaces.value.firstOrNull { it.id == spaceId } ?: return null
     if (!targetSpace.isBiometricProtected && targetSpace.authPolicy != Space.AUTH_BIOMETRIC) {
       AppLogger.w(AppLogger.Category.AUTH, "Attempted biometric unlock on non-biometric space (${targetSpace.name})")
       return null
     }
-    // Verify hardware cryptoObject if provided
-    if (cryptoObject != null && !BiometricKeyManager.verifyUnlockedCryptoObject(cryptoObject)) {
-      AppLogger.e(AppLogger.Category.AUTH, "Biometric cryptoObject verification failed for space (${targetSpace.name})")
-      _userFeedback.tryEmit("Cryptographic verification failed.")
+
+    val cooldown = sessionManager.getRemainingCooldownSeconds(spaceId)
+    if (cooldown != null && cooldown > 0) {
+      _userFeedback.tryEmit("Too many attempts. Wait ${cooldown}s.")
+      return null
+    }
+
+    // FAIL-CLOSED: For AUTH_BIOMETRIC, a valid cryptoObject is strictly mandatory
+    if (cryptoObject == null || !BiometricKeyManager.verifyUnlockedCryptoObject(cryptoObject)) {
+      AppLogger.e(AppLogger.Category.AUTH, "Biometric cryptoObject verification failed or missing for space (${targetSpace.name})")
+      _userFeedback.tryEmit("Biometric cryptographic verification failed.")
       return null
     }
 
