@@ -3,6 +3,7 @@ package com.multispace.platform
 import com.multispace.diagnostics.AppLogger
 import com.multispace.domain.model.Space
 import com.multispace.domain.security.AuthenticatedSession
+import com.multispace.domain.security.AuthenticationResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -214,10 +215,31 @@ class LauncherSessionManager(
   // Explicit re-authorization grants for sensitive operations (e.g. delete space, change security)
   private val explicitAuthGrants = mutableMapOf<String, Long>()
 
+  /**
+   * Grants explicit authorization for a sensitive operation on [spaceId] only if backed
+   * by a verified [AuthenticationResult.Success] matching [spaceId].
+   */
   @Synchronized
-  fun grantExplicitAuthorization(spaceId: String, durationMs: Long = 60_000L) {
-    explicitAuthGrants[spaceId] = System.currentTimeMillis() + durationMs
-    AppLogger.d(AppLogger.Category.AUTH, "Granted explicit authorization for Space '$spaceId' for ${durationMs}ms")
+  fun grantExplicitAuthorization(
+    spaceId: String,
+    authResult: AuthenticationResult,
+    durationMs: Long = 60_000L
+  ): Boolean {
+    if (authResult is AuthenticationResult.Success && authResult.spaceId == spaceId) {
+      explicitAuthGrants[spaceId] = System.currentTimeMillis() + durationMs
+      AppLogger.d(AppLogger.Category.AUTH, "Granted explicit authorization for Space '$spaceId' for ${durationMs}ms")
+      return true
+    }
+    AppLogger.w(AppLogger.Category.AUTH, "Explicit authorization DENIED for Space '$spaceId': invalid authentication proof")
+    return false
+  }
+
+  @Deprecated(
+    "Explicit authorization cannot be granted without successful authentication proof.",
+    level = DeprecationLevel.ERROR
+  )
+  fun grantExplicitAuthorization(spaceId: String) {
+    AppLogger.w(AppLogger.Category.AUTH, "Rejected unauthenticated explicit authorization attempt for Space '$spaceId'")
   }
 
   @Synchronized

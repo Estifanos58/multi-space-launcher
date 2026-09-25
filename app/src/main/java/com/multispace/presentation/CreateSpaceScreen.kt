@@ -944,63 +944,26 @@ fun CreateSpaceScreen(
                     )) {
                       isCreating = true
 
-                      // Process credential hashing
-                      var authPolicy = Space.AUTH_NONE
-                      var salt: String? = null
-                      var hash: String? = null
-                      var recoverySalt: String? = null
-                      var recoveryHash: String? = null
-
-                      if (isEditMode) {
-                        authPolicy = when (credentialOption) {
-                          CredentialOption.NONE -> Space.AUTH_NONE
-                          CredentialOption.PIN -> Space.AUTH_PIN
-                          CredentialOption.PATTERN -> Space.AUTH_PATTERN
-                          CredentialOption.BIOMETRIC -> Space.AUTH_BIOMETRIC
-                        }
-
-                        if (credentialOption == CredentialOption.PIN) {
-                          if (pinValue.isNotBlank()) {
-                            salt = PinSecurityManager.generateSalt()
-                            hash = PinSecurityManager.hashPin(pinValue, salt)
-                          } else {
-                            salt = editingSpace?.pinSalt
-                            hash = editingSpace?.pinHash
-                          }
-                        } else if (credentialOption == CredentialOption.PATTERN) {
-                          if (!confirmedPatternString.isNullOrEmpty()) {
-                            salt = PinSecurityManager.generateSalt()
-                            hash = PinSecurityManager.hashPin(confirmedPatternString!!, salt)
-                          } else {
-                            salt = editingSpace?.pinSalt
-                            hash = editingSpace?.pinHash
-                          }
-                        } else if (credentialOption == CredentialOption.BIOMETRIC) {
-                          if (recoveryPinValue.isNotBlank()) {
-                            recoverySalt = PinSecurityManager.generateSalt()
-                            recoveryHash = PinSecurityManager.hashPin(recoveryPinValue, recoverySalt)
-                          } else {
-                            recoverySalt = editingSpace?.recoveryPinSalt
-                            recoveryHash = editingSpace?.recoveryPinHash
-                          }
-                        }
-                      } else {
-                        if (credentialOption == CredentialOption.BIOMETRIC) {
-                          authPolicy = Space.AUTH_BIOMETRIC
-                          if (recoveryPinValue.isNotBlank()) {
-                            recoverySalt = PinSecurityManager.generateSalt()
-                            recoveryHash = PinSecurityManager.hashPin(recoveryPinValue, recoverySalt)
-                          }
-                        } else if (credentialOption == CredentialOption.PIN && pinValue.isNotBlank()) {
-                          authPolicy = Space.AUTH_PIN
-                          salt = PinSecurityManager.generateSalt()
-                          hash = PinSecurityManager.hashPin(pinValue, salt)
-                        } else if (credentialOption == CredentialOption.PATTERN && !confirmedPatternString.isNullOrEmpty()) {
-                          authPolicy = Space.AUTH_PATTERN
-                          salt = PinSecurityManager.generateSalt()
-                          hash = PinSecurityManager.hashPin(confirmedPatternString!!, salt)
-                        }
+                      val authPolicy = when (credentialOption) {
+                        CredentialOption.NONE -> Space.AUTH_NONE
+                        CredentialOption.PIN -> Space.AUTH_PIN
+                        CredentialOption.PATTERN -> Space.AUTH_PATTERN
+                        CredentialOption.BIOMETRIC -> Space.AUTH_BIOMETRIC
                       }
+
+                      val rawPin = when (credentialOption) {
+                        CredentialOption.PIN -> pinValue.trim().ifBlank { null }
+                        CredentialOption.PATTERN -> confirmedPatternString
+                        else -> null
+                      }
+
+                      val rawRecoveryPin = when (credentialOption) {
+                        CredentialOption.BIOMETRIC -> recoveryPinValue.trim().ifBlank { null }
+                        else -> null
+                      }
+
+                      val keepExistingCreds = isEditMode && rawPin == null && rawRecoveryPin == null &&
+                        (editingSpace?.authPolicy == authPolicy || (credentialOption == CredentialOption.NONE && editingSpace?.isProtected == false))
 
                       // Resolve Home Wallpaper
                       val homeBgType = when (homeWallpaperCategory) {
@@ -1057,10 +1020,9 @@ fun CreateSpaceScreen(
                           spaceId = editingSpace.id,
                           name = spaceName.trim(),
                           authPolicy = authPolicy,
-                          pinSalt = salt,
-                          pinHash = hash,
-                          recoveryPinSalt = recoverySalt,
-                          recoveryPinHash = recoveryHash,
+                          pin = rawPin,
+                          recoveryPin = rawRecoveryPin,
+                          keepExistingCredentials = keepExistingCreds,
                           patternRows = patternRows,
                           patternCols = patternCols,
                           backgroundType = homeBgType,
@@ -1116,10 +1078,8 @@ fun CreateSpaceScreen(
                         spaceViewModel.createFullSpace(
                           name = spaceName.trim(),
                           authPolicy = authPolicy,
-                          pinSalt = salt,
-                          pinHash = hash,
-                          recoveryPinSalt = recoverySalt,
-                          recoveryPinHash = recoveryHash,
+                          pin = rawPin,
+                          recoveryPin = rawRecoveryPin,
                           patternRows = patternRows,
                           patternCols = patternCols,
                           backgroundType = homeBgType,

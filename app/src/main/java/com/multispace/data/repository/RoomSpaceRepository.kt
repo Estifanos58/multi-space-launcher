@@ -613,6 +613,8 @@ class RoomSpaceRepository(
   override suspend fun createFullSpace(
     name: String,
     authPolicy: String,
+    pin: String?,
+    recoveryPin: String?,
     pinSalt: String?,
     pinHash: String?,
     recoveryPinSalt: String?,
@@ -665,15 +667,71 @@ class RoomSpaceRepository(
     if (trimmed.isEmpty()) {
       return Result.failure(IllegalArgumentException("Space name cannot be empty"))
     }
-    if (authPolicy == Space.AUTH_BIOMETRIC) {
-      if (recoveryPinSalt.isNullOrEmpty() || recoveryPinHash.isNullOrEmpty()) {
-        return Result.failure(IllegalArgumentException("Biometric spaces require a valid Recovery PIN."))
+
+    val resolvedSalt: String?
+    val resolvedHash: String?
+    val resolvedRecoverySalt: String?
+    val resolvedRecoveryHash: String?
+
+    when (authPolicy) {
+      Space.AUTH_PIN -> {
+        if (pin.isNullOrEmpty()) {
+          if (!pinHash.isNullOrEmpty()) {
+            return Result.failure(IllegalArgumentException("Pre-hashed credentials cannot bypass security policy. Provide raw PIN for strength verification."))
+          }
+          return Result.failure(IllegalArgumentException("Protected spaces require valid security credentials."))
+        }
+        val strength = PinSecurityManager.validatePinStrength(pin)
+        if (strength.isFailure) {
+          return Result.failure(strength.exceptionOrNull() ?: IllegalArgumentException("Weak PIN rejected."))
+        }
+        val salt = PinSecurityManager.generateSalt()
+        resolvedSalt = salt
+        resolvedHash = PinSecurityManager.hashPin(pin, salt)
+        resolvedRecoverySalt = null
+        resolvedRecoveryHash = null
       }
-    } else if (authPolicy == Space.AUTH_PIN || authPolicy == Space.AUTH_PATTERN) {
-      if (pinSalt.isNullOrEmpty() || pinHash.isNullOrEmpty()) {
-        return Result.failure(IllegalArgumentException("Protected spaces require valid security credentials."))
+      Space.AUTH_PATTERN -> {
+        if (pin.isNullOrEmpty()) {
+          if (!pinHash.isNullOrEmpty()) {
+            return Result.failure(IllegalArgumentException("Pre-hashed credentials cannot bypass security policy. Provide raw pattern for format verification."))
+          }
+          return Result.failure(IllegalArgumentException("Protected spaces require valid security credentials."))
+        }
+        if (!PinSecurityManager.isValidPatternFormat(pin)) {
+          return Result.failure(IllegalArgumentException("Invalid pattern format."))
+        }
+        val salt = PinSecurityManager.generateSalt()
+        resolvedSalt = salt
+        resolvedHash = PinSecurityManager.hashPin(pin, salt)
+        resolvedRecoverySalt = null
+        resolvedRecoveryHash = null
+      }
+      Space.AUTH_BIOMETRIC -> {
+        if (recoveryPin.isNullOrEmpty()) {
+          if (!recoveryPinHash.isNullOrEmpty()) {
+            return Result.failure(IllegalArgumentException("Pre-hashed credentials cannot bypass security policy. Provide raw Recovery PIN for strength verification."))
+          }
+          return Result.failure(IllegalArgumentException("Biometric spaces require a valid Recovery PIN."))
+        }
+        val strength = PinSecurityManager.validatePinStrength(recoveryPin)
+        if (strength.isFailure) {
+          return Result.failure(strength.exceptionOrNull() ?: IllegalArgumentException("Weak Recovery PIN rejected."))
+        }
+        val salt = PinSecurityManager.generateSalt()
+        resolvedRecoverySalt = salt
+        resolvedRecoveryHash = PinSecurityManager.hashPin(recoveryPin, salt)
+        resolvedSalt = null
+        resolvedHash = null
+      }
+      else -> {
+        resolvedSalt = null
+        resolvedHash = null
+        resolvedRecoverySalt = null
+        resolvedRecoveryHash = null
       }
     }
+
     return try {
       val space = runInTransaction {
         val newId = "space_" + UUID.randomUUID().toString().replace("-", "").take(12)
@@ -685,10 +743,10 @@ class RoomSpaceRepository(
           createdAt = System.currentTimeMillis(),
           updatedAt = System.currentTimeMillis(),
           authPolicy = authPolicy,
-          pinSalt = pinSalt,
-          pinHash = pinHash,
-          recoveryPinSalt = recoveryPinSalt,
-          recoveryPinHash = recoveryPinHash,
+          pinSalt = resolvedSalt,
+          pinHash = resolvedHash,
+          recoveryPinSalt = resolvedRecoverySalt,
+          recoveryPinHash = resolvedRecoveryHash,
           patternRows = patternRows,
           patternCols = patternCols,
           layoutType = "GRID_$gridColumns",
@@ -759,6 +817,8 @@ class RoomSpaceRepository(
     spaceId: String,
     name: String,
     authPolicy: String,
+    pin: String?,
+    recoveryPin: String?,
     pinSalt: String?,
     pinHash: String?,
     recoveryPinSalt: String?,
@@ -837,8 +897,10 @@ class RoomSpaceRepository(
         // Changing authentication or disabling protection on an already protected space requires explicit re-authentication
         val isChangingSecurity = existing.toDomain().isProtected && (
           authPolicy != existing.authPolicy ||
-          pinHash != existing.pinHash ||
-          recoveryPinHash != existing.recoveryPinHash
+          !pin.isNullOrEmpty() ||
+          !recoveryPin.isNullOrEmpty() ||
+          pinHash != null ||
+          recoveryPinHash != null
         )
         if (isChangingSecurity) {
           val isExplicitlyAuthorized = sessionManager?.consumeExplicitAuthorization(spaceId) == true
@@ -852,36 +914,97 @@ class RoomSpaceRepository(
               verifySpaceCredential(spaceId, currentCredential)
             }
             if (verifyResult !is AuthenticationResult.Success) {
-              return Result.failure(SecurityException("Incorrect current credential for authentication change."))
+              val msg = if (verifyResult is AuthenticationResult.TemporarilyLocked) {
+                "Too many failed attempts. Cooldown: ${verifyResult.remainingSeconds}s"
+              } else {
+                "Incorrect current credential for authentication change."
+              }
+              return Result.failure(SecurityException(msg))
             }
           }
         }
 
-        if (authPolicy == Space.AUTH_NONE) {
-          resolvedAuthPolicy = Space.AUTH_NONE
-          resolvedSalt = null
-          resolvedHash = null
-          resolvedRecoverySalt = null
-          resolvedRecoveryHash = null
-          resolvedPatternRows = patternRows
-          resolvedPatternCols = patternCols
-        } else {
-          if (authPolicy == Space.AUTH_BIOMETRIC) {
-            if (recoveryPinSalt.isNullOrEmpty() || recoveryPinHash.isNullOrEmpty()) {
-              return Result.failure(IllegalArgumentException("Biometric spaces require a valid Recovery PIN."))
-            }
-          } else if (authPolicy == Space.AUTH_PIN || authPolicy == Space.AUTH_PATTERN) {
-            if (pinSalt.isNullOrEmpty() || pinHash.isNullOrEmpty()) {
+        when (authPolicy) {
+          Space.AUTH_NONE -> {
+            resolvedAuthPolicy = Space.AUTH_NONE
+            resolvedSalt = null
+            resolvedHash = null
+            resolvedRecoverySalt = null
+            resolvedRecoveryHash = null
+            resolvedPatternRows = patternRows
+            resolvedPatternCols = patternCols
+            BiometricKeyManager.deleteSecretKey(spaceId)
+          }
+          Space.AUTH_PIN -> {
+            if (pin.isNullOrEmpty()) {
+              if (!pinHash.isNullOrEmpty()) {
+                return Result.failure(IllegalArgumentException("Pre-hashed credentials cannot bypass security policy. Provide raw PIN for strength verification."))
+              }
               return Result.failure(IllegalArgumentException("Protected spaces require valid security credentials."))
             }
+            val strength = PinSecurityManager.validatePinStrength(pin)
+            if (strength.isFailure) {
+              return Result.failure(strength.exceptionOrNull() ?: IllegalArgumentException("Weak PIN rejected."))
+            }
+            val salt = PinSecurityManager.generateSalt()
+            resolvedAuthPolicy = Space.AUTH_PIN
+            resolvedSalt = salt
+            resolvedHash = PinSecurityManager.hashPin(pin, salt)
+            resolvedRecoverySalt = null
+            resolvedRecoveryHash = null
+            resolvedPatternRows = patternRows
+            resolvedPatternCols = patternCols
+            BiometricKeyManager.deleteSecretKey(spaceId)
           }
-          resolvedAuthPolicy = authPolicy
-          resolvedSalt = pinSalt
-          resolvedHash = pinHash
-          resolvedRecoverySalt = recoveryPinSalt
-          resolvedRecoveryHash = recoveryPinHash
-          resolvedPatternRows = patternRows
-          resolvedPatternCols = patternCols
+          Space.AUTH_PATTERN -> {
+            if (pin.isNullOrEmpty()) {
+              if (!pinHash.isNullOrEmpty()) {
+                return Result.failure(IllegalArgumentException("Pre-hashed credentials cannot bypass security policy. Provide raw pattern for format verification."))
+              }
+              return Result.failure(IllegalArgumentException("Protected spaces require valid security credentials."))
+            }
+            if (!PinSecurityManager.isValidPatternFormat(pin)) {
+              return Result.failure(IllegalArgumentException("Invalid pattern format."))
+            }
+            val salt = PinSecurityManager.generateSalt()
+            resolvedAuthPolicy = Space.AUTH_PATTERN
+            resolvedSalt = salt
+            resolvedHash = PinSecurityManager.hashPin(pin, salt)
+            resolvedRecoverySalt = null
+            resolvedRecoveryHash = null
+            resolvedPatternRows = patternRows
+            resolvedPatternCols = patternCols
+            BiometricKeyManager.deleteSecretKey(spaceId)
+          }
+          Space.AUTH_BIOMETRIC -> {
+            if (recoveryPin.isNullOrEmpty()) {
+              if (!recoveryPinHash.isNullOrEmpty()) {
+                return Result.failure(IllegalArgumentException("Pre-hashed credentials cannot bypass security policy. Provide raw Recovery PIN for strength verification."))
+              }
+              return Result.failure(IllegalArgumentException("Biometric spaces require a valid Recovery PIN."))
+            }
+            val strength = PinSecurityManager.validatePinStrength(recoveryPin)
+            if (strength.isFailure) {
+              return Result.failure(strength.exceptionOrNull() ?: IllegalArgumentException("Weak Recovery PIN rejected."))
+            }
+            val salt = PinSecurityManager.generateSalt()
+            resolvedAuthPolicy = Space.AUTH_BIOMETRIC
+            resolvedRecoverySalt = salt
+            resolvedRecoveryHash = PinSecurityManager.hashPin(recoveryPin, salt)
+            resolvedSalt = null
+            resolvedHash = null
+            resolvedPatternRows = patternRows
+            resolvedPatternCols = patternCols
+          }
+          else -> {
+            resolvedAuthPolicy = Space.AUTH_NONE
+            resolvedSalt = null
+            resolvedHash = null
+            resolvedRecoverySalt = null
+            resolvedRecoveryHash = null
+            resolvedPatternRows = patternRows
+            resolvedPatternCols = patternCols
+          }
         }
       }
 
@@ -1158,7 +1281,12 @@ class RoomSpaceRepository(
             verifySpaceCredential(spaceId, credential)
           }
           if (verifyResult !is AuthenticationResult.Success) {
-            return Result.failure(SecurityException("Invalid credential to delete space."))
+            val msg = if (verifyResult is AuthenticationResult.TemporarilyLocked) {
+              "Too many failed attempts. Cooldown: ${verifyResult.remainingSeconds}s"
+            } else {
+              "Invalid credential to delete space."
+            }
+            return Result.failure(SecurityException(msg))
           }
         }
       }
@@ -1255,14 +1383,15 @@ class RoomSpaceRepository(
       val existing = spaceDao.getSpaceById(spaceId)
         ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
 
-      val isCurrentValid = PinSecurityManager.verifyPin(
-        currentPin,
-        existing.pinSalt,
-        existing.pinHash
-      )
-      if (!isCurrentValid) {
-        AppLogger.w(AppLogger.Category.LAUNCHER, "PIN change failed: incorrect current PIN for Space ($spaceId)")
-        return Result.failure(IllegalArgumentException("Incorrect current PIN"))
+      val verifyResult = verifySpaceCredential(spaceId, currentPin)
+      if (verifyResult !is AuthenticationResult.Success) {
+        val msg = if (verifyResult is AuthenticationResult.TemporarilyLocked) {
+          "Too many failed attempts. Cooldown: ${verifyResult.remainingSeconds}s"
+        } else {
+          "Incorrect current PIN"
+        }
+        AppLogger.w(AppLogger.Category.LAUNCHER, "PIN change failed: $msg for Space ($spaceId)")
+        return Result.failure(SecurityException(msg))
       }
 
       val newSalt = PinSecurityManager.generateSalt()
@@ -1298,8 +1427,13 @@ class RoomSpaceRepository(
         verifySpaceCredential(spaceId, currentCredential)
       }
       if (verifyResult !is AuthenticationResult.Success) {
-        AppLogger.w(AppLogger.Category.LAUNCHER, "Protection disable failed: invalid credential for Space ($spaceId)")
-        return Result.failure(IllegalArgumentException("Incorrect current credential"))
+        val msg = if (verifyResult is AuthenticationResult.TemporarilyLocked) {
+          "Too many failed attempts. Cooldown: ${verifyResult.remainingSeconds}s"
+        } else {
+          "Incorrect current credential"
+        }
+        AppLogger.w(AppLogger.Category.LAUNCHER, "Protection disable failed: $msg for Space ($spaceId)")
+        return Result.failure(SecurityException(msg))
       }
 
       val updated = existing.copy(
@@ -1338,6 +1472,11 @@ class RoomSpaceRepository(
         return AuthenticationResult.NotAllowed("Space '${existing.name}' has an unknown security policy.")
       }
 
+      val cooldown = sessionManager?.getRemainingCooldownSeconds(spaceId)
+      if (cooldown != null && cooldown > 0) {
+        return AuthenticationResult.TemporarilyLocked(spaceId, cooldown)
+      }
+
       // FAIL CLOSED: if protected but credential parameters missing, never authenticate
       if (existing.pinSalt.isNullOrEmpty() || existing.pinHash.isNullOrEmpty()) {
         AppLogger.e(AppLogger.Category.AUTH, "Fail-closed: Space ($spaceId) policy ${existing.authPolicy} but missing salt/hash")
@@ -1347,6 +1486,7 @@ class RoomSpaceRepository(
       val verifyRes = PinSecurityManager.verifyPinWithUpgradeCheck(credential, existing.pinSalt, existing.pinHash)
 
       if (verifyRes.isValid) {
+        sessionManager?.recordSuccessfulAttempt(spaceId)
         if (verifyRes.needsUpgrade && verifyRes.upgradedHash != null && verifyRes.upgradedSalt != null) {
           val upgradedEntity = existing.copy(
             pinSalt = verifyRes.upgradedSalt,
@@ -1360,7 +1500,12 @@ class RoomSpaceRepository(
         AuthenticationResult.Success(spaceId, authMethod, verifyRes.needsUpgrade)
       } else {
         AppLogger.w(AppLogger.Category.LAUNCHER, "Space authentication failed for Space ($spaceId)")
-        AuthenticationResult.InvalidCredential(spaceId)
+        val newCooldown = sessionManager?.recordFailedAttempt(spaceId)
+        if (newCooldown != null && newCooldown > 0) {
+          AuthenticationResult.TemporarilyLocked(spaceId, newCooldown)
+        } else {
+          AuthenticationResult.InvalidCredential(spaceId)
+        }
       }
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Error during authentication verification for Space ($spaceId)", e)
@@ -1377,6 +1522,11 @@ class RoomSpaceRepository(
         return AuthenticationResult.NotAllowed("Recovery PIN is only permitted for Biometric-protected Spaces.")
       }
 
+      val cooldown = sessionManager?.getRemainingCooldownSeconds(spaceId)
+      if (cooldown != null && cooldown > 0) {
+        return AuthenticationResult.TemporarilyLocked(spaceId, cooldown)
+      }
+
       if (existing.recoveryPinSalt.isNullOrEmpty() || existing.recoveryPinHash.isNullOrEmpty()) {
         AppLogger.e(AppLogger.Category.AUTH, "Fail-closed: Space ($spaceId) policy ${existing.authPolicy} but missing recovery salt/hash")
         return AuthenticationResult.NotConfigured(spaceId, "Recovery PIN is not configured for this Space.")
@@ -1389,6 +1539,7 @@ class RoomSpaceRepository(
       )
 
       if (verifyRes.isValid) {
+        sessionManager?.recordSuccessfulAttempt(spaceId)
         if (verifyRes.needsUpgrade && verifyRes.upgradedHash != null && verifyRes.upgradedSalt != null) {
           val upgradedEntity = existing.copy(
             recoveryPinSalt = verifyRes.upgradedSalt,
@@ -1402,7 +1553,12 @@ class RoomSpaceRepository(
         AuthenticationResult.Success(spaceId, AuthenticationMethod.RECOVERY_PIN, verifyRes.needsUpgrade)
       } else {
         AppLogger.w(AppLogger.Category.LAUNCHER, "Recovery PIN authentication failed for Space ($spaceId)")
-        AuthenticationResult.InvalidCredential(spaceId)
+        val newCooldown = sessionManager?.recordFailedAttempt(spaceId)
+        if (newCooldown != null && newCooldown > 0) {
+          AuthenticationResult.TemporarilyLocked(spaceId, newCooldown)
+        } else {
+          AuthenticationResult.InvalidCredential(spaceId)
+        }
       }
     } catch (e: Exception) {
       AppLogger.e(AppLogger.Category.LAUNCHER, "Error during recovery PIN verification for Space ($spaceId)", e)

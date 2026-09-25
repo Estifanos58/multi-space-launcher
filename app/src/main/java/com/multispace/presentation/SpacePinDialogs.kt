@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.multispace.domain.model.Space
+import com.multispace.domain.security.AuthenticationMethod
 import com.multispace.domain.security.AuthenticationResult
 import com.multispace.platform.BiometricAuthManager
 import com.multispace.platform.PinSecurityManager
@@ -461,7 +462,10 @@ fun SpaceCredentialVerificationDialog(
         isVerifying = false
         val unlocked = spaceViewModel.authenticateAndUnlockWithBiometric(space.id, authResult.cryptoObject)
         if (unlocked != null) {
-          spaceViewModel.sessionManager.grantExplicitAuthorization(space.id)
+          spaceViewModel.sessionManager.grantExplicitAuthorization(
+            space.id,
+            AuthenticationResult.Success(space.id, AuthenticationMethod.BIOMETRIC)
+          )
           if (mode == AuthDialogMode.UNLOCK) {
             spaceViewModel.unlockSpace(space.id)
           }
@@ -729,7 +733,7 @@ fun SpaceCredentialVerificationDialog(
                     val isSuccess = result is AuthenticationResult.Success
                     isVerifying = false
                     if (isSuccess) {
-                      spaceViewModel.sessionManager.grantExplicitAuthorization(space.id)
+                      spaceViewModel.sessionManager.grantExplicitAuthorization(space.id, result)
                       onSuccess()
                     } else {
                       isError = true
@@ -862,7 +866,7 @@ fun SpaceCredentialVerificationDialog(
               isVerifying = false
               enteredPin = ""
               if (authResult is AuthenticationResult.Success) {
-                spaceViewModel.sessionManager.grantExplicitAuthorization(space.id)
+                spaceViewModel.sessionManager.grantExplicitAuthorization(space.id, authResult)
                 if (mode == AuthDialogMode.UNLOCK) {
                   spaceViewModel.unlockSpace(space.id)
                 }
@@ -897,7 +901,7 @@ fun SpaceCredentialVerificationDialog(
               isVerifying = false
               enteredPin = ""
               if (isSuccess) {
-                spaceViewModel.sessionManager.grantExplicitAuthorization(space.id)
+                spaceViewModel.sessionManager.grantExplicitAuthorization(space.id, authResult)
                 onSuccess()
               } else {
                 isError = true

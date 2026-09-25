@@ -26,6 +26,8 @@ interface SpaceRepository : SpaceMembershipRepository, PlacementRepository, Fold
   suspend fun createFullSpace(
     name: String,
     authPolicy: String = Space.AUTH_NONE,
+    pin: String? = null,
+    recoveryPin: String? = null,
     pinSalt: String? = null,
     pinHash: String? = null,
     recoveryPinSalt: String? = null,
@@ -79,6 +81,8 @@ interface SpaceRepository : SpaceMembershipRepository, PlacementRepository, Fold
     spaceId: String,
     name: String,
     authPolicy: String = Space.AUTH_NONE,
+    pin: String? = null,
+    recoveryPin: String? = null,
     pinSalt: String? = null,
     pinHash: String? = null,
     recoveryPinSalt: String? = null,

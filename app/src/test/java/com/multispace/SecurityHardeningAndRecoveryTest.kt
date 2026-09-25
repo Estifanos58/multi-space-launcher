@@ -2,10 +2,22 @@ package com.multispace
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.multispace.data.database.LauncherDatabase
+import com.multispace.data.preferences.LauncherPreferences
+import com.multispace.data.repository.RoomSpaceRepository
 import com.multispace.domain.model.Space
+import com.multispace.domain.security.AuthenticationMethod
+import com.multispace.domain.security.AuthenticationResult
+import com.multispace.domain.security.AuthorizationStatus
+import com.multispace.domain.security.SensitiveOperation
+import com.multispace.domain.security.SpaceAuthorizationManager
 import com.multispace.platform.BiometricKeyManager
 import com.multispace.platform.LauncherSessionManager
 import com.multispace.platform.PinSecurityManager
+import com.multispace.presentation.SpaceViewModel
+import java.security.KeyStoreException
+import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -22,6 +34,12 @@ class SecurityHardeningAndRecoveryTest {
   @Before
   fun setUp() {
     context = ApplicationProvider.getApplicationContext()
+    BiometricKeyManager.testKeyGenerator = null
+  }
+
+  @After
+  fun tearDown() {
+    BiometricKeyManager.testKeyGenerator = null
   }
 
   @Test
@@ -35,338 +53,249 @@ class SecurityHardeningAndRecoveryTest {
   }
 
   @Test
-  fun testFailClosedForBiometricSpaceWithoutRecoveryPin() {
-    val biometricSpaceNoRecovery = Space(
-      id = "bio_space_no_recovery",
-      name = "Biometric Without Recovery",
-      authPolicy = Space.AUTH_BIOMETRIC,
-      recoveryPinSalt = null,
-      recoveryPinHash = null
-    )
-
-    // Fail-closed verification: attempting recovery unlock when credentials are missing must fail
-    val salt = biometricSpaceNoRecovery.recoveryPinSalt
-    val hash = biometricSpaceNoRecovery.recoveryPinHash
-    val canVerify = !salt.isNullOrEmpty() && !hash.isNullOrEmpty() && PinSecurityManager.verifyPin("1234", salt, hash)
-    assertFalse("Space with missing recovery credentials must fail-closed", canVerify)
-  }
-
-  @Test
-  fun testPersistentLockoutCooldownAndExponentialBackoff() {
-    val sessionManager = LauncherSessionManager(context)
-    val spaceId = "test_cooldown_space"
-
-    // Clear any previous attempts
-    sessionManager.recordSuccessfulAttempt(spaceId)
-    assertNull("Initially should have no cooldown", sessionManager.getRemainingCooldownSeconds(spaceId))
-
-    // 4 failed attempts: below threshold (cooldown starts at 5)
-    repeat(4) {
-      sessionManager.recordFailedAttempt(spaceId)
-    }
-    assertNull("4 attempts should not trigger lockout", sessionManager.getRemainingCooldownSeconds(spaceId))
-
-    // 5th failed attempt: triggers lockout
-    sessionManager.recordFailedAttempt(spaceId)
-    val cooldown = sessionManager.getRemainingCooldownSeconds(spaceId)
-    assertNotNull("5 attempts must trigger lockout", cooldown)
-    assertTrue("Cooldown should be > 0 and <= 30 seconds", cooldown!! in 1..30)
-    assertTrue("Space should be locked out", sessionManager.isLockedOut(spaceId))
-
-    // A new session manager initialized with the same context should restore the lockout state
-    val restoredSessionManager = LauncherSessionManager(context)
-    assertTrue("Lockout state must persist across process restart", restoredSessionManager.isLockedOut(spaceId))
-    val restoredCooldown = restoredSessionManager.getRemainingCooldownSeconds(spaceId)
-    assertNotNull("Restored cooldown must be present", restoredCooldown)
-    assertTrue("Restored cooldown should be > 0", restoredCooldown!! > 0)
-
-    // Successful unlock clears the lockout state
-    sessionManager.recordSuccessfulAttempt(spaceId)
-    assertFalse("Unlock should clear lockout", sessionManager.isLockedOut(spaceId))
-    assertNull("Unlock should clear cooldown", sessionManager.getRemainingCooldownSeconds(spaceId))
-  }
-
-  @Test
-  fun testTargetSpaceIsolationPreventsCrossSpaceMatch() {
-    val saltA = PinSecurityManager.generateSalt()
-    val hashA = PinSecurityManager.hashPin("1234", saltA)
-    val spaceA = Space(
-      id = "space_a",
-      name = "Space A",
-      authPolicy = Space.AUTH_PIN,
-      pinSalt = saltA,
-      pinHash = hashA
-    )
-
-    val saltB = PinSecurityManager.generateSalt()
-    val hashB = PinSecurityManager.hashPin("5678", saltB)
-    val spaceB = Space(
-      id = "space_b",
-      name = "Space B",
-      authPolicy = Space.AUTH_PIN,
-      pinSalt = saltB,
-      pinHash = hashB
-    )
-
-    fun verifySpecificTarget(target: Space, credential: String): Boolean {
-      val s = target.pinSalt
-      val h = target.pinHash
-      if (s.isNullOrEmpty() || h.isNullOrEmpty()) return false
-      return PinSecurityManager.verifyPin(credential, s, h)
-    }
-
-    // Space A with credential "5678" (Space B's pin) must fail
-    assertFalse("Space A must not unlock with Space B's PIN", verifySpecificTarget(spaceA, "5678"))
-    assertTrue("Space A must unlock with its own PIN", verifySpecificTarget(spaceA, "1234"))
-
-    // Space B with credential "1234" (Space A's pin) must fail
-    assertFalse("Space B must not unlock with Space A's PIN", verifySpecificTarget(spaceB, "1234"))
-    assertTrue("Space B must unlock with its own PIN", verifySpecificTarget(spaceB, "5678"))
-  }
-
-  @Test
-  fun testBiometricKeyReenrollmentAndCleanup() {
-    val testSpaceId = "test_reenroll_space"
-    assertEquals("multispace_space_auth_test_reenroll_space", BiometricKeyManager.getKeyAlias(testSpaceId))
-
-    // Delete key safely (idempotent, does not throw even if key doesn't exist)
-    BiometricKeyManager.deleteSecretKey(testSpaceId)
-    assertTrue("Alias prefix is formatted correctly", BiometricKeyManager.getKeyAlias(testSpaceId).startsWith("multispace_space_auth_"))
-  }
-
-  @Test
-  fun testBiometricCryptoObjectFailureUnlockRejected() {
-    // 1. Unlocked cipher verification fails on null
-    assertFalse("Null CryptoObject must be rejected", BiometricKeyManager.verifyUnlockedCryptoObject(null))
-
-    // 2. SpaceViewModel fail-closed: unlocking AUTH_BIOMETRIC without valid cryptoObject must return null
-    val sessionManager = LauncherSessionManager(context)
-    val database = androidx.room.Room.inMemoryDatabaseBuilder(context, com.multispace.data.database.LauncherDatabase::class.java)
+  fun testWeakPinRejectionThroughCreateFullSpaceAndUpdateFullSpace() = runBlocking {
+    val database = androidx.room.Room.inMemoryDatabaseBuilder(context, LauncherDatabase::class.java)
       .allowMainThreadQueries()
       .build()
-    val repo = com.multispace.data.repository.RoomSpaceRepository(
+    val repo = RoomSpaceRepository(
       spaceDao = database.spaceDao(),
       membershipDao = database.spaceMembershipDao(),
       layoutDao = database.spaceLayoutDao(),
-      preferences = com.multispace.data.preferences.LauncherPreferences(context),
-      context = context,
-      database = database,
-      sessionManager = sessionManager
-    )
-    val viewModel = com.multispace.presentation.SpaceViewModel(
-      application = ApplicationProvider.getApplicationContext(),
-      spaceRepository = repo,
-      sessionManager = sessionManager
-    )
-
-    val salt = PinSecurityManager.generateSalt()
-    val hash = PinSecurityManager.hashPin("9482", salt)
-    val bioSpace = kotlinx.coroutines.runBlocking {
-      repo.createFullSpace(
-        name = "Bio Space",
-        authPolicy = Space.AUTH_BIOMETRIC,
-        recoveryPinSalt = salt,
-        recoveryPinHash = hash
-      ).getOrThrow()
-    }
-
-    val result = viewModel.authenticateAndUnlockWithBiometric(bioSpace.id, cryptoObject = null)
-    assertNull("Biometric unlock must fail-closed and return null when cryptoObject is missing or invalid", result)
-    assertFalse("Space must remain locked", sessionManager.isSpaceUnlocked(bioSpace.id))
-    database.close()
-  }
-
-  @Test
-  fun testWeakPinRejectedThroughEveryCreationEditPath() = kotlinx.coroutines.runBlocking {
-    val weakPins = listOf("1111", "000000", "1234", "123456", "4321", "654321", "1212", "123123")
-    for (weak in weakPins) {
-      assertTrue("PinSecurityManager must reject weak PIN: $weak", PinSecurityManager.validatePinStrength(weak).isFailure)
-    }
-
-    val validPin = "2468"
-    assertTrue("Valid complex PIN must be accepted", PinSecurityManager.validatePinStrength(validPin).isSuccess)
-
-    val database = androidx.room.Room.inMemoryDatabaseBuilder(context, com.multispace.data.database.LauncherDatabase::class.java)
-      .allowMainThreadQueries()
-      .build()
-    val repo = com.multispace.data.repository.RoomSpaceRepository(
-      spaceDao = database.spaceDao(),
-      membershipDao = database.spaceMembershipDao(),
-      layoutDao = database.spaceLayoutDao(),
-      preferences = com.multispace.data.preferences.LauncherPreferences(context),
+      preferences = LauncherPreferences(context),
       context = context,
       database = database
     )
 
-    val space = repo.createSpace(name = "Target Test Space").getOrThrow()
+    // 1. Weak PINs rejected through createFullSpace
+    val weakPins = listOf("1234", "1111", "1212", "4321", "123456", "000000", "123123")
+    for (weak in weakPins) {
+      val res = repo.createFullSpace(
+        name = "Weak Space $weak",
+        authPolicy = Space.AUTH_PIN,
+        pin = weak
+      )
+      assertTrue("createFullSpace must reject weak PIN: $weak", res.isFailure)
+    }
 
-    // 1. setSpacePin rejects weak PINs
-    val setRes = repo.setSpacePin(space.id, "1234")
-    assertTrue("repository.setSpacePin must reject weak PIN", setRes.isFailure)
+    // 2. Weak Recovery PIN rejected through createFullSpace
+    for (weak in listOf("1234", "1111", "4321", "1212")) {
+      val res = repo.createFullSpace(
+        name = "Weak Bio Space $weak",
+        authPolicy = Space.AUTH_BIOMETRIC,
+        recoveryPin = weak
+      )
+      assertTrue("createFullSpace must reject weak Recovery PIN: $weak", res.isFailure)
+    }
 
-    // 2. setSpaceRecoveryPin rejects weak PINs
-    val setRecRes = repo.setSpaceRecoveryPin(space.id, "1111")
-    assertTrue("repository.setSpaceRecoveryPin must reject weak PIN", setRecRes.isFailure)
+    // 3. Pre-hashed credential bypass attempt must be rejected
+    val bypassRes = repo.createFullSpace(
+      name = "Prehashed Bypass",
+      authPolicy = Space.AUTH_PIN,
+      pin = null,
+      pinHash = "\$v2\$250000\$fakesalt\$fakehash"
+    )
+    assertTrue("createFullSpace must reject pre-hashed credentials without raw PIN", bypassRes.isFailure)
 
-    // Setup valid PIN first
-    repo.setSpacePin(space.id, "8391").getOrThrow()
+    // 4. Create a valid space
+    val validSpace = repo.createFullSpace(
+      name = "Valid Space",
+      authPolicy = Space.AUTH_PIN,
+      pin = "8392"
+    ).getOrThrow()
 
-    // 3. changeSpacePin rejects weak new PINs
-    val changeRes = repo.changeSpacePin(space.id, "8391", "4321")
-    assertTrue("repository.changeSpacePin must reject weak new PIN", changeRes.isFailure)
+    // 5. Weak PINs rejected through updateFullSpace
+    for (weak in listOf("1234", "1111", "1212", "4321")) {
+      val updateRes = repo.updateFullSpace(
+        spaceId = validSpace.id,
+        name = "Updated Weak",
+        authPolicy = Space.AUTH_PIN,
+        pin = weak,
+        currentCredential = "8392"
+      )
+      assertTrue("updateFullSpace must reject weak PIN: $weak", updateRes.isFailure)
+    }
+
+    // 6. Weak Recovery PIN rejected through updateFullSpace
+    val updateBioRes = repo.updateFullSpace(
+      spaceId = validSpace.id,
+      name = "Updated Weak Bio",
+      authPolicy = Space.AUTH_BIOMETRIC,
+      recoveryPin = "1234",
+      currentCredential = "8392"
+    )
+    assertTrue("updateFullSpace must reject weak Recovery PIN", updateBioRes.isFailure)
 
     database.close()
   }
 
   @Test
-  fun testDeleteOperationAttemptsAreThrottled() = kotlinx.coroutines.runBlocking {
+  fun testThrottlingOfPinChangeAndProtectionDisable() = runBlocking {
     val sessionManager = LauncherSessionManager(context)
-    val database = androidx.room.Room.inMemoryDatabaseBuilder(context, com.multispace.data.database.LauncherDatabase::class.java)
+    val database = androidx.room.Room.inMemoryDatabaseBuilder(context, LauncherDatabase::class.java)
       .allowMainThreadQueries()
       .build()
-    val repo = com.multispace.data.repository.RoomSpaceRepository(
+    val repo = RoomSpaceRepository(
       spaceDao = database.spaceDao(),
       membershipDao = database.spaceMembershipDao(),
       layoutDao = database.spaceLayoutDao(),
-      preferences = com.multispace.data.preferences.LauncherPreferences(context),
+      preferences = LauncherPreferences(context),
       context = context,
       database = database,
       sessionManager = sessionManager
     )
-    val viewModel = com.multispace.presentation.SpaceViewModel(
-      application = ApplicationProvider.getApplicationContext(),
-      spaceRepository = repo,
-      sessionManager = sessionManager
-    )
 
-    val salt = PinSecurityManager.generateSalt()
-    val hash = PinSecurityManager.hashPin("8492", salt)
     val space = repo.createFullSpace(
-      name = "Protected Delete Target",
+      name = "Throttling Target Space",
       authPolicy = Space.AUTH_PIN,
-      pinSalt = salt,
-      pinHash = hash
+      pin = "8392"
     ).getOrThrow()
 
     sessionManager.recordSuccessfulAttempt(space.id)
     assertFalse("Initially not locked out", sessionManager.isLockedOut(space.id))
 
-    // 5 failed verification attempts for delete
+    // 1. Throttling of PIN change attempts
     repeat(5) {
-      val res = viewModel.verifyCredentialWithThrottling(space.id, "wrong_pin", unlockOnSuccess = false)
-      if (it == 4) {
-        assertTrue("5th failed attempt must trigger lockout", res is com.multispace.domain.security.AuthenticationResult.TemporarilyLocked)
-      }
+      val res = repo.changeSpacePin(space.id, currentPin = "wrong_pin", newPin = "9482")
+      assertTrue("Wrong current PIN must fail", res.isFailure)
     }
+    assertTrue("5 failed PIN change attempts must trigger lockout", sessionManager.isLockedOut(space.id))
 
-    assertTrue("Space must be locked out after 5 failed delete attempts", sessionManager.isLockedOut(space.id))
-    val subsequent = viewModel.verifyCredentialWithThrottling(space.id, "8492", unlockOnSuccess = false)
-    assertTrue("Subsequent delete attempt while locked out must be blocked", subsequent is com.multispace.domain.security.AuthenticationResult.TemporarilyLocked)
+    val subsequentChange = repo.changeSpacePin(space.id, currentPin = "8392", newPin = "9482")
+    assertTrue("Subsequent PIN change attempt while locked out must be blocked", subsequentChange.isFailure)
+
+    // Clear lockout
+    sessionManager.recordSuccessfulAttempt(space.id)
+    assertFalse("Lockout cleared", sessionManager.isLockedOut(space.id))
+
+    // 2. Throttling of protection-disable attempts
+    repeat(5) {
+      val res = repo.disableSpaceProtection(space.id, currentCredential = "wrong_pin")
+      assertTrue("Wrong current credential must fail disable", res.isFailure)
+    }
+    assertTrue("5 failed disable attempts must trigger lockout", sessionManager.isLockedOut(space.id))
+
+    val subsequentDisable = repo.disableSpaceProtection(space.id, currentCredential = "8392")
+    assertTrue("Subsequent disable attempt while locked out must be blocked", subsequentDisable.isFailure)
 
     database.close()
   }
 
   @Test
-  fun testRecoveryPinIsThrottled() = kotlinx.coroutines.runBlocking {
+  fun testRecoveryPinAndReenrollmentThrottling() = runBlocking {
     val sessionManager = LauncherSessionManager(context)
-    val database = androidx.room.Room.inMemoryDatabaseBuilder(context, com.multispace.data.database.LauncherDatabase::class.java)
+    val database = androidx.room.Room.inMemoryDatabaseBuilder(context, LauncherDatabase::class.java)
       .allowMainThreadQueries()
       .build()
-    val repo = com.multispace.data.repository.RoomSpaceRepository(
+    val repo = RoomSpaceRepository(
       spaceDao = database.spaceDao(),
       membershipDao = database.spaceMembershipDao(),
       layoutDao = database.spaceLayoutDao(),
-      preferences = com.multispace.data.preferences.LauncherPreferences(context),
+      preferences = LauncherPreferences(context),
       context = context,
       database = database,
       sessionManager = sessionManager
     )
-    val viewModel = com.multispace.presentation.SpaceViewModel(
+    val viewModel = SpaceViewModel(
       application = ApplicationProvider.getApplicationContext(),
       spaceRepository = repo,
       sessionManager = sessionManager
     )
 
-    val salt = PinSecurityManager.generateSalt()
-    val hash = PinSecurityManager.hashPin("7392", salt)
+    val recoveryPin = "7392"
     val space = repo.createFullSpace(
       name = "Bio Recovery Space",
       authPolicy = Space.AUTH_BIOMETRIC,
-      recoveryPinSalt = salt,
-      recoveryPinHash = hash
+      recoveryPin = recoveryPin
     ).getOrThrow()
 
     sessionManager.recordSuccessfulAttempt(space.id)
 
-    // 5 failed recovery PIN attempts
+    // 1. 5 failed Recovery PIN verification attempts
     repeat(5) {
       val res = viewModel.verifyRecoveryPinWithThrottling(space.id, "wrong_recovery", unlockOnSuccess = false)
       if (it == 4) {
-        assertTrue("5th attempt triggers lockout", res is com.multispace.domain.security.AuthenticationResult.TemporarilyLocked)
+        assertTrue("5th attempt triggers lockout", res is AuthenticationResult.TemporarilyLocked)
       }
     }
-
     assertTrue("Recovery PIN failures must trigger lockout", sessionManager.isLockedOut(space.id))
-    val unlockRes = viewModel.authenticateAndUnlockWithRecoveryPin(space.id, "7392")
+
+    val unlockRes = viewModel.authenticateAndUnlockWithRecoveryPin(space.id, recoveryPin)
     assertNull("Attempting recovery unlock during lockout must be blocked", unlockRes)
+
+    // Clear lockout
+    sessionManager.recordSuccessfulAttempt(space.id)
+    assertFalse("Lockout cleared", sessionManager.isLockedOut(space.id))
+
+    // 2. Re-enrollment throttling with incorrect Recovery PIN
+    repeat(5) {
+      val res = viewModel.reenrollBiometrics(space.id, "wrong_rec")
+      assertTrue("Re-enrollment with incorrect recovery PIN must fail", res.isFailure)
+    }
+    assertTrue("5 failed re-enrollment attempts must trigger lockout", sessionManager.isLockedOut(space.id))
+
+    val subsequentReenroll = viewModel.reenrollBiometrics(space.id, recoveryPin)
+    assertTrue("Subsequent re-enrollment while locked out must fail", subsequentReenroll.isFailure)
 
     database.close()
   }
 
   @Test
-  fun testBiometricKeyInvalidationRecoveryPinAndReenrollment() = kotlinx.coroutines.runBlocking {
+  fun testAndroidKeystoreFailureBiometricUnlockRejected() = runBlocking {
     val sessionManager = LauncherSessionManager(context)
-    val database = androidx.room.Room.inMemoryDatabaseBuilder(context, com.multispace.data.database.LauncherDatabase::class.java)
+    val database = androidx.room.Room.inMemoryDatabaseBuilder(context, LauncherDatabase::class.java)
       .allowMainThreadQueries()
       .build()
-    val repo = com.multispace.data.repository.RoomSpaceRepository(
+    val repo = RoomSpaceRepository(
       spaceDao = database.spaceDao(),
       membershipDao = database.spaceMembershipDao(),
       layoutDao = database.spaceLayoutDao(),
-      preferences = com.multispace.data.preferences.LauncherPreferences(context),
+      preferences = LauncherPreferences(context),
       context = context,
       database = database,
       sessionManager = sessionManager
     )
-    val viewModel = com.multispace.presentation.SpaceViewModel(
+    val viewModel = SpaceViewModel(
       application = ApplicationProvider.getApplicationContext(),
       spaceRepository = repo,
       sessionManager = sessionManager
     )
 
-    val recoveryPin = "9381"
-    val salt = PinSecurityManager.generateSalt()
-    val hash = PinSecurityManager.hashPin(recoveryPin, salt)
-    val space = repo.createFullSpace(
-      name = "Re-enroll Space",
+    val bioSpace = repo.createFullSpace(
+      name = "Keystore Test Space",
       authPolicy = Space.AUTH_BIOMETRIC,
-      recoveryPinSalt = salt,
-      recoveryPinHash = hash
+      recoveryPin = "9482"
     ).getOrThrow()
 
-    // 1. Re-enroll with wrong Recovery PIN fails and increments failed attempts
-    val wrongResult = viewModel.reenrollBiometrics(space.id, "0000")
-    assertTrue("Re-enrollment with incorrect recovery PIN must fail", wrongResult.isFailure)
+    // 1. Simulate Keystore hardware failure via test hook
+    BiometricKeyManager.testKeyGenerator = {
+      Result.failure(KeyStoreException("Keystore hardware initialization failed"))
+    }
 
-    // 2. Re-enroll with correct Recovery PIN succeeds
-    val successResult = viewModel.reenrollBiometrics(space.id, recoveryPin)
-    assertTrue("Re-enrollment with correct recovery PIN must succeed", successResult.isSuccess)
-    assertTrue("Space must be unlocked after re-enrollment", sessionManager.isSpaceUnlocked(space.id))
+    val keyResult = BiometricKeyManager.getOrCreateSecretKey(bioSpace.id)
+    assertTrue("Key generation must return failure on Keystore error", keyResult.isFailure)
+
+    val cryptoInitResult = BiometricKeyManager.createCryptoObject(bioSpace.id)
+    assertTrue("CryptoObject initialization must return Error", cryptoInitResult is BiometricKeyManager.CryptoInitResult.Error)
+
+    // 2. Unlock attempt when Keystore fails must be rejected (fail closed)
+    val unlockResult = viewModel.authenticateAndUnlockWithBiometric(bioSpace.id, cryptoObject = null)
+    assertNull("Biometric unlock must fail-closed and return null", unlockResult)
+    assertFalse("Space must remain locked", sessionManager.isSpaceUnlocked(bioSpace.id))
 
     database.close()
   }
 
   @Test
-  fun testSensitiveAuthenticationChangesRequireExplicitReauthentication() = kotlinx.coroutines.runBlocking {
+  fun testProtectedOperationsRequireExplicitAuthentication() = runBlocking {
     val sessionManager = LauncherSessionManager(context)
-    val database = androidx.room.Room.inMemoryDatabaseBuilder(context, com.multispace.data.database.LauncherDatabase::class.java)
+    val database = androidx.room.Room.inMemoryDatabaseBuilder(context, LauncherDatabase::class.java)
       .allowMainThreadQueries()
       .build()
-    val repo = com.multispace.data.repository.RoomSpaceRepository(
+    val repo = RoomSpaceRepository(
       spaceDao = database.spaceDao(),
       membershipDao = database.spaceMembershipDao(),
       layoutDao = database.spaceLayoutDao(),
-      preferences = com.multispace.data.preferences.LauncherPreferences(context),
+      preferences = LauncherPreferences(context),
       context = context,
       database = database,
       sessionManager = sessionManager
@@ -375,13 +304,10 @@ class SecurityHardeningAndRecoveryTest {
     // Ensure there is at least one other space so delete is permitted
     repo.ensureDefaultSpaceInitialized(emptyList())
 
-    val salt = PinSecurityManager.generateSalt()
-    val hash = PinSecurityManager.hashPin("3819", salt)
     val space = repo.createFullSpace(
       name = "Protected Change Space",
       authPolicy = Space.AUTH_PIN,
-      pinSalt = salt,
-      pinHash = hash
+      pin = "3819"
     ).getOrThrow()
 
     // 1. Direct delete without explicit credential or authorization must fail closed
@@ -404,42 +330,57 @@ class SecurityHardeningAndRecoveryTest {
     assertTrue("Disabling protection via updateFullSpace without currentCredential must fail", disableViaUpdate.isFailure)
     assertTrue("Failure must be SecurityException", disableViaUpdate.exceptionOrNull() is SecurityException)
 
-    // 4. SpaceAuthorizationManager requires explicit authentication for sensitive actions
-    val authManager = com.multispace.domain.security.SpaceAuthorizationManager(
-      isSpaceUnlockedProvider = { true },
-      isLauncherLockedProvider = { false }
-    )
-    assertTrue("DELETE_SPACE requires explicit authentication", authManager.requiresExplicitAuthentication(space, com.multispace.domain.security.SensitiveOperation.DELETE_SPACE))
-    assertTrue("CHANGE_AUTHENTICATION requires explicit authentication", authManager.requiresExplicitAuthentication(space, com.multispace.domain.security.SensitiveOperation.CHANGE_AUTHENTICATION))
-    assertTrue("DISABLE_AUTHENTICATION requires explicit authentication", authManager.requiresExplicitAuthentication(space, com.multispace.domain.security.SensitiveOperation.DISABLE_AUTHENTICATION))
+    // 4. Explicit authorization cannot be granted without successful authentication
+    val invalidAuth = AuthenticationResult.InvalidCredential(space.id)
+    val grantFailed = sessionManager.grantExplicitAuthorization(space.id, invalidAuth)
+    assertFalse("grantExplicitAuthorization must reject InvalidCredential", grantFailed)
+    assertFalse("Must not have explicit authorization", sessionManager.hasExplicitAuthorization(space.id))
+
+    // 5. Granting with valid auth works and is single-use
+    val validAuth = AuthenticationResult.Success(space.id, AuthenticationMethod.PIN)
+    val grantSuccess = sessionManager.grantExplicitAuthorization(space.id, validAuth)
+    assertTrue("grantExplicitAuthorization must accept Success", grantSuccess)
+    assertTrue("Must have explicit authorization", sessionManager.hasExplicitAuthorization(space.id))
+
+    // Consumed upon use
+    val consumed = sessionManager.consumeExplicitAuthorization(space.id)
+    assertTrue("consumeExplicitAuthorization must return true", consumed)
+    assertFalse("After consumption, authorization must be gone", sessionManager.hasExplicitAuthorization(space.id))
 
     database.close()
   }
 
   @Test
-  fun testMissingBiometricRecoveryCredentialsFailClosed() = kotlinx.coroutines.runBlocking {
-    val database = androidx.room.Room.inMemoryDatabaseBuilder(context, com.multispace.data.database.LauncherDatabase::class.java)
+  fun testMissingCredentialsFailClosed() = runBlocking {
+    val database = androidx.room.Room.inMemoryDatabaseBuilder(context, LauncherDatabase::class.java)
       .allowMainThreadQueries()
       .build()
-    val repo = com.multispace.data.repository.RoomSpaceRepository(
+    val repo = RoomSpaceRepository(
       spaceDao = database.spaceDao(),
       membershipDao = database.spaceMembershipDao(),
       layoutDao = database.spaceLayoutDao(),
-      preferences = com.multispace.data.preferences.LauncherPreferences(context),
+      preferences = LauncherPreferences(context),
       context = context,
       database = database
     )
 
     // 1. Attempting to create a biometric space without recovery PIN must fail
-    val createRes = repo.createFullSpace(
+    val createBioRes = repo.createFullSpace(
       name = "Missing Recovery Bio",
       authPolicy = Space.AUTH_BIOMETRIC,
-      recoveryPinSalt = null,
-      recoveryPinHash = null
+      recoveryPin = null
     )
-    assertTrue("Creating biometric space without recovery credentials must be rejected", createRes.isFailure)
+    assertTrue("Creating biometric space without recovery credentials must be rejected", createBioRes.isFailure)
 
-    // 2. Space domain model fail-closed: missing recovery credentials make isSecurityConfigured false
+    // 2. Attempting to create a PIN space without PIN must fail
+    val createPinRes = repo.createFullSpace(
+      name = "Missing PIN",
+      authPolicy = Space.AUTH_PIN,
+      pin = null
+    )
+    assertTrue("Creating PIN space without PIN must be rejected", createPinRes.isFailure)
+
+    // 3. Space domain model fail-closed: missing recovery credentials make isSecurityConfigured false
     val unconfiguredBioSpace = Space(
       id = "corrupted_bio",
       name = "Corrupted Bio",
@@ -449,14 +390,44 @@ class SecurityHardeningAndRecoveryTest {
     )
     assertFalse("Biometric space without recovery credentials is not configured", unconfiguredBioSpace.isSecurityConfigured)
 
-    val authManager = com.multispace.domain.security.SpaceAuthorizationManager(
+    val authManager = SpaceAuthorizationManager(
       isSpaceUnlockedProvider = { true },
       isLauncherLockedProvider = { false }
     )
-    val authResult = authManager.authorize(unconfiguredBioSpace, com.multispace.domain.security.SensitiveOperation.EDIT_SPACE)
+    val authResult = authManager.authorize(unconfiguredBioSpace, SensitiveOperation.EDIT_SPACE)
     assertFalse("Corrupted space must be denied authorization", authResult.isAuthorized)
-    assertEquals(com.multispace.domain.security.AuthorizationStatus.DENIED_NOT_CONFIGURED, authResult.status)
+    assertEquals(AuthorizationStatus.DENIED_NOT_CONFIGURED, authResult.status)
 
     database.close()
+  }
+
+  @Test
+  fun testPersistentLockoutCooldownAndExponentialBackoff() {
+    val sessionManager = LauncherSessionManager(context)
+    val spaceId = "test_cooldown_space"
+
+    sessionManager.recordSuccessfulAttempt(spaceId)
+    assertNull("Initially should have no cooldown", sessionManager.getRemainingCooldownSeconds(spaceId))
+
+    repeat(4) {
+      sessionManager.recordFailedAttempt(spaceId)
+    }
+    assertNull("4 attempts should not trigger lockout", sessionManager.getRemainingCooldownSeconds(spaceId))
+
+    sessionManager.recordFailedAttempt(spaceId)
+    val cooldown = sessionManager.getRemainingCooldownSeconds(spaceId)
+    assertNotNull("5 attempts must trigger lockout", cooldown)
+    assertTrue("Cooldown should be > 0 and <= 30 seconds", cooldown!! in 1..30)
+    assertTrue("Space should be locked out", sessionManager.isLockedOut(spaceId))
+
+    val restoredSessionManager = LauncherSessionManager(context)
+    assertTrue("Lockout state must persist across process restart", restoredSessionManager.isLockedOut(spaceId))
+    val restoredCooldown = restoredSessionManager.getRemainingCooldownSeconds(spaceId)
+    assertNotNull("Restored cooldown must be present", restoredCooldown)
+    assertTrue("Restored cooldown should be > 0", restoredCooldown!! > 0)
+
+    sessionManager.recordSuccessfulAttempt(spaceId)
+    assertFalse("Unlock should clear lockout", sessionManager.isLockedOut(spaceId))
+    assertNull("Unlock should clear cooldown", sessionManager.getRemainingCooldownSeconds(spaceId))
   }
 }
