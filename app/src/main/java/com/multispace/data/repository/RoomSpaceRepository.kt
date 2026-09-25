@@ -65,7 +65,7 @@ class RoomSpaceRepository(
   private val placementRepository: PlacementRepository = RoomPlacementRepository(spaceDao, layoutDao, membershipDao, context, database),
   private val folderRepository: FolderRepository = RoomFolderRepository(layoutDao, database),
   private val dockRepository: DockRepository = RoomDockRepository(spaceDao, layoutDao, placementRepository, database),
-  private val sessionManager: LauncherSessionManager? = null
+  private val sessionManager: LauncherSessionManager
 ) : SpaceRepository,
     SpaceMembershipRepository by membershipRepository,
     PlacementRepository by placementRepository,
@@ -903,7 +903,7 @@ class RoomSpaceRepository(
           recoveryPinHash != null
         )
         if (isChangingSecurity) {
-          val isExplicitlyAuthorized = sessionManager?.consumeExplicitAuthorization(spaceId) == true
+          val isExplicitlyAuthorized = sessionManager.consumeExplicitAuthorization(spaceId)
           if (!isExplicitlyAuthorized) {
             if (currentCredential == null) {
               return Result.failure(SecurityException("Changing authentication or disabling protection on a protected Space requires explicit re-authentication."))
@@ -1270,7 +1270,7 @@ class RoomSpaceRepository(
         ?: return Result.failure(IllegalArgumentException("Space with id '$spaceId' not found"))
 
       if (target.toDomain().isProtected) {
-        val isExplicitlyAuthorized = sessionManager?.consumeExplicitAuthorization(spaceId) == true
+        val isExplicitlyAuthorized = sessionManager.consumeExplicitAuthorization(spaceId)
         if (!isExplicitlyAuthorized) {
           if (credential == null) {
             return Result.failure(SecurityException("Deleting protected Space requires explicit authentication."))
@@ -1472,7 +1472,7 @@ class RoomSpaceRepository(
         return AuthenticationResult.NotAllowed("Space '${existing.name}' has an unknown security policy.")
       }
 
-      val cooldown = sessionManager?.getRemainingCooldownSeconds(spaceId)
+      val cooldown = sessionManager.getRemainingCooldownSeconds(spaceId)
       if (cooldown != null && cooldown > 0) {
         return AuthenticationResult.TemporarilyLocked(spaceId, cooldown)
       }
@@ -1486,7 +1486,7 @@ class RoomSpaceRepository(
       val verifyRes = PinSecurityManager.verifyPinWithUpgradeCheck(credential, existing.pinSalt, existing.pinHash)
 
       if (verifyRes.isValid) {
-        sessionManager?.recordSuccessfulAttempt(spaceId)
+        sessionManager.recordSuccessfulAttempt(spaceId)
         if (verifyRes.needsUpgrade && verifyRes.upgradedHash != null && verifyRes.upgradedSalt != null) {
           val upgradedEntity = existing.copy(
             pinSalt = verifyRes.upgradedSalt,
@@ -1500,7 +1500,7 @@ class RoomSpaceRepository(
         AuthenticationResult.Success(spaceId, authMethod, verifyRes.needsUpgrade)
       } else {
         AppLogger.w(AppLogger.Category.LAUNCHER, "Space authentication failed for Space ($spaceId)")
-        val newCooldown = sessionManager?.recordFailedAttempt(spaceId)
+        val newCooldown = sessionManager.recordFailedAttempt(spaceId)
         if (newCooldown != null && newCooldown > 0) {
           AuthenticationResult.TemporarilyLocked(spaceId, newCooldown)
         } else {
@@ -1522,7 +1522,7 @@ class RoomSpaceRepository(
         return AuthenticationResult.NotAllowed("Recovery PIN is only permitted for Biometric-protected Spaces.")
       }
 
-      val cooldown = sessionManager?.getRemainingCooldownSeconds(spaceId)
+      val cooldown = sessionManager.getRemainingCooldownSeconds(spaceId)
       if (cooldown != null && cooldown > 0) {
         return AuthenticationResult.TemporarilyLocked(spaceId, cooldown)
       }
@@ -1539,7 +1539,7 @@ class RoomSpaceRepository(
       )
 
       if (verifyRes.isValid) {
-        sessionManager?.recordSuccessfulAttempt(spaceId)
+        sessionManager.recordSuccessfulAttempt(spaceId)
         if (verifyRes.needsUpgrade && verifyRes.upgradedHash != null && verifyRes.upgradedSalt != null) {
           val upgradedEntity = existing.copy(
             recoveryPinSalt = verifyRes.upgradedSalt,
@@ -1553,7 +1553,7 @@ class RoomSpaceRepository(
         AuthenticationResult.Success(spaceId, AuthenticationMethod.RECOVERY_PIN, verifyRes.needsUpgrade)
       } else {
         AppLogger.w(AppLogger.Category.LAUNCHER, "Recovery PIN authentication failed for Space ($spaceId)")
-        val newCooldown = sessionManager?.recordFailedAttempt(spaceId)
+        val newCooldown = sessionManager.recordFailedAttempt(spaceId)
         if (newCooldown != null && newCooldown > 0) {
           AuthenticationResult.TemporarilyLocked(spaceId, newCooldown)
         } else {

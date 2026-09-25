@@ -16,6 +16,7 @@ import com.multispace.data.repository.RoomSpaceRepository
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.PageTurnEffect
 import com.multispace.domain.model.Space
+import com.multispace.platform.LauncherSessionManager
 import com.multispace.domain.model.SpaceDockItem
 import com.multispace.domain.model.SpaceItemPlacement
 import com.multispace.domain.model.SpaceMembership
@@ -100,7 +101,8 @@ class SpaceRepositoryIntegrationTest {
       membershipRepository = membershipRepo,
       placementRepository = placementRepo,
       folderRepository = folderRepo,
-      dockRepository = dockRepo
+      dockRepository = dockRepo,
+      sessionManager = LauncherSessionManager(context)
     )
   }
 

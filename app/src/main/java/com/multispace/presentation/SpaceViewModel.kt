@@ -40,17 +40,20 @@ class SpaceViewModel @JvmOverloads constructor(
   val spaceRepository: SpaceRepository = (application as? MultiSpaceApplication)?.container?.spaceRepository ?: run {
     val database = LauncherDatabase.getInstance(application.applicationContext)
     val preferences = LauncherPreferences.getInstance(application.applicationContext)
+    val session = (application as? MultiSpaceApplication)?.container?.sessionManager
+      ?: LauncherSessionManager(application.applicationContext)
     RoomSpaceRepository(
       spaceDao = database.spaceDao(),
       membershipDao = database.spaceMembershipDao(),
       layoutDao = database.spaceLayoutDao(),
       preferences = preferences,
       context = application.applicationContext,
-      database = database
+      database = database,
+      sessionManager = session
     )
   },
   val sessionManager: LauncherSessionManager = (application as? MultiSpaceApplication)?.container?.sessionManager
-    ?: LauncherSessionManager()
+    ?: LauncherSessionManager(application.applicationContext)
 ) : AndroidViewModel(application) {
 
   private val _userFeedback = MutableSharedFlow<String>(extraBufferCapacity = 8)

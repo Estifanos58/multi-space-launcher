@@ -17,6 +17,7 @@ import com.multispace.domain.model.AppIdentity
 import com.multispace.domain.model.AppIdentityLookup
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.PlacementValidator
+import com.multispace.platform.LauncherSessionManager
 import com.multispace.domain.model.SpaceItemPlacement
 import com.multispace.domain.model.appIdentity
 import kotlinx.coroutines.runBlocking
@@ -75,7 +76,8 @@ class PersistenceRecoveryAndInvariantsTest {
       membershipRepository = membershipRepo,
       placementRepository = placementRepo,
       folderRepository = folderRepo,
-      dockRepository = dockRepo
+      dockRepository = dockRepo,
+      sessionManager = LauncherSessionManager(context)
     )
   }
 

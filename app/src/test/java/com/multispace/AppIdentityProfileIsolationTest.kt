@@ -17,6 +17,7 @@ import com.multispace.domain.model.AppIdentity
 import com.multispace.domain.model.AppIdentityLookup
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.SpaceItemPlacement
+import com.multispace.platform.LauncherSessionManager
 import com.multispace.domain.model.appIdentity
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -102,7 +103,8 @@ class AppIdentityProfileIsolationTest {
       membershipRepository = membershipRepo,
       placementRepository = placementRepository,
       folderRepository = folderRepo,
-      dockRepository = dockRepository
+      dockRepository = dockRepository,
+      sessionManager = LauncherSessionManager(context)
     )
   }
 

@@ -18,6 +18,7 @@ import com.multispace.data.repository.RoomSpaceMembershipRepository
 import com.multispace.data.repository.RoomSpaceRepository
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.SpaceItemPlacement
+import com.multispace.platform.LauncherSessionManager
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -176,7 +177,8 @@ class LayoutTransactionSafetyTest {
       membershipRepository = membershipRepo,
       placementRepository = placementRepo,
       folderRepository = folderRepo,
-      dockRepository = dockRepo
+      dockRepository = dockRepo,
+      sessionManager = LauncherSessionManager(context)
     )
   }
 

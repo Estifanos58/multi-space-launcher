@@ -17,6 +17,7 @@ import com.multispace.domain.model.ActiveSpaceState
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceItemPlacement
+import com.multispace.platform.LauncherSessionManager
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -78,6 +79,7 @@ class ActiveSpaceStateIntegrationTest {
     val placementRepo = RoomPlacementRepository(spaceDao, layoutDao, membershipDao, context = null)
     val folderRepo = RoomFolderRepository(layoutDao)
     val dockRepo = RoomDockRepository(spaceDao, layoutDao, placementRepo)
+    val sessionManager = LauncherSessionManager(context)
 
     repository = RoomSpaceRepository(
       spaceDao = spaceDao,
@@ -88,7 +90,8 @@ class ActiveSpaceStateIntegrationTest {
       membershipRepository = membershipRepo,
       placementRepository = placementRepo,
       folderRepository = folderRepo,
-      dockRepository = dockRepo
+      dockRepository = dockRepo,
+      sessionManager = sessionManager
     )
   }
 
@@ -236,7 +239,8 @@ class ActiveSpaceStateIntegrationTest {
       membershipRepository = recreatedMembershipRepo,
       placementRepository = recreatedPlacementRepo,
       folderRepository = recreatedFolderRepo,
-      dockRepository = recreatedDockRepo
+      dockRepository = recreatedDockRepo,
+      sessionManager = LauncherSessionManager(context)
     )
 
     // 3. Verify recreated repository loads the identical active space state snapshot

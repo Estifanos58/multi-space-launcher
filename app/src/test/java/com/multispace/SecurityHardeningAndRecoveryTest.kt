@@ -57,13 +57,15 @@ class SecurityHardeningAndRecoveryTest {
     val database = androidx.room.Room.inMemoryDatabaseBuilder(context, LauncherDatabase::class.java)
       .allowMainThreadQueries()
       .build()
+    val sessionManager = LauncherSessionManager(context)
     val repo = RoomSpaceRepository(
       spaceDao = database.spaceDao(),
       membershipDao = database.spaceMembershipDao(),
       layoutDao = database.spaceLayoutDao(),
       preferences = LauncherPreferences(context),
       context = context,
-      database = database
+      database = database,
+      sessionManager = sessionManager
     )
 
     // 1. Weak PINs rejected through createFullSpace
@@ -355,13 +357,15 @@ class SecurityHardeningAndRecoveryTest {
     val database = androidx.room.Room.inMemoryDatabaseBuilder(context, LauncherDatabase::class.java)
       .allowMainThreadQueries()
       .build()
+    val sessionManager = LauncherSessionManager(context)
     val repo = RoomSpaceRepository(
       spaceDao = database.spaceDao(),
       membershipDao = database.spaceMembershipDao(),
       layoutDao = database.spaceLayoutDao(),
       preferences = LauncherPreferences(context),
       context = context,
-      database = database
+      database = database,
+      sessionManager = sessionManager
     )
 
     // 1. Attempting to create a biometric space without recovery PIN must fail

@@ -9,6 +9,7 @@ import com.multispace.data.repository.RoomSpaceRepository
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceItemPlacement
+import com.multispace.platform.LauncherSessionManager
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.flow.first
@@ -92,7 +93,8 @@ class RoomPersistenceRecreationTest {
       membershipDao = db1.spaceMembershipDao(),
       layoutDao = db1.spaceLayoutDao(),
       preferences = preferences1,
-      context = context
+      context = context,
+      sessionManager = LauncherSessionManager(context)
     )
 
     // 2. Create a Space
@@ -179,7 +181,8 @@ class RoomPersistenceRecreationTest {
       membershipDao = db2.spaceMembershipDao(),
       layoutDao = db2.spaceLayoutDao(),
       preferences = preferences2,
-      context = context
+      context = context,
+      sessionManager = LauncherSessionManager(context)
     )
 
     // 10. Verify identical state after complete recreation

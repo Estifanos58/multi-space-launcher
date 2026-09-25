@@ -23,6 +23,7 @@ import com.multispace.platform.AppCatalogUpdater
 import com.multispace.platform.AppDiscoveryManager
 import com.multispace.platform.AppLaunchManager
 import com.multispace.platform.DiscoveryResult
+import com.multispace.platform.LauncherSessionManager
 import com.multispace.platform.LaunchResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -82,13 +83,16 @@ class AppDiscoveryViewModel @JvmOverloads constructor(
   application: Application,
   private val spaceRepository: SpaceRepository = (application as? MultiSpaceApplication)?.container?.spaceRepository ?: run {
     val db = LauncherDatabase.getInstance(application.applicationContext)
+    val session = (application as? MultiSpaceApplication)?.container?.sessionManager
+      ?: LauncherSessionManager(application.applicationContext)
     RoomSpaceRepository(
       spaceDao = db.spaceDao(),
       membershipDao = db.spaceMembershipDao(),
       layoutDao = db.spaceLayoutDao(),
       preferences = LauncherPreferences.getInstance(application.applicationContext),
       context = application.applicationContext,
-      database = db
+      database = db,
+      sessionManager = session
     )
   },
   private val discoveryManager: AppDiscoveryManager = (application as? MultiSpaceApplication)?.container?.discoveryManager
