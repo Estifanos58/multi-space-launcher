@@ -726,6 +726,14 @@ class DesktopDragManager(
                     return
                   }
                 } else if (targetPlacement.isFolder && targetPlacement.folderId != null) {
+                  if (targetPlacement.folderId.startsWith(SpaceFolder.MOST_USED_FOLDER_PREFIX)) {
+                    AppLogger.i(
+                      AppLogger.Category.LAUNCHER,
+                      "REJECT_DROP_MOST_USED: App ${dragged.packageName} dropped onto Most Used Apps folder"
+                    )
+                    performHaptic(HapticFeedbackType.LongPress)
+                    return
+                  }
                   // Dropped onto existing folder -> add to folder
                   val sourceApp = appLookupProvider()["${dragged.packageName}/${dragged.componentName}"]
                     ?: allAppsProvider().firstOrNull { it.packageName == dragged.packageName }
@@ -740,6 +748,21 @@ class DesktopDragManager(
                   }
                 }
               }
+            }
+
+            val occupyingFolder = effectivePlacementsProvider().firstOrNull { item ->
+              item.id != dragged.id &&
+              (isScrollMode || item.pageIndex == targetPage) &&
+              item.positionIndex == targetPos &&
+              item.isFolder
+            }
+            if (occupyingFolder?.folderId?.startsWith(SpaceFolder.MOST_USED_FOLDER_PREFIX) == true) {
+              AppLogger.i(
+                AppLogger.Category.LAUNCHER,
+                "REJECT_DROP_MOST_USED: App ${dragged.packageName} dropped onto Most Used Apps slot $targetPos"
+              )
+              performHaptic(HapticFeedbackType.LongPress)
+              return
             }
 
             // Normal drop to position

@@ -901,6 +901,51 @@ fun Layer1HomeScreen(
                 return
               }
             } else if (targetPlacement.isFolder && targetPlacement.folderId != null) {
+              val targetFolder = folderLookup[targetPlacement.folderId]
+              val isMostUsed = targetPlacement.folderId.startsWith(SpaceFolder.MOST_USED_FOLDER_PREFIX) ||
+                targetFolder?.isMostUsedFolder == true
+
+              if (isMostUsed) {
+                AppLogger.i(
+                  AppLogger.Category.LAUNCHER,
+                  "REJECT_DROP_MOST_USED: App ${dragged.packageName} dropped onto Most Used Apps folder"
+                )
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                val originalPos = dragged.positionIndex
+                val originalPage = dragged.pageIndex
+                val originalRect = slotBounds[originalPos]
+                val currentP = pagerState.currentPage
+                if (currentP == originalPage && originalRect != null && draggedOverride == null) {
+                  dragState.isDropping = true
+                  val targetDest = Offset(originalRect.left + touchOffset.x, originalRect.top + touchOffset.y)
+                  val startPos = dragState.localPointerPos
+                  coroutineScope.launch {
+                    try {
+                      val anim = Animatable(0f)
+                      anim.animateTo(1f, animationSpec = tween(150, easing = FastOutSlowInEasing)) {
+                        dragState.localPointerPos = Offset(
+                          startPos.x + (targetDest.x - startPos.x) * value,
+                          startPos.y + (targetDest.y - startPos.y) * value
+                        )
+                      }
+                    } finally {
+                      cleanupDragState()
+                    }
+                  }
+                } else if (currentP != originalPage && draggedOverride == null) {
+                  coroutineScope.launch {
+                    try {
+                      pagerState.animateScrollToPage(originalPage)
+                    } finally {
+                      cleanupDragState()
+                    }
+                  }
+                } else {
+                  cleanupDragState()
+                }
+                return
+              }
+
               // Dropped directly onto an existing folder -> add to folder!
               val sourceApp = appLookup[dragged]
               if (sourceApp != null) {
@@ -914,6 +959,54 @@ fun Layer1HomeScreen(
                 return
               }
             }
+          }
+        }
+
+        val occupyingFolderAtTarget = resolvedLayout.placementsForPage(targetPage).firstOrNull {
+          it.id != dragged.id && it.isFolder && it.positionIndex == targetPos
+        }
+        if (isDraggedApp && occupyingFolderAtTarget != null && occupyingFolderAtTarget.folderId != null) {
+          val fId = occupyingFolderAtTarget.folderId!!
+          val targetFolder = folderLookup[fId]
+          if (fId.startsWith(SpaceFolder.MOST_USED_FOLDER_PREFIX) || targetFolder?.isMostUsedFolder == true) {
+            AppLogger.i(
+              AppLogger.Category.LAUNCHER,
+              "REJECT_DROP_MOST_USED: App ${dragged.packageName} dropped onto Most Used Apps slot $targetPos"
+            )
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            val originalPos = dragged.positionIndex
+            val originalPage = dragged.pageIndex
+            val originalRect = slotBounds[originalPos]
+            val currentP = pagerState.currentPage
+            if (currentP == originalPage && originalRect != null && draggedOverride == null) {
+              dragState.isDropping = true
+              val targetDest = Offset(originalRect.left + touchOffset.x, originalRect.top + touchOffset.y)
+              val startPos = dragState.localPointerPos
+              coroutineScope.launch {
+                try {
+                  val anim = Animatable(0f)
+                  anim.animateTo(1f, animationSpec = tween(150, easing = FastOutSlowInEasing)) {
+                    dragState.localPointerPos = Offset(
+                      startPos.x + (targetDest.x - startPos.x) * value,
+                      startPos.y + (targetDest.y - startPos.y) * value
+                    )
+                  }
+                } finally {
+                  cleanupDragState()
+                }
+              }
+            } else if (currentP != originalPage && draggedOverride == null) {
+              coroutineScope.launch {
+                try {
+                  pagerState.animateScrollToPage(originalPage)
+                } finally {
+                  cleanupDragState()
+                }
+              }
+            } else {
+              cleanupDragState()
+            }
+            return
           }
         }
 

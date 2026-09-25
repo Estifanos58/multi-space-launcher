@@ -477,4 +477,39 @@ class LayoutTransactionSafetyTest {
     assertTrue(dockRepo.addAppToDock(spaceId, appA, orderIndex = 0).isSuccess)
     DatabaseInvariantAssertions.assertDockPositionsSequential(database, spaceId)
   }
+
+  @Test
+  fun testAddAppToFolder_RejectsMostUsedAppsFolderAndPreservesSourcePlacement() = runBlocking {
+    val space = spaceRepo.createSpace("Most Used Safety", "GRID_4").getOrThrow()
+    val spaceId = space.id
+    spaceRepo.ensureMostUsedFolderExists(spaceId)
+
+    val folders = realLayoutDao.getFoldersForSpace(spaceId)
+    val mostUsedFolder = folders.first { it.name == com.multispace.domain.model.SpaceFolder.MOST_USED_FOLDER_NAME }
+
+    val p1 = SpaceItemPlacement(
+      id = "p_test_app",
+      spaceId = spaceId,
+      layer = 1,
+      pageIndex = 0,
+      positionIndex = 1,
+      itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = appC.packageName,
+      componentName = appC.activityName,
+      userHandleId = appC.userHandleId
+    )
+    assertTrue(placementRepo.addPlacement(p1).isSuccess)
+
+    // Attempt to add app to Most Used Apps folder:
+    val result = folderRepo.addAppToFolder(mostUsedFolder.id, appC, sourcePlacementId = "p_test_app")
+    assertTrue(result.isSuccess)
+
+    // Verify source placement is NOT deleted and folder items were not added:
+    val sourcePlacement = realLayoutDao.getPlacementById("p_test_app")
+    assertNotNull("Source placement must remain at original position and NOT be deleted", sourcePlacement)
+    assertEquals(1, sourcePlacement?.positionIndex)
+
+    val items = realLayoutDao.getFolderItems(mostUsedFolder.id)
+    assertTrue("Most used folder must not store manual items in database", items.isEmpty())
+  }
 }

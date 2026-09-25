@@ -5,6 +5,7 @@ import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.Space
 import com.multispace.domain.model.SpaceFolder
 import com.multispace.domain.model.SpaceFolderItem
+import com.multispace.domain.model.SpaceItemPlacement
 import com.multispace.domain.model.SpaceMembership
 import com.multispace.presentation.AppDiscoveryUiState
 import com.multispace.presentation.LauncherStateHolder
@@ -12,6 +13,7 @@ import com.multispace.presentation.LauncherWallpaperStyleResolver
 import com.multispace.presentation.SpaceAppResolver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -256,5 +258,119 @@ class SpaceAppResolverAndStateHolderTest {
     assertEquals(1, uiState.spaceScopedApps.size)
     assertTrue(uiState.isCurrentSpaceUnlocked)
     assertFalse(uiState.isLoading)
+  }
+
+  @Test
+  fun testMostUsedFolder_hiddenWhenEmpty() {
+    val stateHolder = LauncherStateHolder()
+    val apps = listOf(createApp("com.app.one", "One"))
+    val defaultSpace = Space.createDefault()
+    val wallpaperStyle = LauncherWallpaperStyleResolver.resolveWallpaperStyle(defaultSpace)
+
+    val mostUsedFolder = SpaceFolder(
+      id = SpaceFolder.getMostUsedFolderId(defaultSpace.id),
+      spaceId = defaultSpace.id,
+      name = SpaceFolder.MOST_USED_FOLDER_NAME
+    )
+    val mostUsedPlacement = SpaceItemPlacement(
+      id = SpaceFolder.getMostUsedPlacementId(defaultSpace.id),
+      spaceId = defaultSpace.id,
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 3,
+      itemType = SpaceItemPlacement.ITEM_TYPE_FOLDER,
+      folderId = mostUsedFolder.id
+    )
+    val normalAppPlacement = SpaceItemPlacement(
+      id = "p_app_one",
+      spaceId = defaultSpace.id,
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 0,
+      itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = "com.app.one",
+      componentName = "com.app.one.MainActivity"
+    )
+
+    // With 0 most used apps:
+    val uiState = stateHolder.deriveState(
+      discoveryUiState = AppDiscoveryUiState(allApps = apps),
+      activeSpace = defaultSpace,
+      allSpaces = listOf(defaultSpace),
+      activeMemberships = emptyList(),
+      unlockedSpaceIds = emptySet(),
+      activeLayerIndex = 1,
+      activePlacements = listOf(normalAppPlacement, mostUsedPlacement),
+      activeFolders = listOf(mostUsedFolder),
+      activeDockItems = emptyList(),
+      spaceMostUsedApps = emptyList(),
+      spaceRecentApps = emptyList(),
+      spaceUsageStats = null,
+      wallpaperStyle = wallpaperStyle
+    )
+
+    // Most used folder MUST NOT be visible when empty!
+    assertEquals(1, uiState.activePlacements.size)
+    assertEquals("p_app_one", uiState.activePlacements[0].id)
+    assertFalse(uiState.activePlacements.any { it.folderId == mostUsedFolder.id })
+    assertTrue(uiState.resolvedActiveFolders.none { it.isMostUsedFolder })
+  }
+
+  @Test
+  fun testMostUsedFolder_visibleWhenNotEmpty() {
+    val stateHolder = LauncherStateHolder()
+    val app1 = createApp("com.app.one", "One")
+    val defaultSpace = Space.createDefault()
+    val wallpaperStyle = LauncherWallpaperStyleResolver.resolveWallpaperStyle(defaultSpace)
+
+    val mostUsedFolder = SpaceFolder(
+      id = SpaceFolder.getMostUsedFolderId(defaultSpace.id),
+      spaceId = defaultSpace.id,
+      name = SpaceFolder.MOST_USED_FOLDER_NAME
+    )
+    val mostUsedPlacement = SpaceItemPlacement(
+      id = SpaceFolder.getMostUsedPlacementId(defaultSpace.id),
+      spaceId = defaultSpace.id,
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 3,
+      itemType = SpaceItemPlacement.ITEM_TYPE_FOLDER,
+      folderId = mostUsedFolder.id
+    )
+    val normalAppPlacement = SpaceItemPlacement(
+      id = "p_app_one",
+      spaceId = defaultSpace.id,
+      layer = SpaceItemPlacement.LAYER_HOME,
+      pageIndex = 0,
+      positionIndex = 0,
+      itemType = SpaceItemPlacement.ITEM_TYPE_APP,
+      packageName = "com.app.one",
+      componentName = "com.app.one.MainActivity"
+    )
+
+    // With 1 most used app:
+    val uiState = stateHolder.deriveState(
+      discoveryUiState = AppDiscoveryUiState(allApps = listOf(app1)),
+      activeSpace = defaultSpace,
+      allSpaces = listOf(defaultSpace),
+      activeMemberships = emptyList(),
+      unlockedSpaceIds = emptySet(),
+      activeLayerIndex = 1,
+      activePlacements = listOf(normalAppPlacement, mostUsedPlacement),
+      activeFolders = listOf(mostUsedFolder),
+      activeDockItems = emptyList(),
+      spaceMostUsedApps = listOf(app1),
+      spaceRecentApps = emptyList(),
+      spaceUsageStats = null,
+      wallpaperStyle = wallpaperStyle
+    )
+
+    // Most used folder MUST be visible when it has one or more apps!
+    assertEquals(2, uiState.activePlacements.size)
+    assertTrue(uiState.activePlacements.any { it.folderId == mostUsedFolder.id })
+    val resolvedMu = uiState.resolvedActiveFolders.firstOrNull { it.isMostUsedFolder }
+    assertNotNull(resolvedMu)
+    assertEquals(1, resolvedMu?.items?.size)
+    assertEquals("com.app.one", resolvedMu?.items?.get(0)?.packageName)
   }
 }

@@ -127,6 +127,25 @@ class LauncherStateHolder(
       spaceId = currentSpaceId
     )
 
+    val hasMostUsedApps = spaceScopedMostUsedAppsFull.isNotEmpty()
+
+    val visiblePlacements = if (hasMostUsedApps) {
+      activePlacements
+    } else {
+      activePlacements.filterNot { placement ->
+        placement.isFolder && (
+          placement.folderId?.startsWith(SpaceFolder.MOST_USED_FOLDER_PREFIX) == true ||
+          activeFolders.any { it.id == placement.folderId && it.isMostUsedFolder }
+        )
+      }
+    }
+
+    val visibleFolders = if (hasMostUsedApps) {
+      resolvedActiveFolders
+    } else {
+      resolvedActiveFolders.filterNot { it.isMostUsedFolder }
+    }
+
     val layer2CachedCatalog = appResolver.buildLayer2Catalog(spaceScopedApps)
 
     return LauncherUiState(
@@ -136,9 +155,9 @@ class LauncherStateHolder(
       allSpaces = allSpaces,
       unlockedSpaceIds = unlockedSpaceIds,
       activeLayerIndex = activeLayerIndex,
-      activePlacements = activePlacements,
+      activePlacements = visiblePlacements,
       activeFolders = activeFolders,
-      resolvedActiveFolders = resolvedActiveFolders,
+      resolvedActiveFolders = visibleFolders,
       activeDockItems = activeDockItems,
       allApps = discoveryUiState.allApps,
       spaceScopedApps = spaceScopedApps,

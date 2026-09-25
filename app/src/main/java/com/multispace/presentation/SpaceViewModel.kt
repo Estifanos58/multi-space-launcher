@@ -12,6 +12,7 @@ import com.multispace.domain.model.ActiveSpaceState
 import com.multispace.domain.model.DiscoveredApp
 import com.multispace.domain.model.PageTurnEffect
 import com.multispace.domain.model.Space
+import com.multispace.domain.model.SpaceFolder
 import com.multispace.domain.model.SpaceItemPlacement
 import com.multispace.domain.model.SpaceMembership
 import com.multispace.domain.repository.SpaceRepository
@@ -1115,6 +1116,9 @@ class SpaceViewModel @JvmOverloads constructor(
   }
 
   fun addAppToFolder(folderId: String, app: DiscoveredApp, sourcePlacementId: String? = null) {
+    if (folderId.startsWith(SpaceFolder.MOST_USED_FOLDER_PREFIX)) {
+      return
+    }
     viewModelScope.launch {
       spaceRepository.addAppToFolder(folderId, app, sourcePlacementId)
       _userFeedback.tryEmit("Added '${app.label}' to folder.")

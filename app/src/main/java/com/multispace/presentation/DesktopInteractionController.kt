@@ -91,6 +91,9 @@ class DesktopInteractionController(
   }
 
   fun addAppToExistingFolder(folderId: String, app: DiscoveredApp, sourcePlacementId: String) {
+    if (folderId.startsWith(SpaceFolder.MOST_USED_FOLDER_PREFIX)) {
+      return
+    }
     spaceViewModel.addAppToFolder(folderId, app, sourcePlacementId)
   }
 

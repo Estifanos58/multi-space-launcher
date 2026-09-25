@@ -71,6 +71,10 @@ class RoomFolderRepository(
       runInTransaction {
         val folder = layoutDao.getFolderById(folderId)
           ?: throw IllegalArgumentException("Folder $folderId does not exist")
+        if (folder.name == SpaceFolder.MOST_USED_FOLDER_NAME || folder.id.startsWith(SpaceFolder.MOST_USED_FOLDER_PREFIX)) {
+          // Dynamic Most Used Apps folder: manual additions are not allowed and source placement must remain intact
+          return@runInTransaction Result.success(Unit)
+        }
         val items = layoutDao.getFolderItems(folderId)
         val targetIdentity = app.appIdentity
         val exists = items.any { it.toDomain().appIdentity.matches(targetIdentity) }
